@@ -1,0 +1,89 @@
+{{template "repo/settings/layout_head" (dict "pageClass" "repository settings branchroom")}}
+	<div class="repo-setting-content">
+		<h4 class="ui top attached header">
+			{{ctx.Locale.Tr "repo.settings.branchroom"}}
+		</h4>
+		<div class="ui attached segment">
+			<p>{{ctx.Locale.Tr "repo.settings.branchroom.desc"}}</p>
+			<div class="ui warning message">
+				{{ctx.Locale.Tr "repo.settings.branchroom.not_workspace"}}
+			</div>
+		</div>
+
+		<h4 class="ui top attached header">
+			{{ctx.Locale.Tr "repo.settings.branchroom.discoverable_scopes"}}
+		</h4>
+		<div class="ui attached segment">
+			<div class="flex-divided-list items-with-main">
+				{{range .BranchroomScopes}}
+					{{$scope := .}}
+					<div class="item">
+						<div class="item-main">
+							<div class="item-title">{{.Name}}</div>
+							<div class="item-body">
+								<span class="ui basic label">{{.Kind}}</span>
+								<span class="ui basic label">{{.State}}</span>
+							</div>
+							{{if .HasWorkspace}}
+								<div class="item-body tw-mt-3">
+									<strong>{{ctx.Locale.Tr "repo.settings.branchroom.workspace"}}</strong>
+									<span class="ui basic label">{{.WorkspaceState}}</span>
+									<code>{{.WorkspacePublicBase}}</code>
+									<div class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}</div>
+								</div>
+							{{else if .CanProvisionWorkspace}}
+								<form class="ui form flex-text-block tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/workspaces" method="post">
+									<input type="hidden" name="scope_id" value="{{.ID}}">
+									<div class="item-body tw-flex-1">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_default_branch"}}</div>
+									<button id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
+								</form>
+							{{end}}
+							<div class="item-body tw-mt-3">
+								<strong>{{ctx.Locale.Tr "repo.settings.branchroom.discovery_grants"}}</strong>
+								<div class="ui list">
+									{{range .DiscoveryGrants}}
+										<div class="item flex-text-block">
+											<span>{{.SubjectName}}</span>
+											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/revoke" method="post">
+												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
+											</form>
+										</div>
+									{{else}}
+										<div class="item">{{ctx.Locale.Tr "repo.settings.branchroom.no_discovery_grants"}}</div>
+									{{end}}
+								</div>
+							</div>
+							{{if .CanGrantDiscovery}}
+								<form class="ui form flex-text-block tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/grants" method="post">
+									<input type="hidden" name="scope_id" value="{{.ID}}">
+									<div class="required field tw-mb-0 tw-flex-1">
+										<label for="branchroom-grant-user-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.grant_user"}}</label>
+										<input id="branchroom-grant-user-{{.ID}}" name="username" maxlength="255" required>
+									</div>
+									<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.grant_discovery"}}</button>
+								</form>
+							{{end}}
+						</div>
+					</div>
+				{{else}}
+					<div class="item tw-text-center">{{ctx.Locale.Tr "repo.settings.branchroom.no_scopes"}}</div>
+				{{end}}
+			</div>
+		</div>
+
+		<h4 class="ui top attached header">
+			{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}
+		</h4>
+		<div class="ui bottom attached segment">
+			<form class="ui form" action="{{.RepoLink}}/settings/branchroom" method="post">
+				<div class="required field">
+					<label for="branchroom-scope-name">{{ctx.Locale.Tr "repo.settings.branchroom.scope_name"}}</label>
+					<input id="branchroom-scope-name" name="name" maxlength="255" required>
+					<div class="help">{{ctx.Locale.Tr "repo.settings.branchroom.scope_name_desc"}}</div>
+				</div>
+				<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}</button>
+			</form>
+		</div>
+	</div>
+
+{{template "repo/settings/layout_footer" .}}

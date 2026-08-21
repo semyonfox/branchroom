@@ -7,6 +7,8 @@ import (
 	"context"
 
 	"gitea.dev/models/unit"
+
+	_ "gitea.dev/models/branchroom" // Register Branchroom model types.
 )
 
 // Init initialize model

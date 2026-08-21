@@ -4,10 +4,13 @@
 package repository
 
 import (
+	"bytes"
+	"strings"
 	"sync"
 	"testing"
 
 	activities_model "gitea.dev/models/activities"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -16,6 +19,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/services/feed"
 	notify_service "gitea.dev/services/notify"
 
@@ -38,6 +42,80 @@ func TestTransferOwnership(t *testing.T) {
 
 	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
 	sourceRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 3})
+	formerScopeUser := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	branchroomScope := &branchroom_model.Scope{
+		Kind:        branchroom_model.ScopeKindRepository,
+		RepoID:      sourceRepo.ID,
+		Name:        "transfer scope",
+		State:       branchroom_model.ScopeStateActive,
+		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
+		OwnerID:     formerScopeUser.ID,
+		CreatedByID: formerScopeUser.ID,
+	}
+	assert.NoError(t, branchroom_model.InsertScope(t.Context(), branchroomScope))
+	branchroomGrant := &branchroom_model.Grant{
+		ScopeID:     branchroomScope.ID,
+		SubjectType: branchroom_model.SubjectTypeUser,
+		SubjectID:   formerScopeUser.ID,
+		Action:      branchroom_model.ActionDiscover,
+		CreatedByID: formerScopeUser.ID,
+	}
+	assert.NoError(t, branchroom_model.InsertGrant(t.Context(), branchroomGrant))
+	branchroomWorkspace := &branchroom_model.Workspace{
+		WorkspaceKey:     "11111111-1111-1111-1111-111111111111",
+		ScopeID:          branchroomScope.ID,
+		RepoID:           sourceRepo.ID,
+		StoreID:          "22222222-2222-2222-2222-222222222222",
+		PublicBaseSHA:    strings.Repeat("a", 40),
+		ObjectFormatName: "sha1",
+		State:            branchroom_model.WorkspaceStateReady,
+		CreatedByID:      formerScopeUser.ID,
+	}
+	assert.NoError(t, branchroom_model.InsertWorkspace(t.Context(), branchroomWorkspace))
+	branchroomEnvironmentScope := &branchroom_model.Scope{
+		Kind:        branchroom_model.ScopeKindEnvironment,
+		RepoID:      sourceRepo.ID,
+		Name:        "transfer environment",
+		State:       branchroom_model.ScopeStateActive,
+		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
+		OwnerID:     formerScopeUser.ID,
+		CreatedByID: formerScopeUser.ID,
+	}
+	assert.NoError(t, branchroom_model.InsertScope(t.Context(), branchroomEnvironmentScope))
+	environmentPayload := []byte("ciphertext-only-environment-payload")
+	branchroomEnvironmentRevision := &branchroom_model.EnvironmentRevision{
+		RevisionKey:          "33333333-3333-3333-3333-333333333333",
+		ScopeID:              branchroomEnvironmentScope.ID,
+		RepoID:               sourceRepo.ID,
+		Revision:             1,
+		CipherSuite:          branchroom_model.EnvironmentCipherSuiteAES256GCM,
+		PayloadNonce:         bytes.Repeat([]byte{1}, 12),
+		PayloadCiphertext:    environmentPayload,
+		WrappedDEKNonce:      bytes.Repeat([]byte{2}, 12),
+		WrappedDEKCiphertext: []byte("wrapped-data-encryption-key"),
+		KeyProvider:          branchroom_model.EnvironmentKeyProviderLocalDev,
+		KeyReference:         "local-dev/primary-v1",
+		CiphertextDigest:     branchroom_model.EnvironmentCiphertextDigest(environmentPayload),
+		PlaintextLength:      27,
+		State:                branchroom_model.EnvironmentRevisionStateActive,
+		CreatedByID:          formerScopeUser.ID,
+	}
+	assert.NoError(t, branchroom_model.InsertEnvironmentRevision(t.Context(), branchroomEnvironmentRevision))
+	branchroomEnvironmentLease := &branchroom_model.EnvironmentLease{
+		LeaseKey:         "44444444-4444-4444-4444-444444444444",
+		BearerSecretHash: strings.Repeat("b", 64),
+		ScopeID:          branchroomEnvironmentScope.ID,
+		RevisionID:       branchroomEnvironmentRevision.ID,
+		ActorType:        branchroom_model.ActorTypeUser,
+		ActorID:          formerScopeUser.ID,
+		GrantID:          branchroomGrant.ID,
+		DecisionID:       1,
+		IssuedUnix:       100,
+		ExpiresUnix:      200,
+		State:            branchroom_model.EnvironmentLeaseStateIssued,
+		Outcome:          branchroom_model.EnvironmentLeaseOutcomePending,
+	}
+	assert.NoError(t, branchroom_model.InsertEnvironmentLease(t.Context(), branchroomEnvironmentLease))
 	sourceRepoBak := new(*sourceRepo)
 	assert.NoError(t, sourceRepo.LoadOwner(t.Context()))
 	repoTransfer := unittest.AssertExistsAndLoadBean(t, &repo_model.RepoTransfer{ID: 1})
@@ -54,6 +132,23 @@ func TestTransferOwnership(t *testing.T) {
 	exist, err = git.IsRepositoryExist(t.Context(), transferredRepo)
 	assert.NoError(t, err)
 	assert.True(t, exist)
+	transferredScope := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: branchroomScope.ID})
+	assert.Equal(t, branchroom_model.ScopeStateRetired, transferredScope.State)
+	transferredGrant := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Grant{ID: branchroomGrant.ID})
+	assert.NotZero(t, transferredGrant.RevokedUnix)
+	activeGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), transferredScope.ID, branchroom_model.ActionDiscover, timeutil.TimeStampNow())
+	assert.NoError(t, err)
+	assert.Empty(t, activeGrants)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{ScopeID: branchroomScope.ID, ReasonCode: "repository_transferred"})
+	transferredWorkspace := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Workspace{ID: branchroomWorkspace.ID})
+	assert.Equal(t, branchroom_model.WorkspaceStateRetired, transferredWorkspace.State)
+	assert.NotZero(t, transferredWorkspace.RetiredUnix)
+	transferredEnvironmentRevision := unittest.AssertExistsAndLoadBean(t, &branchroom_model.EnvironmentRevision{ID: branchroomEnvironmentRevision.ID})
+	assert.Equal(t, branchroom_model.EnvironmentRevisionStateRetired, transferredEnvironmentRevision.State)
+	assert.NotZero(t, transferredEnvironmentRevision.RetiredUnix)
+	transferredEnvironmentLease := unittest.AssertExistsAndLoadBean(t, &branchroom_model.EnvironmentLease{ID: branchroomEnvironmentLease.ID})
+	assert.Equal(t, branchroom_model.EnvironmentLeaseStateRevoked, transferredEnvironmentLease.State)
+	assert.Equal(t, branchroom_model.EnvironmentLeaseOutcomeRevoked, transferredEnvironmentLease.Outcome)
 	unittest.AssertExistsAndLoadBean(t, &activities_model.Action{
 		OpType:    activities_model.ActionTransferRepo,
 		ActUserID: 1,

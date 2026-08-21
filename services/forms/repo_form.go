@@ -148,6 +148,25 @@ type RepoSettingForm struct {
 	RequestReindexType string
 }
 
+// BranchroomScopeForm creates a repository-scoped Branchroom policy record.
+type BranchroomScopeForm struct {
+	middleware.FormDefaultValidator
+	Name string `binding:"Required;MaxSize(255)"`
+}
+
+// BranchroomWorkspaceForm provisions one isolated workspace for a policy scope.
+type BranchroomWorkspaceForm struct {
+	middleware.FormDefaultValidator
+	ScopeID int64 `binding:"Required"`
+}
+
+// BranchroomDiscoveryGrantForm grants scope discovery to one direct user.
+type BranchroomDiscoveryGrantForm struct {
+	middleware.FormDefaultValidator
+	ScopeID  int64  `binding:"Required"`
+	Username string `binding:"Required;MaxSize(255)"`
+}
+
 // ProtectBranchForm form for changing protected branch settings
 type ProtectBranchForm struct {
 	middleware.FormDefaultValidator

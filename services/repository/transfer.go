@@ -22,6 +22,7 @@ import (
 	"gitea.dev/modules/globallock"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/util"
+	branchroom_service "gitea.dev/services/branchroom"
 	notify_service "gitea.dev/services/notify"
 )
 
@@ -175,6 +176,9 @@ func transferOwnership(ctx context.Context, doer *user_model.User, newOwnerName 
 	// Update repository.
 	if err := repo_model.UpdateRepositoryColsNoAutoTime(ctx, repo, "owner_id", "owner_name"); err != nil {
 		return fmt.Errorf("update owner: %w", err)
+	}
+	if err := branchroom_service.RetireRepositoryScopesForTransfer(ctx, repo.ID, doer.ID); err != nil {
+		return fmt.Errorf("retire Branchroom scopes: %w", err)
 	}
 
 	// Remove redundant collaborators.

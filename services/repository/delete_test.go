@@ -4,15 +4,18 @@
 package repository_test
 
 import (
+	"strings"
 	"testing"
 
 	actions_model "gitea.dev/models/actions"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	branchroom_service "gitea.dev/services/branchroom"
 	repo_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -58,6 +61,39 @@ func TestDeleteOwnerRepositoriesDirectly(t *testing.T) {
 
 func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
 	unittest.PrepareTestEnv(t)
+	branchroomScope := &branchroom_model.Scope{
+		Kind:        branchroom_model.ScopeKindRepository,
+		RepoID:      1,
+		Name:        "to purge",
+		State:       branchroom_model.ScopeStateActive,
+		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
+		OwnerID:     2,
+		CreatedByID: 2,
+	}
+	assert.NoError(t, branchroom_model.InsertScope(t.Context(), branchroomScope))
+	branchroomGrant := &branchroom_model.Grant{
+		ScopeID:     branchroomScope.ID,
+		SubjectType: branchroom_model.SubjectTypeUser,
+		SubjectID:   2,
+		Action:      branchroom_model.ActionDiscover,
+		CreatedByID: 2,
+	}
+	assert.NoError(t, branchroom_model.InsertGrant(t.Context(), branchroomGrant))
+	_, err := branchroom_model.RecordDecisionAndAudit(t.Context(), branchroomScope, &branchroom_model.Decision{
+		ScopeID:         branchroomScope.ID,
+		RepoID:          1,
+		GrantID:         branchroomGrant.ID,
+		ActorType:       branchroom_model.ActorTypeUser,
+		ActorID:         2,
+		Action:          branchroom_model.ActionDiscover,
+		ResourceType:    branchroom_model.ResourceTypeScope,
+		ResourceID:      "scope/to-purge",
+		Surface:         branchroom_model.SurfaceSystem,
+		Result:          branchroom_model.DecisionResultAllow,
+		ReasonCode:      "grant_matched",
+		OrdinaryAllowed: true,
+	})
+	assert.NoError(t, err)
 
 	// One row per table that repository deletion used to leave behind (#38494).
 	assert.NoError(t, db.Insert(t.Context(),
@@ -79,4 +115,78 @@ func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
 	unittest.AssertNotExistsBean(t, &git_model.CommitStatusSummary{RepoID: 1})
 	unittest.AssertNotExistsBean(t, &git_model.CommitStatusIndex{RepoID: 1})
 	unittest.AssertNotExistsBean(t, &repo_model.RepoTransfer{RepoID: 1})
+	unittest.AssertNotExistsBean(t, &branchroom_model.Scope{RepoID: 1})
+	unittest.AssertNotExistsBean(t, &branchroom_model.Grant{ScopeID: branchroomScope.ID})
+	unittest.AssertNotExistsBean(t, &branchroom_model.Decision{RepoID: 1})
+	unittest.AssertNotExistsBean(t, &branchroom_model.AuditEvent{RepoID: 1})
+}
+
+func TestDeleteRepositoryDirectlyBlocksUnpurgedBranchroomWorkspace(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	branchroomScope := &branchroom_model.Scope{
+		Kind:        branchroom_model.ScopeKindRepository,
+		RepoID:      1,
+		Name:        "requires retention",
+		State:       branchroom_model.ScopeStateActive,
+		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
+		OwnerID:     2,
+		CreatedByID: 2,
+	}
+	assert.NoError(t, branchroom_model.InsertScope(t.Context(), branchroomScope))
+	workspace := &branchroom_model.Workspace{
+		WorkspaceKey:     "11111111-1111-1111-1111-111111111111",
+		ScopeID:          branchroomScope.ID,
+		RepoID:           1,
+		StoreID:          "22222222-2222-2222-2222-222222222222",
+		PublicBaseSHA:    strings.Repeat("a", 40),
+		ObjectFormatName: "sha1",
+		State:            branchroom_model.WorkspaceStateReady,
+		CreatedByID:      2,
+	}
+	assert.NoError(t, branchroom_model.InsertWorkspace(t.Context(), workspace))
+
+	err := repo_service.DeleteRepositoryDirectly(t.Context(), 1)
+	assert.ErrorIs(t, err, branchroom_service.ErrWorkspaceRetentionRequired)
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: branchroomScope.ID})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Workspace{ID: workspace.ID})
+}
+
+func TestDeleteRepositoryDirectlyBlocksUnpurgedBranchroomEnvironmentRevision(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	branchroomScope := &branchroom_model.Scope{
+		Kind:        branchroom_model.ScopeKindEnvironment,
+		RepoID:      1,
+		Name:        "environment requires retention",
+		State:       branchroom_model.ScopeStateActive,
+		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
+		OwnerID:     2,
+		CreatedByID: 2,
+	}
+	assert.NoError(t, branchroom_model.InsertScope(t.Context(), branchroomScope))
+	payloadCiphertext := []byte("ciphertext-only-environment-payload")
+	revision := &branchroom_model.EnvironmentRevision{
+		RevisionKey:          "33333333-3333-3333-3333-333333333333",
+		ScopeID:              branchroomScope.ID,
+		RepoID:               1,
+		Revision:             1,
+		CipherSuite:          branchroom_model.EnvironmentCipherSuiteAES256GCM,
+		PayloadNonce:         []byte("0123456789ab"),
+		PayloadCiphertext:    payloadCiphertext,
+		WrappedDEKNonce:      []byte("abcdefghijkl"),
+		WrappedDEKCiphertext: []byte("wrapped-data-encryption-key"),
+		KeyProvider:          branchroom_model.EnvironmentKeyProviderLocalDev,
+		KeyReference:         "local-dev/primary-v1",
+		CiphertextDigest:     branchroom_model.EnvironmentCiphertextDigest(payloadCiphertext),
+		PlaintextLength:      27,
+		State:                branchroom_model.EnvironmentRevisionStateActive,
+		CreatedByID:          2,
+	}
+	assert.NoError(t, branchroom_model.InsertEnvironmentRevision(t.Context(), revision))
+
+	err := repo_service.DeleteRepositoryDirectly(t.Context(), 1)
+	assert.ErrorIs(t, err, branchroom_service.ErrEnvironmentRetentionRequired)
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: branchroomScope.ID})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.EnvironmentRevision{ID: revision.ID})
 }

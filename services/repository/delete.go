@@ -30,6 +30,7 @@ import (
 	"gitea.dev/modules/storage"
 	actions_service "gitea.dev/services/actions"
 	asymkey_service "gitea.dev/services/asymkey"
+	branchroom_service "gitea.dev/services/branchroom"
 	issue_service "gitea.dev/services/issue"
 
 	"xorm.io/builder"
@@ -98,6 +99,9 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 	}
 	needRewriteKeysFile := deleted > 0
 
+	if err := branchroom_service.PurgeRepositoryPolicy(ctx, repoID); err != nil {
+		return fmt.Errorf("purge Branchroom policy: %w", err)
+	}
 	if err := deleteDBRepository(ctx, repoID); err != nil {
 		return err
 	}

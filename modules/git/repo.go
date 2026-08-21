@@ -167,6 +167,8 @@ type CloneRepoOptions struct {
 	Quiet         bool
 	Branch        string
 	Shared        bool
+	NoLocal       bool
+	NoHardlinks   bool
 	NoCheckout    bool
 	Depth         int
 	Filter        string
@@ -198,6 +200,12 @@ func Clone(ctx context.Context, from, to string, opts CloneRepoOptions) error {
 	}
 	if opts.Shared {
 		cmd.AddArguments("-s")
+	}
+	if opts.NoLocal {
+		cmd.AddArguments("--no-local")
+	}
+	if opts.NoHardlinks {
+		cmd.AddArguments("--no-hardlinks")
 	}
 	if opts.NoCheckout {
 		cmd.AddArguments("--no-checkout")

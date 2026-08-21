@@ -254,6 +254,11 @@ func ctxDataSet(data reqctx.ContextData) func(ctx *context.Context) {
 	}
 }
 
+func repoSettingsCtxData(ctx *context.Context) {
+	ctx.Data.MergeFrom(reqctx.ContextData{"PageIsRepoSettings": true, "LFSStartServer": setting.LFS.StartServer})
+	ctx.Data["EnableBranchroom"] = setting.Branchroom.Enabled
+}
+
 const RouterMockPointBeforeWebRoutes = "before-web-routes"
 
 // Routes returns all web routes
@@ -1204,6 +1209,14 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/{id}", web.Bind[*forms.ProtectTagForm](), context.RepoMustNotBeArchived(), repo_setting.EditProtectedTagPost)
 		})
 
+		m.Group("/branchroom", func() {
+			m.Combo("").Get(repo_setting.Branchroom).
+				Post(web.Bind[*forms.BranchroomScopeForm](), repo_setting.BranchroomPost)
+			m.Post("/workspaces", web.Bind[*forms.BranchroomWorkspaceForm](), repo_setting.BranchroomWorkspacePost)
+			m.Post("/grants", web.Bind[*forms.BranchroomDiscoveryGrantForm](), repo_setting.BranchroomDiscoveryGrantPost)
+			m.Post("/scopes/{scopeID}/grants/{grantID}/revoke", repo_setting.BranchroomDiscoveryGrantRevokePost)
+		}, repo_setting.MustEnableBranchroom)
+
 		m.Group("/hooks/git", func() {
 			m.Get("", repo_setting.GitHooks)
 			m.Combo("/{name}").Get(repo_setting.GitHooksEdit).
@@ -1265,7 +1278,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		})
 	},
 		reqSignIn, context.RepoAssignment, reqRepoAdmin,
-		ctxDataSet(reqctx.ContextData{"PageIsRepoSettings": true, "LFSStartServer": setting.LFS.StartServer}),
+		repoSettingsCtxData,
 	)
 	// end "/{username}/{reponame}/settings"
 

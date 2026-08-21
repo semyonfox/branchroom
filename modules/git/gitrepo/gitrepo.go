@@ -4,6 +4,7 @@
 package gitrepo
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -109,6 +110,25 @@ func (r *repositoryManaged) GitRepoLocation() string {
 
 func RepositoryManaged(id, loc string) RepositoryFacade {
 	return &repositoryManaged{id: id, loc: filepath.Clean(loc)}
+}
+
+// RepositoryManagedInRoot returns a managed repository whose location is inside root.
+func RepositoryManagedInRoot(id, root, relativePath string) (RepositoryFacade, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("managed repository ID must not be empty")
+	}
+	root = filepath.Clean(root)
+	if !filepath.IsAbs(root) {
+		return nil, errors.New("repository root must be absolute")
+	}
+
+	relativePath = filepath.Clean(filepath.FromSlash(relativePath))
+	if relativePath == "." || relativePath == ".." || filepath.IsAbs(relativePath) ||
+		strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return nil, errors.New("repository path must be relative to its root")
+	}
+
+	return RepositoryManaged(id, filepath.Join(root, relativePath)), nil
 }
 
 func RepoLocalFS(repo RepositoryFacade) fs.FS {
