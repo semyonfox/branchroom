@@ -14,9 +14,8 @@ import (
 	"os"
 	"strconv"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/modules/setting"
-
-	"github.com/google/uuid"
 )
 
 const environmentCipherSuiteAES256GCM = "aes-256-gcm"
@@ -132,7 +131,7 @@ func randomEnvironmentNonce(aead cipher.AEAD) ([]byte, error) {
 }
 
 func environmentRevisionAAD(repoID, scopeID, revision int64, revisionKey, cipherSuite, keyProvider, keyReference string) ([]byte, error) {
-	if repoID <= 0 || scopeID <= 0 || revision <= 0 || uuid.Validate(revisionKey) != nil || cipherSuite != environmentCipherSuiteAES256GCM || keyProvider == "" || keyReference == "" {
+	if repoID <= 0 || scopeID <= 0 || revision <= 0 || !branchroom_model.IsCanonicalUUID(revisionKey) || cipherSuite != environmentCipherSuiteAES256GCM || keyProvider == "" || keyReference == "" {
 		return nil, errors.New("invalid Branchroom environment encryption metadata")
 	}
 	fields := []string{

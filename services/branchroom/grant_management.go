@@ -46,63 +46,17 @@ func CreateRepositoryDiscoveryGrant(ctx context.Context, request CreateRepositor
 	if request.RepoID <= 0 || request.ScopeID <= 0 || request.SubjectUsername == "" || len(request.SubjectUsername) > 255 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom discovery grant request")
 	}
-
-	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Grant, error) {
-		if err := lockRepositoryLifecycle(txCtx, request.RepoID); err != nil {
-			return nil, err
-		}
-		owner, err := CanManageRepositoryScopes(txCtx, request.RepoID, request.Actor)
-		if err != nil {
-			return nil, err
-		}
-		if !owner {
-			return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
-		}
-
-		scope, err := branchroom_model.GetScopeByIDForUpdate(txCtx, request.ScopeID)
-		if err != nil {
-			return nil, err
-		}
-		if scope.RepoID != request.RepoID || scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
-			return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
-		}
-
-		subject, err := user_model.GetIndividualUserByName(txCtx, request.SubjectUsername)
-		if err != nil {
-			if errors.Is(err, util.ErrNotExist) {
-				return nil, ErrInvalidDiscoveryGrantTarget
-			}
-			return nil, err
-		}
-		if !subject.IsActive || subject.ProhibitLogin {
-			return nil, ErrInvalidDiscoveryGrantTarget
-		}
-
-		now := timeutil.TimeStampNow()
-		grants, err := branchroom_model.FindActiveGrantsAt(txCtx, scope.ID, branchroom_model.ActionDiscover, now)
-		if err != nil {
-			return nil, err
-		}
-		for _, grant := range grants {
-			if grant.SubjectType == branchroom_model.SubjectTypeUser && grant.SubjectID == subject.ID {
-				return nil, ErrDiscoveryGrantAlreadyExists
-			}
-		}
-
-		grant := &branchroom_model.Grant{
-			ScopeID:     scope.ID,
-			SubjectType: branchroom_model.SubjectTypeUser,
-			SubjectID:   subject.ID,
-			Action:      branchroom_model.ActionDiscover,
-			CreatedByID: request.Actor.ID,
-		}
-		if err := branchroom_model.InsertGrant(txCtx, grant); err != nil {
-			return nil, err
-		}
-		if err := recordDirectUserGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, "discovery_grant_created"); err != nil {
-			return nil, err
-		}
-		return grant, nil
+	return createRepositoryDirectUserGrant(ctx, createRepositoryDirectUserGrantRequest{
+		RepoID:           request.RepoID,
+		ScopeID:          request.ScopeID,
+		Actor:            request.Actor,
+		SubjectUsername:  request.SubjectUsername,
+		Surface:          request.Surface,
+		RequestID:        request.RequestID,
+		Action:           branchroom_model.ActionDiscover,
+		InvalidTargetErr: ErrInvalidDiscoveryGrantTarget,
+		AlreadyExistsErr: ErrDiscoveryGrantAlreadyExists,
+		AuditReasonCode:  reasonDiscoveryGrantCreated,
 	})
 }
 
@@ -126,53 +80,70 @@ func CreateRepositorySourceReadGrant(ctx context.Context, request CreateReposito
 	if request.RepoID <= 0 || request.ScopeID <= 0 || request.SubjectUsername == "" || len(request.SubjectUsername) > 255 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom source-read grant request")
 	}
+	return createRepositoryDirectUserGrant(ctx, createRepositoryDirectUserGrantRequest{
+		RepoID:                request.RepoID,
+		ScopeID:               request.ScopeID,
+		Actor:                 request.Actor,
+		SubjectUsername:       request.SubjectUsername,
+		Surface:               request.Surface,
+		RequestID:             request.RequestID,
+		Action:                branchroom_model.ActionReadSource,
+		RequireReadyWorkspace: true,
+		InvalidTargetErr:      ErrInvalidSourceReadGrantTarget,
+		AlreadyExistsErr:      ErrSourceReadGrantAlreadyExists,
+		AuditReasonCode:       reasonSourceReadGrantCreated,
+	})
+}
 
+type createRepositoryDirectUserGrantRequest struct {
+	RepoID                int64
+	ScopeID               int64
+	Actor                 Actor
+	SubjectUsername       string
+	Surface               branchroom_model.Surface
+	RequestID             string
+	Action                branchroom_model.Action
+	RequireReadyWorkspace bool
+	InvalidTargetErr      error
+	AlreadyExistsErr      error
+	AuditReasonCode       string
+}
+
+func createRepositoryDirectUserGrant(ctx context.Context, request createRepositoryDirectUserGrantRequest) (*branchroom_model.Grant, error) {
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Grant, error) {
-		if err := lockRepositoryLifecycle(txCtx, request.RepoID); err != nil {
-			return nil, err
-		}
-		owner, err := CanManageRepositoryScopes(txCtx, request.RepoID, request.Actor)
+		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom scope does not exist")
 		if err != nil {
 			return nil, err
 		}
-		if !owner {
-			return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
-		}
-
-		scope, err := branchroom_model.GetScopeByIDForUpdate(txCtx, request.ScopeID)
-		if err != nil {
-			return nil, err
-		}
-		if scope.RepoID != request.RepoID || scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
-			return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
-		}
-		workspace, err := branchroom_model.GetWorkspaceByScopeIDForUpdate(txCtx, scope.ID)
-		if err != nil {
-			return nil, err
-		}
-		if workspace.RepoID != request.RepoID || workspace.State != branchroom_model.WorkspaceStateReady || workspace.Validate() != nil {
-			return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
+		if request.RequireReadyWorkspace {
+			workspace, err := branchroom_model.GetWorkspaceByScopeIDForUpdate(txCtx, scope.ID)
+			if err != nil {
+				return nil, err
+			}
+			if workspace.RepoID != request.RepoID || workspace.State != branchroom_model.WorkspaceStateReady || workspace.Validate() != nil {
+				return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
+			}
 		}
 
 		subject, err := user_model.GetIndividualUserByName(txCtx, request.SubjectUsername)
 		if err != nil {
 			if errors.Is(err, util.ErrNotExist) {
-				return nil, ErrInvalidSourceReadGrantTarget
+				return nil, request.InvalidTargetErr
 			}
 			return nil, err
 		}
 		if !subject.IsActive || subject.ProhibitLogin {
-			return nil, ErrInvalidSourceReadGrantTarget
+			return nil, request.InvalidTargetErr
 		}
 
 		now := timeutil.TimeStampNow()
-		grants, err := branchroom_model.FindActiveGrantsAt(txCtx, scope.ID, branchroom_model.ActionReadSource, now)
+		grants, err := branchroom_model.FindActiveGrantsAt(txCtx, scope.ID, request.Action, now)
 		if err != nil {
 			return nil, err
 		}
 		for _, grant := range grants {
 			if grant.SubjectType == branchroom_model.SubjectTypeUser && grant.SubjectID == subject.ID {
-				return nil, ErrSourceReadGrantAlreadyExists
+				return nil, request.AlreadyExistsErr
 			}
 		}
 
@@ -180,13 +151,13 @@ func CreateRepositorySourceReadGrant(ctx context.Context, request CreateReposito
 			ScopeID:     scope.ID,
 			SubjectType: branchroom_model.SubjectTypeUser,
 			SubjectID:   subject.ID,
-			Action:      branchroom_model.ActionReadSource,
+			Action:      request.Action,
 			CreatedByID: request.Actor.ID,
 		}
 		if err := branchroom_model.InsertGrant(txCtx, grant); err != nil {
 			return nil, err
 		}
-		if err := recordDirectUserGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, "source_read_grant_created"); err != nil {
+		if err := recordDirectUserGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, request.AuditReasonCode); err != nil {
 			return nil, err
 		}
 		return grant, nil

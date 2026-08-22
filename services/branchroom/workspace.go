@@ -80,17 +80,17 @@ func CreateRepositoryWorkspace(ctx context.Context, request CreateRepositoryWork
 
 	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
 	if err != nil {
-		markWorkspaceProvisioningFailed(ctx, workspace, request, "store_unavailable")
+		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceStoreUnavailable)
 		return nil, ErrWorkspaceProvisioning
 	}
 	if err := branchroom_module.ImportPublicBase(ctx, repository.CodeStorageRepo(), restricted); err != nil {
 		removeFailedRestrictedStore(ctx, restricted)
-		markWorkspaceProvisioningFailed(ctx, workspace, request, "import_failed")
+		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceImportFailed)
 		return nil, ErrWorkspaceProvisioning
 	}
 	if err := verifyImportedBase(ctx, restricted, workspace.PublicBaseSHA, workspace.ObjectFormatName); err != nil {
 		removeFailedRestrictedStore(ctx, restricted)
-		markWorkspaceProvisioningFailed(ctx, workspace, request, "import_verification_failed")
+		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceImportVerifyFailed)
 		return nil, ErrWorkspaceProvisioning
 	}
 
@@ -243,7 +243,7 @@ func markWorkspaceReady(ctx context.Context, workspace *branchroom_model.Workspa
 			ResourceID:      workspaceResourceID(current.WorkspaceKey),
 			Surface:         request.Surface,
 			Result:          branchroom_model.DecisionResultAllow,
-			ReasonCode:      "workspace_created",
+			ReasonCode:      reasonWorkspaceCreated,
 			OrdinaryAllowed: true,
 			RequestID:       request.RequestID,
 			ExpiresUnix:     now,
