@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	branchroom_model "gitea.dev/models/branchroom"
+	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/branchroom"
@@ -152,6 +154,42 @@ func TestBranchroomSourceHandoffs(t *testing.T) {
 		cloneDir := t.TempDir()
 		require.NoError(t, git.Clone(t.Context(), cloneURL.String(), cloneDir, git.CloneRepoOptions{}))
 		commit, _, err := gitcmd.NewCommand("rev-parse", "refs/remotes/origin/restricted").WithDir(cloneDir).RunStdString(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, restrictedCommit, strings.TrimSpace(commit))
+
+		oldRouteKey := workspace.RouteKey
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, "/user2/repo1/settings/branchroom/scopes/"+strconv.FormatInt(scope.ID, 10)+"/route-key/rotate"), http.StatusSeeOther)
+		workspace, err = branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
+		require.NoError(t, err)
+		assert.NotEqual(t, oldRouteKey, workspace.RouteKey)
+
+		decisionsBeforeOldURL, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Count(new(branchroom_model.Decision))
+		require.NoError(t, err)
+		auditsBeforeOldURL, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Count(new(branchroom_model.AuditEvent))
+		require.NoError(t, err)
+		oldGatewayURL := u.JoinPath("_branchroom", "user2", "repo1", oldRouteKey+".git")
+		oldAdvertisement := makeBranchroomGitHTTPRequest(t, http.MethodGet, oldGatewayURL.JoinPath("info/refs").String()+"?service=git-upload-pack", "user4", userPassword)
+		oldRPC := makeBranchroomGitHTTPRequestWithBody(t, http.MethodPost, oldGatewayURL.JoinPath("git-upload-pack").String(), "user4", userPassword, "application/x-git-upload-pack-request", "")
+		assert.Equal(t, http.StatusNotFound, oldAdvertisement.StatusCode)
+		assert.Equal(t, oldAdvertisement, oldRPC)
+		decisionsAfterOldURL, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Count(new(branchroom_model.Decision))
+		require.NoError(t, err)
+		auditsAfterOldURL, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Count(new(branchroom_model.AuditEvent))
+		require.NoError(t, err)
+		assert.Equal(t, decisionsBeforeOldURL, decisionsAfterOldURL)
+		assert.Equal(t, auditsBeforeOldURL, auditsAfterOldURL)
+
+		resp = user.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusOK)
+		body = resp.Body.String()
+		newCloneURL := u.JoinPath("_branchroom", "user2", "repo1", workspace.RouteKey+".git").String()
+		assert.Contains(t, body, newCloneURL)
+		assert.NotContains(t, body, oldRouteKey)
+		cloneURL, err = url.Parse(newCloneURL)
+		require.NoError(t, err)
+		cloneURL.User = url.UserPassword("user4", userPassword)
+		rotatedCloneDir := t.TempDir()
+		require.NoError(t, git.Clone(t.Context(), cloneURL.String(), rotatedCloneDir, git.CloneRepoOptions{}))
+		commit, _, err = gitcmd.NewCommand("rev-parse", "refs/remotes/origin/restricted").WithDir(rotatedCloneDir).RunStdString(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, restrictedCommit, strings.TrimSpace(commit))
 

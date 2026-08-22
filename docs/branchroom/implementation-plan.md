@@ -1,6 +1,6 @@
 # Branchroom implementation plan
 
-- Status: M0–M1 foundations, M4a–M4f isolated-workspace storage, source-policy, narrow read-only Git HTTP, and authorized clone handoff plumbing, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet complete
+- Status: M0–M1 foundations, M4a–M4g isolated-workspace storage, source-policy, narrow read-only Git HTTP, authorized clone handoff, and clone-locator rotation plumbing, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet complete
 - Working name: Branchroom
 - Fork status: maintained separately and developed fork-first; an upstream design discussion may be useful later, but no proposal is active
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
@@ -140,12 +140,13 @@ environment revision exists, deletion fails closed until a retention collector c
 remove the restricted store or encrypted record outside the database transaction. This
 avoids silently orphaning or erasing restricted data.
 
-M4e and M4f provide one narrow restricted Git HTTP read boundary: an authorized direct
-user can retrieve a clone locator from a stable signed-in page, then Git independently
-reauthorizes the actual protocol requests. There is still no SSH, LFS, write/push,
-public Branchroom API, production KMS, environment-reference integration,
-materialization CLI, Actions integration, cache isolation, or backup enforcement. This
-is not an end-to-end collaboration boundary.
+M4e, M4f, and M4g provide one narrow restricted Git HTTP read boundary: an authorized
+direct user can retrieve a clone locator from a stable signed-in page, then Git
+independently reauthorizes the actual protocol requests. A repository owner can hard
+cut over the locator for a ready workspace without revealing either key in settings.
+There is still no SSH, LFS, write/push, public Branchroom API, production KMS,
+environment-reference integration, materialization CLI, Actions integration, cache
+isolation, or backup enforcement. This is not an end-to-end collaboration boundary.
 
 The codebase is Go with a JavaScript and TypeScript frontend. It uses
 `modelmigration/` for persisted-schema changes, `models/` for data and permission
@@ -844,9 +845,27 @@ security fixes.
   do not render, the authorized URL clones the isolated store, and revoking source
   access removes both the handoff and fresh Git access.
 
+#### Implemented M4g: owner-only clone-locator rotation
+
+- The owner-only settings page can rotate the independent opaque route key for an
+  active repository scope with a valid `ready` workspace. The request names only the
+  scope. It does not accept or display a route key, workspace key, store ID, path, or
+  clone URL.
+- Rotation is a hard cutover. Once its transaction commits, the old locator has no
+  alias, redirect, or grace period, and a fresh request using it returns the same
+  non-disclosing result as an unknown locator. A Git protocol phase authorized before
+  the commit may finish.
+- Rotation changes only the locator. The Git gateway still checks ordinary Gitea
+  code-read permission and a direct `read_source` grant. A refreshed handoff still
+  requires direct `discover` and `read_source` grants as well.
+- The safe audit event records that a route key was rotated, but no audit record
+  contains the old or new key, a clone URL, a filesystem path, or a store ID.
+- Focused model, service, settings, handoff, and Git HTTP checks cover hard cutover,
+  stale-key failure, fresh authorized handoff, grant preservation, and rejection of
+  retired or non-ready state.
+
 Work:
 
-- Add an explicit, audited owner-only locator-rotation action for incident response.
 - Extend the read boundary to the remaining required protocols only after separate
   design and review: SSH, LFS, and any future write/push path. Do not route dumb HTTP,
   archive, or generic repository object lookups to a restricted store by accident.

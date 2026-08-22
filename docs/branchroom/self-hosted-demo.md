@@ -1,9 +1,9 @@
 # Self-hosted demo
 
 This guide exercises the Branchroom behaviour intended for a local demo today:
-repository-owner policy scope, discovery-grant, source-grant management, and a narrow
-read-only Git clone handoff. This is not a usable restricted Git workspace or real
-secret-management system.
+repository-owner policy scope, discovery-grant, source-grant management, clone-locator
+rotation, and a narrow read-only Git clone handoff. This is not a usable restricted Git
+workspace or real secret-management system.
 
 ## Before you start
 
@@ -57,8 +57,14 @@ Set `[server] ROOT_URL` to the public HTTPS address, or forward the public Host 
    `/{owner}/{repository}/-/branchroom`. It shows the scope name and a read-only clone
    URL for that account only. Copy it and clone with the account password, or a
    `read:repository` personal access token if the account has 2FA enabled.
-10. Revoke either grant. Refreshing the handoff page returns 404, and a new fetch using
-   the copied URL fails.
+10. Return to the owner's Branchroom settings and rotate the clone locator for the
+    ready workspace. It is a hard cutover: the copied URL has no redirect, alias, or
+    grace period.
+11. Sign in again as the second account and refresh the handoff page to get the new
+    clone URL. A fresh fetch with the old one fails. The new one appears only while
+    ordinary code-read permission and both direct grants remain active.
+12. Revoke either grant. Refreshing the handoff page returns 404, and a new fetch using
+    the copied URL fails.
 
 Provisioning copies the public base, so a normal local demo clone may contain only
 that public-base history. Do not inject private commits into the restricted store just
@@ -70,6 +76,11 @@ tasks, and write grants are not available through this page. Source-read grants 
 limited to active individual users and a ready repository workspace. They are one
 required check for the experimental read-only gateway, not a general-purpose access
 role.
+
+Rotation does not revoke grants. A Git protocol phase that was already authorized when
+the rotation commits may finish, but a fresh request using the old clone URL fails. The
+audit record says that the locator changed without storing either route key, a clone
+URL, a filesystem path, or a store ID.
 
 ## What is deliberately missing
 
@@ -93,5 +104,5 @@ only GET/HEAD `info/refs?service=git-upload-pack` and POST `git-upload-pack`, re
 Basic authentication, and rechecks authorization before both protocol phases. It has
 no receive-pack, archive, dumb-object, SSH, LFS, API, CLI, or runner surface. The
 handoff page is not the security boundary. Git checks the current grant again for each
-advertisement and RPC request. The next work is locator rotation and the remaining
-transport and lifecycle boundaries, before any real KMS or secret-bearing runner flow.
+advertisement and RPC request. The next work is the remaining transport and lifecycle
+boundaries. Production KMS and secret-bearing runner work stay deferred.

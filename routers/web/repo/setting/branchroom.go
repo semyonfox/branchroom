@@ -31,6 +31,7 @@ type branchroomScopeData struct {
 	CanGrantDiscovery     bool
 	CanGrantSourceRead    bool
 	CanProvisionWorkspace bool
+	CanRotateRouteKey     bool
 	HasWorkspace          bool
 	WorkspaceState        branchroom_model.WorkspaceState
 	WorkspacePublicBase   string
@@ -140,6 +141,7 @@ func Branchroom(ctx *context.Context) {
 			data.WorkspaceState = workspace.State
 			data.WorkspacePublicBase = workspace.PublicBaseSHA
 			data.CanGrantSourceRead = scope.State == branchroom_model.ScopeStateActive && workspace.State == branchroom_model.WorkspaceStateReady
+			data.CanRotateRouteKey = data.CanGrantSourceRead
 		}
 		for _, grant := range discoveryGrantsByScopeID[scope.ID] {
 			subjectName := string(ctx.Tr("repo.settings.branchroom.deleted_user", grant.SubjectID))
@@ -224,6 +226,36 @@ func BranchroomWorkspacePost(ctx *context.Context) {
 	}
 
 	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.workspace_provisioned"))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+// BranchroomWorkspaceRouteKeyRotatePost invalidates copied clone URLs for a ready workspace.
+func BranchroomWorkspaceRouteKeyRotatePost(ctx *context.Context) {
+	if !requireBranchroomScopeOwner(ctx) {
+		return
+	}
+
+	scopeID := ctx.PathParamInt64("scopeID")
+	if scopeID <= 0 {
+		ctx.NotFound(nil)
+		return
+	}
+	if err := branchroom_service.RotateRepositoryWorkspaceRouteKey(ctx, branchroom_service.RotateRepositoryWorkspaceRouteKeyRequest{
+		RepoID:  ctx.Repo.Repository.ID,
+		ScopeID: scopeID,
+		Actor:   branchroom_service.ActorFromUser(ctx.Doer),
+		Surface: branchroom_model.SurfaceWeb,
+	}); err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound(nil)
+			return
+		}
+		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.route_key_rotate_failed"))
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.route_key_rotated"))
 	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 }
 

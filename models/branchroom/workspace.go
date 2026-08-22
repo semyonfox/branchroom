@@ -309,6 +309,34 @@ func TransitionWorkspace(ctx context.Context, workspaceID int64, from, to Worksp
 	return affected == 1, err
 }
 
+// RotateWorkspaceRouteKey replaces the public route key only when current still
+// identifies a ready workspace. The caller retains its snapshot so a false
+// result can be handled as a stale compare-and-swap attempt.
+func RotateWorkspaceRouteKey(ctx context.Context, current *Workspace, newKey string) (bool, error) {
+	if current == nil || current.ID <= 0 || current.State != WorkspaceStateReady {
+		return false, util.NewInvalidArgumentErrorf("invalid Branchroom workspace route-key rotation")
+	}
+	if err := current.Validate(); err != nil {
+		return false, err
+	}
+	if newKey == current.RouteKey {
+		return false, util.NewInvalidArgumentErrorf("Branchroom workspace route key must change")
+	}
+
+	candidate := *current
+	candidate.RouteKey = newKey
+	if err := candidate.Validate(); err != nil {
+		return false, err
+	}
+
+	affected, err := db.GetEngine(ctx).
+		ID(current.ID).
+		Where("route_key = ? AND state = ?", current.RouteKey, WorkspaceStateReady).
+		Cols("route_key").
+		Update(&Workspace{RouteKey: newKey})
+	return affected == 1, err
+}
+
 func isWorkspaceTransitionValid(from, to WorkspaceState) bool {
 	switch from {
 	case WorkspaceStateProvisioning:

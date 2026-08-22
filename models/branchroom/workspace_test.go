@@ -97,6 +97,77 @@ func TestNewWorkspaceRouteKey(t *testing.T) {
 	assert.NotEqual(t, first, second)
 }
 
+func TestRotateWorkspaceRouteKey(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+
+	workspace := newTestWorkspace()
+	workspace.State = WorkspaceStateReady
+	require.NoError(t, InsertWorkspace(ctx, workspace))
+	current, err := GetWorkspaceByID(ctx, workspace.ID)
+	require.NoError(t, err)
+
+	oldKey := current.RouteKey
+	newKey := strings.Repeat("b", workspaceRouteKeyLength)
+	rotated, err := RotateWorkspaceRouteKey(ctx, current, newKey)
+	require.NoError(t, err)
+	assert.True(t, rotated)
+	assert.Equal(t, oldKey, current.RouteKey)
+
+	_, err = GetWorkspaceByRouteKey(ctx, oldKey)
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	rotatedWorkspace, err := GetWorkspaceByRouteKeyAndRepoID(ctx, newKey, workspace.RepoID)
+	require.NoError(t, err)
+	assert.Equal(t, workspace.ID, rotatedWorkspace.ID)
+
+	rotated, err = RotateWorkspaceRouteKey(ctx, current, strings.Repeat("c", workspaceRouteKeyLength))
+	require.NoError(t, err)
+	assert.False(t, rotated)
+
+	for _, key := range []string{"not-a-workspace-route-key", newKey} {
+		rotated, err = RotateWorkspaceRouteKey(ctx, rotatedWorkspace, key)
+		assert.ErrorIs(t, err, util.ErrInvalidArgument)
+		assert.False(t, rotated)
+	}
+
+	parsed, err := uuid.Parse(rotatedWorkspace.WorkspaceKey)
+	require.NoError(t, err)
+	correlatingKey := workspaceRouteKeyEncoding.EncodeToString(parsed[:])
+	rotated, err = RotateWorkspaceRouteKey(ctx, rotatedWorkspace, correlatingKey)
+	assert.ErrorIs(t, err, util.ErrInvalidArgument)
+	assert.False(t, rotated)
+
+	nonReady := *rotatedWorkspace
+	nonReady.State = WorkspaceStateProvisioning
+	rotated, err = RotateWorkspaceRouteKey(ctx, &nonReady, strings.Repeat("d", workspaceRouteKeyLength))
+	assert.ErrorIs(t, err, util.ErrInvalidArgument)
+	assert.False(t, rotated)
+
+	invalidCurrent := *rotatedWorkspace
+	invalidCurrent.StoreID = "not-a-uuid"
+	rotated, err = RotateWorkspaceRouteKey(ctx, &invalidCurrent, strings.Repeat("d", workspaceRouteKeyLength))
+	assert.ErrorIs(t, err, util.ErrInvalidArgument)
+	assert.False(t, rotated)
+
+	other := newTestWorkspace()
+	other.WorkspaceKey = "33333333-3333-3333-3333-333333333333"
+	other.RouteKey = strings.Repeat("e", workspaceRouteKeyLength)
+	other.ScopeID = 2
+	other.StoreID = "44444444-4444-4444-4444-444444444444"
+	other.State = WorkspaceStateReady
+	require.NoError(t, InsertWorkspace(ctx, other))
+
+	rotated, err = RotateWorkspaceRouteKey(ctx, rotatedWorkspace, other.RouteKey)
+	assert.Error(t, err)
+	assert.False(t, rotated)
+	stillRotated, err := GetWorkspaceByRouteKey(ctx, newKey)
+	require.NoError(t, err)
+	assert.Equal(t, workspace.ID, stillRotated.ID)
+	collision, err := GetWorkspaceByRouteKey(ctx, other.RouteKey)
+	require.NoError(t, err)
+	assert.Equal(t, other.ID, collision.ID)
+}
+
 func newTestWorkspace() *Workspace {
 	return &Workspace{
 		WorkspaceKey:     "11111111-1111-1111-1111-111111111111",

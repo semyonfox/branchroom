@@ -12,8 +12,9 @@ or commitment today.
 ## Status
 
 Branchroom has completed M0a, the M0b.1 storage proof, M0b.2 public-route regression,
-the first M1 policy foundation, the M4a–M4f isolated-workspace storage,
-source-policy, read-only Git HTTP, and authorized clone-handoff slices, and
+the first M1 policy foundation, the M4a–M4g isolated-workspace storage,
+source-policy, read-only Git HTTP, authorized clone-handoff, and clone-locator
+rotation slices, and
 the M2a–M2c development-only environment foundations. It adds a disabled-by-default
 restricted-store root, a path-safe repository facade, and a public-base import that
 forbids local cloning and hard links. The regression checks that ordinary public Git
@@ -42,6 +43,15 @@ repository's current default-branch commit and show its safe state and pinned ba
 It does not render a store ID, filesystem path, workspace UUID, or clone URL. A
 provisioned store stays non-routable until a direct user receives a `read_source`
 grant.
+
+For a ready workspace, the repository owner can rotate its opaque clone locator from
+the same settings page. Rotation is a hard cutover. Once it commits, the old clone URL
+has no alias, redirect, or grace period, and a fresh Git request using it fails. A Git
+phase that was already authorized when the rotation commits may finish. Rotation does
+not bypass ordinary Gitea code-read permission or direct grants: Git still requires
+`read_source`, and the handoff page still requires both `discover` and `read_source`.
+The audit record names the rotation without either route key, a URL, a filesystem path,
+or a store ID.
 
 There is now a deliberately narrow, read-only smart Git HTTP gateway for a ready
 workspace. It accepts only upload-pack advertisement and upload-pack RPC at a route

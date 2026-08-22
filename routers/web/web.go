@@ -1216,6 +1216,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Combo("").Get(repo_setting.Branchroom).
 				Post(web.Bind[*forms.BranchroomScopeForm](), repo_setting.BranchroomPost)
 			m.Post("/workspaces", web.Bind[*forms.BranchroomWorkspaceForm](), repo_setting.BranchroomWorkspacePost)
+			m.Post("/scopes/{scopeID}/route-key/rotate", repo_setting.BranchroomWorkspaceRouteKeyRotatePost)
 			m.Post("/grants", web.Bind[*forms.BranchroomDiscoveryGrantForm](), repo_setting.BranchroomDiscoveryGrantPost)
 			m.Post("/scopes/{scopeID}/grants/{grantID}/revoke", repo_setting.BranchroomDiscoveryGrantRevokePost)
 			m.Post("/source-grants", web.Bind[*forms.BranchroomSourceReadGrantForm](), repo_setting.BranchroomSourceReadGrantPost)
