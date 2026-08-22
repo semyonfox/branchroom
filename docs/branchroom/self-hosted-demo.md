@@ -88,6 +88,8 @@ URL, a filesystem path, or a store ID.
   read-only smart HTTP upload-pack path. Its opaque clone URL appears only on the
   signed-in handoff page after both direct grants, and it is not linked from ordinary
   repository pages.
+- `write_source` is only deny-only policy groundwork. It has no grant-management,
+  session, hook, or receive-pack surface, so it does not enable a push in this demo.
 - Provisioned isolated storage has no retry or deletion control. It is not a usable
   collaboration workspace.
 - No real secret storage or release. The development-only encryption code is sealed

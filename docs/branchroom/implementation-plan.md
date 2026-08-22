@@ -1,6 +1,6 @@
 # Branchroom implementation plan
 
-- Status: M0–M1 foundations, M4a–M4g isolated-workspace storage, source-policy, narrow read-only Git HTTP, authorized clone handoff, and clone-locator rotation plumbing, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet complete
+- Status: M0–M1 foundations, M4a–M4h.1 isolated-workspace storage, source-policy, narrow read-only Git HTTP, authorized clone handoff, clone-locator rotation, and deny-only source-write policy plumbing, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet complete
 - Working name: Branchroom
 - Fork status: maintained separately and developed fork-first; an upstream design discussion may be useful later, but no proposal is active
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
@@ -144,6 +144,10 @@ M4e, M4f, and M4g provide one narrow restricted Git HTTP read boundary: an autho
 direct user can retrieve a clone locator from a stable signed-in page, then Git
 independently reauthorizes the actual protocol requests. A repository owner can hard
 cut over the locator for a ready workspace without revealing either key in settings.
+M4h.1 adds a distinct `write_source` policy action and captures both ordinary code-read
+and code-write permission for it. Evaluation is intentionally deny-only: it never
+matches a grant and returns `write_source_unavailable`. It adds no grant management,
+session, hook, or Git receive-pack route.
 There is still no SSH, LFS, write/push, public Branchroom API, production KMS,
 environment-reference integration, materialization CLI, Actions integration, cache
 isolation, or backup enforcement. This is not an end-to-end collaboration boundary.
@@ -304,7 +308,8 @@ A team name such as "core team" is not a permission by itself. The policy must s
 | --- | --- | --- |
 | Discover | See a scope in a list, search result, or notification. | A reviewer can find the restricted PR. |
 | Read source | Fetch refs and inspect commits, trees, diffs, and files. | The security team clones its workspace. |
-| Write and review | Push, comment, request changes, approve, or run checks. | A maintainer reviews an embargoed fix. |
+| Write source | Push a server-defined private ref in an isolated workspace. | A maintainer updates an embargoed fix. |
+| Write and review | Comment, request changes, approve, or run checks. | A maintainer reviews an embargoed fix. |
 | Materialize | Receive one environment revision as a temporary file. | A deploy job writes revision 42 to .env. |
 | Read history | Inspect earlier environment revisions and audit entries. | An environment owner investigates a rollback. |
 | Publish | Move selected restricted work into public history. | A release manager publishes a security patch. |
@@ -864,11 +869,47 @@ security fixes.
   stale-key failure, fresh authorized handoff, grant preservation, and rejection of
   retired or non-ready state.
 
+#### Implemented M4h.1: deny-only source-write policy groundwork
+
+- `write_source` is a separate action from source reading and review activity. It is
+  structurally limited to a direct user, and evaluation records the ordinary Gitea
+  code-read and code-write ceiling.
+- It remains unavailable for every caller, even if a direct-user grant exists. The
+  evaluator records the safe `write_source_unavailable` denial before it considers
+  grants. This makes the policy vocabulary and audit semantics testable without
+  creating a write capability.
+- This slice registers no Git receive-pack, SSH, API, CLI, Actions, UI, session,
+  hook, or source-write-grant-management surface. The existing restricted Git route
+  remains upload-pack only.
+
+Before any source-write endpoint can exist, the next bounded steps are:
+
+1. Add an internal, one-use receive session scoped to one ready workspace and direct
+   user. Store only a secret hash and safe identity metadata. Define a server-owned
+   `core.hooksPath` pre-receive hook that rechecks current lifecycle and authorization
+   state and enforces an initially small, server-defined private-ref policy. Do not
+   use ordinary repository hooks or let the client select a ref policy.
+2. Add controlled direct-user `write_source` grant management only after the session
+   and hook boundary is tested. Grant creation, revocation, transfer, and deletion
+   must serialize with the workspace lifecycle.
+3. Only then add a separate isolated HTTPS receive-pack gateway. It must accept the
+   exact smart-protocol endpoints, require a non-public write-capable credential plus
+   ordinary code-read and code-write permission and a direct grant, and recheck the
+   one-use session in pre-receive. It must not call normal Git HTTP storage lookup or
+   normal repository hook dispatch.
+
+SSH stays after the HTTPS write path has been proven. It needs a separate command and
+key-origin boundary; it must not reuse the normal SSH `ServCommand` storage-path
+resolution. The public-content preflight module also remains disconnected from
+restricted source writes until its policy and false-positive behaviour are designed
+for that use.
+
 Work:
 
 - Extend the read boundary to the remaining required protocols only after separate
-  design and review: SSH, LFS, and any future write/push path. Do not route dumb HTTP,
-  archive, or generic repository object lookups to a restricted store by accident.
+  design and review: SSH and LFS. Finish the staged HTTPS source-write boundary above
+  before considering SSH push. Do not route dumb HTTP, archive, generic repository
+  object lookups, or normal receive-pack to a restricted store by accident.
 - Decide v1 behaviour for wikis, repository archives, blame, raw-file URLs, badges,
   releases, packages, dependency metadata, imports, exports, mirrors, forks, and
   attachments. Unsupported operations must reject a restricted workspace clearly.

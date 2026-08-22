@@ -123,6 +123,38 @@ func TestGrantValidationAndRevocation(t *testing.T) {
 	}).Validate())
 }
 
+func TestWriteSourceGrantRequiresDirectUser(t *testing.T) {
+	directUserGrant := Grant{
+		ScopeID:     1,
+		SubjectType: SubjectTypeUser,
+		SubjectID:   3,
+		Action:      ActionWriteSource,
+		CreatedByID: 1,
+	}
+	assert.NoError(t, directUserGrant.Validate())
+
+	for _, subjectType := range []SubjectType{SubjectTypeTeam, SubjectTypeDeployKey} {
+		grant := directUserGrant
+		grant.SubjectType = subjectType
+		assert.ErrorIs(t, grant.Validate(), util.ErrInvalidArgument)
+	}
+
+	actionsTaskGrant := Grant{
+		ScopeID:           1,
+		SubjectType:       SubjectTypeActionsTask,
+		SubjectID:         3,
+		Action:            ActionWriteSource,
+		WorkflowID:        "deploy.yml",
+		WorkflowRepoID:    1,
+		WorkflowCommitSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Ref:               "refs/heads/main",
+		RunnerID:          1,
+		ExpiresUnix:       1,
+		CreatedByID:       1,
+	}
+	assert.ErrorIs(t, actionsTaskGrant.Validate(), util.ErrInvalidArgument)
+}
+
 func TestRecordDecisionAndAudit(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()

@@ -109,6 +109,7 @@ type Action string
 const (
 	ActionDiscover     Action = "discover"
 	ActionReadSource   Action = "read_source"
+	ActionWriteSource  Action = "write_source"
 	ActionWriteReview  Action = "write_review"
 	ActionMaterialize  Action = "materialize"
 	ActionReadHistory  Action = "read_history"
@@ -119,7 +120,7 @@ const (
 // IsActionValid reports whether action is persisted by the current model.
 func IsActionValid(action Action) bool {
 	switch action {
-	case ActionDiscover, ActionReadSource, ActionWriteReview, ActionMaterialize, ActionReadHistory, ActionPublish, ActionManagePolicy:
+	case ActionDiscover, ActionReadSource, ActionWriteSource, ActionWriteReview, ActionMaterialize, ActionReadHistory, ActionPublish, ActionManagePolicy:
 		return true
 	default:
 		return false
@@ -296,6 +297,9 @@ func (grant *Grant) Validate() error {
 	}
 	if grant.Action == ActionReadSource && grant.SubjectType != SubjectTypeUser {
 		return util.NewInvalidArgumentErrorf("Branchroom source-read grants require a direct user")
+	}
+	if grant.Action == ActionWriteSource && grant.SubjectType != SubjectTypeUser {
+		return util.NewInvalidArgumentErrorf("Branchroom source-write grants require a direct user")
 	}
 	return nil
 }

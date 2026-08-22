@@ -183,6 +183,122 @@ func TestDBEvaluatorReadSourceAllowsOnlyDedicatedSurfacesAndDirectUsers(t *testi
 	assert.Equal(t, ReasonReadSourceUnavailable, decision.ReasonCode)
 }
 
+func TestDBEvaluatorWriteSourceRemainsUnavailable(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	evaluator := fixedEvaluator(100)
+	scope := insertTestScope(t, 1, "restricted-write")
+	workspaceKey := uuid.NewString()
+	grant := &branchroom_model.Grant{
+		ScopeID:     scope.ID,
+		SubjectType: branchroom_model.SubjectTypeUser,
+		SubjectID:   2,
+		Action:      branchroom_model.ActionWriteSource,
+		CreatedByID: 1,
+	}
+	require.NoError(t, branchroom_model.InsertGrant(ctx, grant))
+
+	request := Request{
+		ScopeID:      scope.ID,
+		RepoID:       scope.RepoID,
+		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
+		Ceiling:      RepositoryCeiling{CodeRead: true, CodeWrite: true},
+		Action:       branchroom_model.ActionWriteSource,
+		ResourceType: branchroom_model.ResourceTypeWorkspace,
+		ResourceID:   workspaceResourceID(workspaceKey),
+		Surface:      branchroom_model.SurfaceGitHTTP,
+	}
+	decision, err := evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
+	assert.Zero(t, decision.GrantID)
+	assert.NotZero(t, decision.ID)
+
+	request.Surface = branchroom_model.SurfaceWeb
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
+
+	request.Surface = branchroom_model.SurfaceGitHTTP
+	request.Actor = Actor{Type: branchroom_model.ActorTypeDeployKey, ID: 5}
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
+
+	request.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+	request.RequestID = "write-source-code-write-denied"
+	request.Ceiling.CodeWrite = false
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonOrdinaryPermissionDeny, decision.ReasonCode)
+	decisionRecord := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Decision{
+		ScopeID:         scope.ID,
+		Action:          branchroom_model.ActionWriteSource,
+		ReasonCode:      ReasonOrdinaryPermissionDeny,
+		RequestID:       request.RequestID,
+		OrdinaryAllowed: false,
+	})
+	auditRecord := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		DecisionKey:     decisionRecord.DecisionKey,
+		ScopeID:         scope.ID,
+		Action:          branchroom_model.ActionWriteSource,
+		ReasonCode:      ReasonOrdinaryPermissionDeny,
+		RequestID:       request.RequestID,
+		OrdinaryAllowed: false,
+	})
+	assert.Equal(t, decisionRecord.DecisionKey, auditRecord.DecisionKey)
+
+	request.RequestID = "write-source-code-read-denied"
+	request.Ceiling = RepositoryCeiling{CodeWrite: true}
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonOrdinaryPermissionDeny, decision.ReasonCode)
+	decisionRecord = unittest.AssertExistsAndLoadBean(t, &branchroom_model.Decision{
+		ScopeID:         scope.ID,
+		Action:          branchroom_model.ActionWriteSource,
+		ReasonCode:      ReasonOrdinaryPermissionDeny,
+		RequestID:       request.RequestID,
+		OrdinaryAllowed: false,
+	})
+	auditRecord = unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		DecisionKey:     decisionRecord.DecisionKey,
+		ScopeID:         scope.ID,
+		Action:          branchroom_model.ActionWriteSource,
+		ReasonCode:      ReasonOrdinaryPermissionDeny,
+		RequestID:       request.RequestID,
+		OrdinaryAllowed: false,
+	})
+	assert.Equal(t, decisionRecord.DecisionKey, auditRecord.DecisionKey)
+}
+
+func TestFindMatchingGrantRejectsRawNonUserWriteSourceGrant(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	scope := insertTestScope(t, 3, "write-source-team")
+	require.NoError(t, db.Insert(ctx, &branchroom_model.Grant{
+		ScopeID:     scope.ID,
+		SubjectType: branchroom_model.SubjectTypeTeam,
+		SubjectID:   2,
+		Action:      branchroom_model.ActionWriteSource,
+		CreatedByID: 2,
+	}))
+
+	grant, reasonCode, err := findMatchingGrant(ctx, scope, Request{
+		Actor:  Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
+		Action: branchroom_model.ActionWriteSource,
+	}, 100)
+	require.NoError(t, err)
+	assert.Nil(t, grant)
+	assert.Equal(t, ReasonNoActiveGrant, reasonCode)
+}
+
 func TestDBEvaluatorMatchesTeamAndTaskConditions(t *testing.T) {
 	enableBranchroom(t)
 	require.NoError(t, unittest.PrepareTestDatabase())

@@ -12,7 +12,7 @@ or commitment today.
 ## Status
 
 Branchroom has completed M0a, the M0b.1 storage proof, M0b.2 public-route regression,
-the first M1 policy foundation, the M4a–M4g isolated-workspace storage,
+the first M1 policy foundation, the M4a–M4h.1 isolated-workspace storage,
 source-policy, read-only Git HTTP, authorized clone-handoff, and clone-locator
 rotation slices, and
 the M2a–M2c development-only environment foundations. It adds a disabled-by-default
@@ -52,6 +52,12 @@ not bypass ordinary Gitea code-read permission or direct grants: Git still requi
 `read_source`, and the handoff page still requires both `discover` and `read_source`.
 The audit record names the rotation without either route key, a URL, a filesystem path,
 or a store ID.
+
+M4h.1 reserves `write_source` as a distinct policy action and records both ordinary
+Gitea code-read and code-write permission when evaluating it. It is deliberately
+deny-only: every `write_source` request returns `write_source_unavailable`, before a
+grant can match. There is no source-write grant management, receive session, hook, or
+Git receive-pack route. This does not enable push.
 
 There is now a deliberately narrow, read-only smart Git HTTP gateway for a ready
 workspace. It accepts only upload-pack advertisement and upload-pack RPC at a route

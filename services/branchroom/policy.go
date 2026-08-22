@@ -36,6 +36,7 @@ const (
 	ReasonGrantMatched           = "grant_matched"
 	ReasonMaterializeUnavailable = "materialize_unavailable"
 	ReasonReadSourceUnavailable  = "read_source_unavailable"
+	ReasonWriteSourceUnavailable = "write_source_unavailable"
 )
 
 // Actor is the concrete authenticated identity considered by policy.
@@ -57,12 +58,16 @@ func ActorFromUser(user *user_model.User) Actor {
 
 // RepositoryCeiling captures the already-clamped ordinary Gitea permission for this operation.
 type RepositoryCeiling struct {
-	CodeRead bool
+	CodeRead  bool
+	CodeWrite bool
 }
 
-// NewRepositoryCeiling derives the discovery ceiling from Gitea's calculated permission.
+// NewRepositoryCeiling derives the code-access ceiling from Gitea's calculated permission.
 func NewRepositoryCeiling(permission access_model.Permission) RepositoryCeiling {
-	return RepositoryCeiling{CodeRead: permission.CanRead(unit.TypeCode)}
+	return RepositoryCeiling{
+		CodeRead:  permission.CanRead(unit.TypeCode),
+		CodeWrite: permission.CanWrite(unit.TypeCode),
+	}
 }
 
 // resolveDirectUserRepositoryCeiling reloads a direct user and their ordinary
@@ -191,6 +196,13 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 			if scope.Kind != branchroom_model.ScopeKindRepository || request.ResourceType != branchroom_model.ResourceTypeWorkspace || !isWorkspaceResourceID(request.ResourceID) {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonResourceMismatch, 0)
 			}
+		case branchroom_model.ActionWriteSource:
+			if request.Surface != branchroom_model.SurfaceGitHTTP || request.Actor.Type != branchroom_model.ActorTypeUser {
+				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonWriteSourceUnavailable, 0)
+			}
+			if scope.Kind != branchroom_model.ScopeKindRepository || request.ResourceType != branchroom_model.ResourceTypeWorkspace || !isWorkspaceResourceID(request.ResourceID) {
+				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonResourceMismatch, 0)
+			}
 		case branchroom_model.ActionMaterialize:
 			if !setting.BranchroomEnvironment.Enabled || request.Surface != branchroom_model.SurfaceSystem || request.Actor.Type != branchroom_model.ActorTypeUser {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonMaterializeUnavailable, 0)
@@ -203,6 +215,12 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 		}
 		if scope.State != branchroom_model.ScopeStateActive {
 			return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonScopeInactive, 0)
+		}
+		if request.Action == branchroom_model.ActionWriteSource {
+			if !request.Ceiling.CodeRead || !request.Ceiling.CodeWrite {
+				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonOrdinaryPermissionDeny, 0)
+			}
+			return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonWriteSourceUnavailable, 0)
 		}
 		if !request.Ceiling.CodeRead {
 			return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonOrdinaryPermissionDeny, 0)
@@ -239,6 +257,13 @@ func isWorkspaceResourceID(resourceID string) bool {
 	return ok && uuid.Validate(workspaceKey) == nil && uuid.MustParse(workspaceKey).String() == workspaceKey
 }
 
+func (request Request) ordinaryAllowed() bool {
+	if request.Action == branchroom_model.ActionWriteSource {
+		return request.Ceiling.CodeRead && request.Ceiling.CodeWrite
+	}
+	return request.Ceiling.CodeRead
+}
+
 func (e *DBEvaluator) record(ctx context.Context, scope *branchroom_model.Scope, result Decision, request Request, now timeutil.TimeStamp, outcome branchroom_model.DecisionResult, reasonCode string, grantID int64) (Decision, error) {
 	persisted := &branchroom_model.Decision{
 		ScopeID:         scope.ID,
@@ -252,7 +277,7 @@ func (e *DBEvaluator) record(ctx context.Context, scope *branchroom_model.Scope,
 		Surface:         request.Surface,
 		Result:          outcome,
 		ReasonCode:      reasonCode,
-		OrdinaryAllowed: request.Ceiling.CodeRead,
+		OrdinaryAllowed: request.ordinaryAllowed(),
 		RequestID:       request.RequestID,
 		ExpiresUnix:     now,
 		CreatedUnix:     now,
@@ -276,7 +301,7 @@ func findMatchingGrant(ctx context.Context, scope *branchroom_model.Scope, reque
 	}
 	conditionMismatch := false
 	for _, grant := range grants {
-		if request.Action == branchroom_model.ActionReadSource && grant.SubjectType != branchroom_model.SubjectTypeUser {
+		if (request.Action == branchroom_model.ActionReadSource || request.Action == branchroom_model.ActionWriteSource) && grant.SubjectType != branchroom_model.SubjectTypeUser {
 			continue
 		}
 		matched, conditionsMatch, err := grantMatches(ctx, scope, grant, request)
