@@ -65,7 +65,7 @@ func (Workspace) TableName() string { return "branchroom_workspace" }
 
 // Validate checks the storage mapping without resolving its physical repository.
 func (workspace *Workspace) Validate() error {
-	if !isCanonicalUUID(workspace.WorkspaceKey) || !isWorkspaceRouteKey(workspace.RouteKey) || workspaceRouteKeyCorrelates(workspace.RouteKey, workspace.WorkspaceKey, workspace.StoreID) || !isCanonicalUUID(workspace.StoreID) || workspace.ScopeID <= 0 || workspace.RepoID <= 0 || workspace.CreatedByID <= 0 {
+	if !IsCanonicalUUID(workspace.WorkspaceKey) || !isWorkspaceRouteKey(workspace.RouteKey) || workspaceRouteKeyCorrelates(workspace.RouteKey, workspace.WorkspaceKey, workspace.StoreID) || !IsCanonicalUUID(workspace.StoreID) || workspace.ScopeID <= 0 || workspace.RepoID <= 0 || workspace.CreatedByID <= 0 {
 		return util.NewInvalidArgumentErrorf("invalid Branchroom workspace identity")
 	}
 	if !workspaceBaseMatchesObjectFormat(workspace.PublicBaseSHA, workspace.ObjectFormatName) || !IsWorkspaceStateValid(workspace.State) || workspace.RetiredUnix < 0 {
@@ -217,7 +217,7 @@ func getWorkspaceByID(ctx context.Context, id int64, forUpdate bool) (*Workspace
 
 // GetWorkspaceByKey returns a workspace by its opaque canonical UUID key.
 func GetWorkspaceByKey(ctx context.Context, workspaceKey string) (*Workspace, error) {
-	if !isCanonicalUUID(workspaceKey) {
+	if !IsCanonicalUUID(workspaceKey) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom workspace key")
 	}
 	workspace := new(Workspace)

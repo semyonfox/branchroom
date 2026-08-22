@@ -11,6 +11,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/git/gitrepo"
+	"gitea.dev/modules/log"
 )
 
 // ImportPublicBase copies a public bare repository into an empty restricted store.
@@ -39,7 +40,8 @@ func ImportPublicBase(ctx context.Context, public, restricted gitrepo.Repository
 	}
 
 	if _, _, err := gitcmd.NewCommand("remote", "remove", "origin").WithRepo(restricted).RunStdString(ctx); err != nil {
-		return fmt.Errorf("remove public remote: %w", err)
+		// the import itself succeeded; a stale origin config is cosmetic, so keep the store
+		log.Error("unable to remove Branchroom public remote origin: %v", err)
 	}
 	return nil
 }
