@@ -41,11 +41,18 @@ func TestGrantValidationAndRevocation(t *testing.T) {
 	grants, err := FindActiveGrantsAt(ctx, scope.ID, ActionDiscover, now)
 	require.NoError(t, err)
 	require.Len(t, grants, 1)
+	stored, err := GetActiveDirectUserGrantAt(ctx, scope.ID, 2, ActionDiscover, now)
+	require.NoError(t, err)
+	assert.Equal(t, grant.ID, stored.ID)
+	_, err = GetActiveDirectUserGrantAt(ctx, scope.ID, 3, ActionDiscover, now)
+	assert.ErrorIs(t, err, util.ErrNotExist)
 
 	require.NoError(t, RevokeGrant(ctx, grant.ID, 1, now))
 	grants, err = FindActiveGrantsAt(ctx, scope.ID, ActionDiscover, now)
 	require.NoError(t, err)
 	assert.Empty(t, grants)
+	_, err = GetActiveDirectUserGrantAt(ctx, scope.ID, 2, ActionDiscover, now)
+	assert.ErrorIs(t, err, util.ErrNotExist)
 	assert.ErrorIs(t, RevokeGrant(ctx, grant.ID, 1, now), util.ErrNotExist)
 
 	assert.Error(t, (&Grant{
@@ -78,6 +85,40 @@ func TestGrantValidationAndRevocation(t *testing.T) {
 		SubjectType: SubjectTypeTeam,
 		SubjectID:   3,
 		Action:      ActionMaterialize,
+		CreatedByID: 1,
+	}).Validate())
+	assert.Error(t, (&Grant{
+		ScopeID:     scope.ID,
+		SubjectType: SubjectTypeTeam,
+		SubjectID:   3,
+		Action:      ActionReadSource,
+		CreatedByID: 1,
+	}).Validate())
+	assert.Error(t, (&Grant{
+		ScopeID:           scope.ID,
+		SubjectType:       SubjectTypeActionsTask,
+		SubjectID:         3,
+		Action:            ActionReadSource,
+		WorkflowID:        "deploy.yml",
+		WorkflowRepoID:    1,
+		WorkflowCommitSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Ref:               "refs/heads/main",
+		RunnerID:          1,
+		ExpiresUnix:       now + 60,
+		CreatedByID:       1,
+	}).Validate())
+	assert.Error(t, (&Grant{
+		ScopeID:     scope.ID,
+		SubjectType: SubjectTypeDeployKey,
+		SubjectID:   3,
+		Action:      ActionReadSource,
+		CreatedByID: 1,
+	}).Validate())
+	assert.NoError(t, (&Grant{
+		ScopeID:     scope.ID,
+		SubjectType: SubjectTypeUser,
+		SubjectID:   3,
+		Action:      ActionReadSource,
 		CreatedByID: 1,
 	}).Validate())
 }

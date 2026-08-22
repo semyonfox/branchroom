@@ -16,12 +16,26 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/reqctx"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
+	"gitea.dev/modules/web/types"
 	"gitea.dev/services/context"
 )
 
+type skipGoGetKey struct{}
+
+var skipGoGet types.PreMiddlewareProvider = func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
+		reqctx.GetRequestDataStore(req.Context()).SetContextValue(skipGoGetKey{}, true)
+		next.ServeHTTP(resp, req)
+	})
+}
+
 func goGet(ctx *context.Context) {
+	if ctx.GetContextValue(skipGoGetKey{}) == true {
+		return
+	}
 	if ctx.Req.Method != http.MethodGet || len(ctx.Req.URL.RawQuery) < 8 || ctx.FormString("go-get") != "1" {
 		return
 	}

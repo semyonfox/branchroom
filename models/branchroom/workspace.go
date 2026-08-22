@@ -5,11 +5,20 @@ package branchroom
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base32"
+	"strings"
 
 	"gitea.dev/models/db"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
+
+	"github.com/google/uuid"
 )
+
+const workspaceRouteKeyLength = 26
+
+var workspaceRouteKeyEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)
 
 // WorkspaceState describes whether an isolated restricted store may be used.
 // A future transport gateway must require both an active workspace and an active scope.
@@ -37,6 +46,7 @@ func IsWorkspaceStateValid(state WorkspaceState) bool {
 type Workspace struct {
 	ID               int64              `xorm:"pk autoincr"`
 	WorkspaceKey     string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
+	RouteKey         string             `xorm:"CHAR(26) UNIQUE NOT NULL"`
 	ScopeID          int64              `xorm:"UNIQUE NOT NULL"`
 	RepoID           int64              `xorm:"INDEX(repo_state) NOT NULL"`
 	StoreID          string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
@@ -55,7 +65,7 @@ func (Workspace) TableName() string { return "branchroom_workspace" }
 
 // Validate checks the storage mapping without resolving its physical repository.
 func (workspace *Workspace) Validate() error {
-	if !isCanonicalUUID(workspace.WorkspaceKey) || !isCanonicalUUID(workspace.StoreID) || workspace.ScopeID <= 0 || workspace.RepoID <= 0 || workspace.CreatedByID <= 0 {
+	if !isCanonicalUUID(workspace.WorkspaceKey) || !isWorkspaceRouteKey(workspace.RouteKey) || workspaceRouteKeyCorrelates(workspace.RouteKey, workspace.WorkspaceKey, workspace.StoreID) || !isCanonicalUUID(workspace.StoreID) || workspace.ScopeID <= 0 || workspace.RepoID <= 0 || workspace.CreatedByID <= 0 {
 		return util.NewInvalidArgumentErrorf("invalid Branchroom workspace identity")
 	}
 	if !workspaceBaseMatchesObjectFormat(workspace.PublicBaseSHA, workspace.ObjectFormatName) || !IsWorkspaceStateValid(workspace.State) || workspace.RetiredUnix < 0 {
@@ -78,6 +88,42 @@ func (workspace *Workspace) Validate() error {
 	return nil
 }
 
+// NewWorkspaceRouteKey returns a new opaque public locator. It is never an authorization credential.
+func NewWorkspaceRouteKey() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return workspaceRouteKeyEncoding.EncodeToString(value), nil
+}
+
+// IsWorkspaceRouteKey reports whether value is a canonical public workspace route key.
+func IsWorkspaceRouteKey(value string) bool {
+	return isWorkspaceRouteKey(value)
+}
+
+func isWorkspaceRouteKey(value string) bool {
+	if len(value) != workspaceRouteKeyLength || value != strings.ToLower(value) {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= 'a' && r <= 'z' || r >= '2' && r <= '7') {
+			return false
+		}
+	}
+	return true
+}
+
+func workspaceRouteKeyCorrelates(routeKey, workspaceKey, storeID string) bool {
+	for _, value := range []string{workspaceKey, storeID} {
+		parsed, err := uuid.Parse(value)
+		if err == nil && routeKey == workspaceRouteKeyEncoding.EncodeToString(parsed[:]) {
+			return true
+		}
+	}
+	return false
+}
+
 func workspaceBaseMatchesObjectFormat(sha, objectFormatName string) bool {
 	switch objectFormatName {
 	case "sha1":
@@ -94,10 +140,50 @@ func InsertWorkspace(ctx context.Context, workspace *Workspace) error {
 	if workspace == nil {
 		return util.NewInvalidArgumentErrorf("Branchroom workspace is required")
 	}
+	if workspace.RouteKey == "" {
+		routeKey, err := NewWorkspaceRouteKey()
+		if err != nil {
+			return err
+		}
+		workspace.RouteKey = routeKey
+	}
 	if err := workspace.Validate(); err != nil {
 		return err
 	}
 	return db.Insert(ctx, workspace)
+}
+
+// GetWorkspaceByRouteKey returns a workspace by its opaque canonical public route key.
+func GetWorkspaceByRouteKey(ctx context.Context, routeKey string) (*Workspace, error) {
+	if !isWorkspaceRouteKey(routeKey) {
+		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom workspace route key")
+	}
+	workspace := new(Workspace)
+	has, err := db.GetEngine(ctx).Where("route_key = ?", routeKey).Get(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, util.NewNotExistErrorf("Branchroom workspace does not exist")
+	}
+	return workspace, nil
+}
+
+// GetWorkspaceByRouteKeyAndRepoID returns a workspace only when its opaque route
+// locator belongs to repoID.
+func GetWorkspaceByRouteKeyAndRepoID(ctx context.Context, routeKey string, repoID int64) (*Workspace, error) {
+	if !isWorkspaceRouteKey(routeKey) || repoID <= 0 {
+		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom workspace route lookup")
+	}
+	workspace := new(Workspace)
+	has, err := db.GetEngine(ctx).Where("route_key = ? AND repo_id = ?", routeKey, repoID).Get(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, util.NewNotExistErrorf("Branchroom workspace does not exist")
+	}
+	return workspace, nil
 }
 
 // GetWorkspaceByID returns a workspace by its database ID.
@@ -125,6 +211,23 @@ func getWorkspaceByID(ctx context.Context, id int64, forUpdate bool) (*Workspace
 	}
 	if !has {
 		return nil, util.NewNotExistErrorf("Branchroom workspace %d does not exist", id)
+	}
+	return workspace, nil
+}
+
+// GetWorkspaceByKey returns a workspace by its opaque canonical UUID key.
+func GetWorkspaceByKey(ctx context.Context, workspaceKey string) (*Workspace, error) {
+	if !isCanonicalUUID(workspaceKey) {
+		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom workspace key")
+	}
+	workspace := new(Workspace)
+	engine := db.GetEngine(ctx).Where("workspace_key = ?", workspaceKey)
+	has, err := engine.Get(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, util.NewNotExistErrorf("Branchroom workspace does not exist")
 	}
 	return workspace, nil
 }

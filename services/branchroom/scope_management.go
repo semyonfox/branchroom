@@ -130,6 +130,28 @@ func lockRepositoryLifecycle(ctx context.Context, repoID int64) error {
 	return err
 }
 
+// lockRepositoryLifecycleForRead serializes a transport authorization decision with
+// repository transfer and deletion without changing public repository metadata.
+func lockRepositoryLifecycleForRead(ctx context.Context, repoID int64) error {
+	if repoID <= 0 {
+		return util.NewInvalidArgumentErrorf("invalid Branchroom repository ID")
+	}
+
+	repository := new(repo_model.Repository)
+	engine := db.GetEngine(ctx).ID(repoID)
+	if setting.Database.Type.IsMySQL() || setting.Database.Type.IsPostgreSQL() {
+		engine = engine.ForUpdate()
+	}
+	has, err := engine.Get(repository)
+	if err != nil {
+		return err
+	}
+	if !has {
+		return util.NewNotExistErrorf("Branchroom repository does not exist")
+	}
+	return nil
+}
+
 // CanManageRepositoryScopes returns whether actor has real repository-owner authority.
 // It deliberately ignores site-administrator status as a Branchroom policy bypass.
 func CanManageRepositoryScopes(ctx context.Context, repoID int64, actor Actor) (bool, error) {

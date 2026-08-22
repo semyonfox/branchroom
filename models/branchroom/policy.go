@@ -294,6 +294,9 @@ func (grant *Grant) Validate() error {
 	if grant.Action == ActionMaterialize && grant.SubjectType != SubjectTypeUser {
 		return util.NewInvalidArgumentErrorf("Branchroom environment materialization grants require a direct user")
 	}
+	if grant.Action == ActionReadSource && grant.SubjectType != SubjectTypeUser {
+		return util.NewInvalidArgumentErrorf("Branchroom source-read grants require a direct user")
+	}
 	return nil
 }
 
@@ -553,6 +556,27 @@ func FindActiveGrantsAt(ctx context.Context, scopeID int64, action Action, now t
 		Asc("id").
 		Find(&grants)
 	return grants, err
+}
+
+// GetActiveDirectUserGrantAt returns one active direct-user grant for the exact
+// scope, action, and user. It deliberately does not match teams, deploy keys, or
+// Actions-task identities.
+func GetActiveDirectUserGrantAt(ctx context.Context, scopeID, userID int64, action Action, now timeutil.TimeStamp) (*Grant, error) {
+	if scopeID <= 0 || userID <= 0 || !IsActionValid(action) || now <= 0 {
+		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom direct-user grant query")
+	}
+	grant := new(Grant)
+	has, err := db.GetEngine(ctx).
+		Where("scope_id = ? AND subject_type = ? AND subject_id = ? AND action = ? AND revoked_unix = 0 AND (not_before_unix = 0 OR not_before_unix <= ?) AND (expires_unix = 0 OR expires_unix > ?)", scopeID, SubjectTypeUser, userID, action, now, now).
+		Asc("id").
+		Get(grant)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, util.NewNotExistErrorf("active Branchroom direct-user grant does not exist")
+	}
+	return grant, nil
 }
 
 // RevokeGrant records a revocation once and leaves the grant row intact for audit history.

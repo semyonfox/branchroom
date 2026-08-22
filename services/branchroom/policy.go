@@ -35,6 +35,7 @@ const (
 	ReasonConditionMismatch      = "condition_mismatch"
 	ReasonGrantMatched           = "grant_matched"
 	ReasonMaterializeUnavailable = "materialize_unavailable"
+	ReasonReadSourceUnavailable  = "read_source_unavailable"
 )
 
 // Actor is the concrete authenticated identity considered by policy.
@@ -62,6 +63,43 @@ type RepositoryCeiling struct {
 // NewRepositoryCeiling derives the discovery ceiling from Gitea's calculated permission.
 func NewRepositoryCeiling(permission access_model.Permission) RepositoryCeiling {
 	return RepositoryCeiling{CodeRead: permission.CanRead(unit.TypeCode)}
+}
+
+// resolveDirectUserRepositoryCeiling reloads a direct user and their ordinary
+// repository permission. It deliberately does not resolve Actions, deploy-key, or
+// token identities as a user.
+func resolveDirectUserRepositoryCeiling(ctx context.Context, repoID int64, actor Actor) (RepositoryCeiling, bool, error) {
+	if repoID <= 0 || actor.Type != branchroom_model.ActorTypeUser || actor.ID <= 0 {
+		return RepositoryCeiling{}, false, nil
+	}
+	user, err := user_model.GetUserByID(ctx, actor.ID)
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			return RepositoryCeiling{}, false, nil
+		}
+		return RepositoryCeiling{}, false, err
+	}
+	if !user.IsIndividual() || !user.IsActive || user.ProhibitLogin || user.MustChangePassword {
+		return RepositoryCeiling{}, false, nil
+	}
+	repository, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			return RepositoryCeiling{}, false, nil
+		}
+		return RepositoryCeiling{}, false, err
+	}
+	if err := repository.LoadOwner(ctx); err != nil {
+		return RepositoryCeiling{}, false, err
+	}
+	if repository.Owner == nil || (!repository.Owner.IsOrganization() && !repository.Owner.IsActive) {
+		return RepositoryCeiling{}, false, nil
+	}
+	permission, err := access_model.GetIndividualUserRepoPermission(ctx, repository, user)
+	if err != nil {
+		return RepositoryCeiling{}, false, err
+	}
+	return NewRepositoryCeiling(permission), true, nil
 }
 
 // Request contains all facts used to evaluate one protected operation.
@@ -143,6 +181,16 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 			if request.ResourceType != branchroom_model.ResourceTypeScope || request.ResourceID != scopeResourceID(scope.ID) {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonResourceMismatch, 0)
 			}
+		case branchroom_model.ActionReadSource:
+			// This checks only the logical key shape. authorizeWorkspaceRead binds it
+			// to a ready persisted workspace before returning a storage facade. The
+			// Git HTTP surface is reachable only through its dedicated authorizer.
+			if (request.Surface != branchroom_model.SurfaceSystem && request.Surface != branchroom_model.SurfaceGitHTTP) || request.Actor.Type != branchroom_model.ActorTypeUser {
+				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonReadSourceUnavailable, 0)
+			}
+			if scope.Kind != branchroom_model.ScopeKindRepository || request.ResourceType != branchroom_model.ResourceTypeWorkspace || !isWorkspaceResourceID(request.ResourceID) {
+				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonResourceMismatch, 0)
+			}
 		case branchroom_model.ActionMaterialize:
 			if !setting.BranchroomEnvironment.Enabled || request.Surface != branchroom_model.SurfaceSystem || request.Actor.Type != branchroom_model.ActorTypeUser {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonMaterializeUnavailable, 0)
@@ -186,6 +234,11 @@ func isEnvironmentRevisionResourceID(scopeID int64, resourceID string) bool {
 	return ok && uuid.Validate(revisionKey) == nil && uuid.MustParse(revisionKey).String() == revisionKey
 }
 
+func isWorkspaceResourceID(resourceID string) bool {
+	workspaceKey, ok := strings.CutPrefix(resourceID, "workspace/")
+	return ok && uuid.Validate(workspaceKey) == nil && uuid.MustParse(workspaceKey).String() == workspaceKey
+}
+
 func (e *DBEvaluator) record(ctx context.Context, scope *branchroom_model.Scope, result Decision, request Request, now timeutil.TimeStamp, outcome branchroom_model.DecisionResult, reasonCode string, grantID int64) (Decision, error) {
 	persisted := &branchroom_model.Decision{
 		ScopeID:         scope.ID,
@@ -223,6 +276,9 @@ func findMatchingGrant(ctx context.Context, scope *branchroom_model.Scope, reque
 	}
 	conditionMismatch := false
 	for _, grant := range grants {
+		if request.Action == branchroom_model.ActionReadSource && grant.SubjectType != branchroom_model.SubjectTypeUser {
+			continue
+		}
 		matched, conditionsMatch, err := grantMatches(ctx, scope, grant, request)
 		if err != nil {
 			return nil, "", err

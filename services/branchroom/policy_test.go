@@ -116,7 +116,7 @@ func TestDBEvaluatorFailsClosed(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonUnsupportedAction, decision.ReasonCode)
+	assert.Equal(t, ReasonResourceMismatch, decision.ReasonCode)
 
 	request := testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 2}, true)
 	request.ResourceType = branchroom_model.ResourceTypeEnvironment
@@ -130,6 +130,57 @@ func TestDBEvaluatorFailsClosed(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
 	assert.Equal(t, ReasonScopeNotFound, decision.ReasonCode)
+}
+
+func TestDBEvaluatorReadSourceAllowsOnlyDedicatedSurfacesAndDirectUsers(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	evaluator := fixedEvaluator(100)
+	scope := insertTestScope(t, 1, "restricted-source")
+	workspaceKey := uuid.NewString()
+	grant := &branchroom_model.Grant{
+		ScopeID:     scope.ID,
+		SubjectType: branchroom_model.SubjectTypeUser,
+		SubjectID:   2,
+		Action:      branchroom_model.ActionReadSource,
+		CreatedByID: 1,
+	}
+	require.NoError(t, branchroom_model.InsertGrant(ctx, grant))
+
+	request := Request{
+		ScopeID:      scope.ID,
+		RepoID:       scope.RepoID,
+		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
+		Ceiling:      RepositoryCeiling{CodeRead: true},
+		Action:       branchroom_model.ActionReadSource,
+		ResourceType: branchroom_model.ResourceTypeWorkspace,
+		ResourceID:   workspaceResourceID(workspaceKey),
+		Surface:      branchroom_model.SurfaceSystem,
+	}
+	decision, err := evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.True(t, decision.Allowed)
+	assert.Equal(t, grant.ID, decision.GrantID)
+
+	request.Surface = branchroom_model.SurfaceGitHTTP
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.True(t, decision.Allowed)
+	assert.Equal(t, grant.ID, decision.GrantID)
+
+	request.Surface = branchroom_model.SurfaceWeb
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonReadSourceUnavailable, decision.ReasonCode)
+
+	request.Surface = branchroom_model.SurfaceGitHTTP
+	request.Actor = Actor{Type: branchroom_model.ActorTypeDeployKey, ID: 5}
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonReadSourceUnavailable, decision.ReasonCode)
 }
 
 func TestDBEvaluatorMatchesTeamAndTaskConditions(t *testing.T) {
@@ -152,6 +203,26 @@ func TestDBEvaluatorMatchesTeamAndTaskConditions(t *testing.T) {
 	decision, err = evaluator.Evaluate(ctx, testRequest(teamScope, Actor{Type: branchroom_model.ActorTypeUser, ID: 5}, true))
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
+	require.NoError(t, db.Insert(ctx, &branchroom_model.Grant{
+		ScopeID:     teamScope.ID,
+		SubjectType: branchroom_model.SubjectTypeTeam,
+		SubjectID:   2,
+		Action:      branchroom_model.ActionReadSource,
+		CreatedByID: 2,
+	}))
+	decision, err = evaluator.Evaluate(ctx, Request{
+		ScopeID:      teamScope.ID,
+		RepoID:       teamScope.RepoID,
+		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
+		Ceiling:      RepositoryCeiling{CodeRead: true},
+		Action:       branchroom_model.ActionReadSource,
+		ResourceType: branchroom_model.ResourceTypeWorkspace,
+		ResourceID:   workspaceResourceID(uuid.NewString()),
+		Surface:      branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonNoActiveGrant, decision.ReasonCode)
 
 	taskScope := insertTestScope(t, 1, "deployment-workflow")
 	require.NoError(t, branchroom_model.InsertGrant(ctx, &branchroom_model.Grant{

@@ -1164,6 +1164,9 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	}, optSignIn, context.RepoAssignment, reqUnitCodeReader)
 	// end "/{username}/{reponame}/-": migrate
 
+	m.Get("/{username}/{reponame}/-/branchroom", skipGoGet, repo.BranchroomSourceHandoffHeaders,
+		context.RepoAssignment, reqUnitCodeReader, repo.BranchroomSourceHandoffs)
+
 	m.Group("/{username}/{reponame}/-", func() {
 		m.Get("/mentions-in-repo", repo.GetMentionsInRepo)
 	}, optSignIn, context.RepoAssignment, reqUnitsWithMentions)
@@ -1215,6 +1218,8 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/workspaces", web.Bind[*forms.BranchroomWorkspaceForm](), repo_setting.BranchroomWorkspacePost)
 			m.Post("/grants", web.Bind[*forms.BranchroomDiscoveryGrantForm](), repo_setting.BranchroomDiscoveryGrantPost)
 			m.Post("/scopes/{scopeID}/grants/{grantID}/revoke", repo_setting.BranchroomDiscoveryGrantRevokePost)
+			m.Post("/source-grants", web.Bind[*forms.BranchroomSourceReadGrantForm](), repo_setting.BranchroomSourceReadGrantPost)
+			m.Post("/scopes/{scopeID}/source-grants/{grantID}/revoke", repo_setting.BranchroomSourceReadGrantRevokePost)
 		}, repo_setting.MustEnableBranchroom)
 
 		m.Group("/hooks/git", func() {
@@ -1759,6 +1764,10 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	// git lfs uses its own jwt key, and it handles the token & auth by itself, it conflicts with the general "OAuth2" auth method
 	// pattern: "/{username}/{reponame}/{lfs-paths}": git-lfs support, see also addOwnerRepoGitHTTPRouters
 	common.AddOwnerRepoGitLFSRoutes(m, lfsServerEnabled, webAuth.AllowBasic, repo.CorsHandler(), optSignInFromAnyOrigin)
+
+	// Restricted workspaces expose only authenticated smart upload-pack through a
+	// separate route and never reuse normal repository storage routing.
+	addBranchroomGitHTTPRouters(m, skipGoGet, repo.BranchroomGitHTTPHeaders, webAuth.AllowBasic)
 
 	// Some users want to use "web-based git client" to access Gitea's repositories,
 	// so the CORS handler and OPTIONS method are used.

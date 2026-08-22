@@ -24,3 +24,12 @@ func addOwnerRepoGitHTTPRouters(m *web.Router, middlewares ...any) {
 		m.Methods("GET,OPTIONS", "/objects/pack/pack-{file:[0-9a-f]{40,64}}.idx", repo.GetIdxFile)
 	}, middlewares...)
 }
+
+func addBranchroomGitHTTPRouters(m *web.Router, middlewares ...any) {
+	m.Group("/_branchroom/{username}/{reponame}/{routeKey}.git", func() {
+		m.Any("/info/refs", repo.BranchroomGitHTTPInfoRefs)
+		m.Any("/git-upload-pack", repo.BranchroomGitHTTPUploadPack)
+		m.Any("", repo.BranchroomGitHTTPNotFound)
+		m.Any("/*", repo.BranchroomGitHTTPNotFound)
+	}, middlewares...)
+}

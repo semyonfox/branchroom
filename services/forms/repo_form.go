@@ -167,6 +167,13 @@ type BranchroomDiscoveryGrantForm struct {
 	Username string `binding:"Required;MaxSize(255)"`
 }
 
+// BranchroomSourceReadGrantForm grants source read to one direct user.
+type BranchroomSourceReadGrantForm struct {
+	middleware.FormDefaultValidator
+	ScopeID  int64  `binding:"Required"`
+	Username string `binding:"Required;MaxSize(255)"`
+}
+
 // ProtectBranchForm form for changing protected branch settings
 type ProtectBranchForm struct {
 	middleware.FormDefaultValidator

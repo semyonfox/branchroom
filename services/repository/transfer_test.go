@@ -61,6 +61,14 @@ func TestTransferOwnership(t *testing.T) {
 		CreatedByID: formerScopeUser.ID,
 	}
 	assert.NoError(t, branchroom_model.InsertGrant(t.Context(), branchroomGrant))
+	branchroomSourceGrant := &branchroom_model.Grant{
+		ScopeID:     branchroomScope.ID,
+		SubjectType: branchroom_model.SubjectTypeUser,
+		SubjectID:   formerScopeUser.ID,
+		Action:      branchroom_model.ActionReadSource,
+		CreatedByID: formerScopeUser.ID,
+	}
+	assert.NoError(t, branchroom_model.InsertGrant(t.Context(), branchroomSourceGrant))
 	branchroomWorkspace := &branchroom_model.Workspace{
 		WorkspaceKey:     "11111111-1111-1111-1111-111111111111",
 		ScopeID:          branchroomScope.ID,
@@ -136,9 +144,14 @@ func TestTransferOwnership(t *testing.T) {
 	assert.Equal(t, branchroom_model.ScopeStateRetired, transferredScope.State)
 	transferredGrant := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Grant{ID: branchroomGrant.ID})
 	assert.NotZero(t, transferredGrant.RevokedUnix)
+	transferredSourceGrant := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Grant{ID: branchroomSourceGrant.ID})
+	assert.NotZero(t, transferredSourceGrant.RevokedUnix)
 	activeGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), transferredScope.ID, branchroom_model.ActionDiscover, timeutil.TimeStampNow())
 	assert.NoError(t, err)
 	assert.Empty(t, activeGrants)
+	activeSourceGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), transferredScope.ID, branchroom_model.ActionReadSource, timeutil.TimeStampNow())
+	assert.NoError(t, err)
+	assert.Empty(t, activeSourceGrants)
 	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{ScopeID: branchroomScope.ID, ReasonCode: "repository_transferred"})
 	transferredWorkspace := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Workspace{ID: branchroomWorkspace.ID})
 	assert.Equal(t, branchroom_model.WorkspaceStateRetired, transferredWorkspace.State)

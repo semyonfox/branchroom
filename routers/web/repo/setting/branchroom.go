@@ -29,14 +29,16 @@ type branchroomScopeData struct {
 	Name                  string
 	State                 branchroom_model.ScopeState
 	CanGrantDiscovery     bool
+	CanGrantSourceRead    bool
 	CanProvisionWorkspace bool
 	HasWorkspace          bool
 	WorkspaceState        branchroom_model.WorkspaceState
 	WorkspacePublicBase   string
-	DiscoveryGrants       []branchroomDiscoveryGrantData
+	DiscoveryGrants       []branchroomDirectUserGrantData
+	SourceReadGrants      []branchroomDirectUserGrantData
 }
 
-type branchroomDiscoveryGrantData struct {
+type branchroomDirectUserGrantData struct {
 	ID          int64
 	SubjectName string
 }
@@ -84,20 +86,33 @@ func Branchroom(ctx *context.Context) {
 		workspacesByScopeID[workspace.ScopeID] = workspace
 	}
 
-	grantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
+	discoveryGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
+	sourceReadGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	userIDs := make([]int64, 0)
 	now := timeutil.TimeStampNow()
 	for _, scope := range visibleScopes {
-		grants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionDiscover, now)
+		discoveryGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionDiscover, now)
 		if err != nil {
 			ctx.ServerError("FindActiveBranchroomGrants", err)
 			return
 		}
-		for _, grant := range grants {
+		for _, grant := range discoveryGrants {
 			if grant.SubjectType != branchroom_model.SubjectTypeUser {
 				continue
 			}
-			grantsByScopeID[scope.ID] = append(grantsByScopeID[scope.ID], grant)
+			discoveryGrantsByScopeID[scope.ID] = append(discoveryGrantsByScopeID[scope.ID], grant)
+			userIDs = append(userIDs, grant.SubjectID)
+		}
+		sourceReadGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionReadSource, now)
+		if err != nil {
+			ctx.ServerError("FindActiveBranchroomSourceReadGrants", err)
+			return
+		}
+		for _, grant := range sourceReadGrants {
+			if grant.SubjectType != branchroom_model.SubjectTypeUser {
+				continue
+			}
+			sourceReadGrantsByScopeID[scope.ID] = append(sourceReadGrantsByScopeID[scope.ID], grant)
 			userIDs = append(userIDs, grant.SubjectID)
 		}
 	}
@@ -118,18 +133,30 @@ func Branchroom(ctx *context.Context) {
 			CanGrantDiscovery:     scope.State == branchroom_model.ScopeStateActive,
 			CanProvisionWorkspace: scope.State == branchroom_model.ScopeStateActive && workspace == nil,
 			HasWorkspace:          workspace != nil,
-			DiscoveryGrants:       make([]branchroomDiscoveryGrantData, 0, len(grantsByScopeID[scope.ID])),
+			DiscoveryGrants:       make([]branchroomDirectUserGrantData, 0, len(discoveryGrantsByScopeID[scope.ID])),
+			SourceReadGrants:      make([]branchroomDirectUserGrantData, 0, len(sourceReadGrantsByScopeID[scope.ID])),
 		}
 		if workspace != nil {
 			data.WorkspaceState = workspace.State
 			data.WorkspacePublicBase = workspace.PublicBaseSHA
+			data.CanGrantSourceRead = scope.State == branchroom_model.ScopeStateActive && workspace.State == branchroom_model.WorkspaceStateReady
 		}
-		for _, grant := range grantsByScopeID[scope.ID] {
+		for _, grant := range discoveryGrantsByScopeID[scope.ID] {
 			subjectName := string(ctx.Tr("repo.settings.branchroom.deleted_user", grant.SubjectID))
 			if user, ok := users[grant.SubjectID]; ok {
 				subjectName = user.Name
 			}
-			data.DiscoveryGrants = append(data.DiscoveryGrants, branchroomDiscoveryGrantData{
+			data.DiscoveryGrants = append(data.DiscoveryGrants, branchroomDirectUserGrantData{
+				ID:          grant.ID,
+				SubjectName: subjectName,
+			})
+		}
+		for _, grant := range sourceReadGrantsByScopeID[scope.ID] {
+			subjectName := string(ctx.Tr("repo.settings.branchroom.deleted_user", grant.SubjectID))
+			if user, ok := users[grant.SubjectID]; ok {
+				subjectName = user.Name
+			}
+			data.SourceReadGrants = append(data.SourceReadGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
 				SubjectName: subjectName,
 			})
@@ -145,43 +172,19 @@ func Branchroom(ctx *context.Context) {
 
 // BranchroomDiscoveryGrantPost grants discovery to one direct user for an active scope.
 func BranchroomDiscoveryGrantPost(ctx *context.Context) {
-	if !requireBranchroomScopeOwner(ctx) {
-		return
-	}
-	form := web.GetForm[*forms.BranchroomDiscoveryGrantForm](ctx)
-	if ctx.HasError() {
-		ctx.Flash.Error(ctx.GetErrMsg())
-		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
-		return
-	}
+	branchroomDirectUserGrantPost(ctx, branchroomDiscoveryGrantForm, createBranchroomDiscoveryGrant, branchroom_service.ErrDiscoveryGrantAlreadyExists,
+		"repo.settings.branchroom.grant_exists", "repo.settings.branchroom.grant_create_failed", "repo.settings.branchroom.grant_created")
+}
 
-	_, err := branchroom_service.CreateRepositoryDiscoveryGrant(ctx, branchroom_service.CreateRepositoryDiscoveryGrantRequest{
-		RepoID:          ctx.Repo.Repository.ID,
-		ScopeID:         form.ScopeID,
-		Actor:           branchroom_service.ActorFromUser(ctx.Doer),
-		SubjectUsername: form.Username,
-		Surface:         branchroom_model.SurfaceWeb,
-	})
-	if err != nil {
-		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
-			return
-		}
-		if errors.Is(err, branchroom_service.ErrDiscoveryGrantAlreadyExists) {
-			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_exists"))
-		} else {
-			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_create_failed"))
-		}
-		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
-		return
-	}
-
-	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.grant_created"))
-	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+// BranchroomSourceReadGrantPost grants source read to one direct user for a ready workspace.
+// It does not reveal a clone URL; the narrow Git HTTP route reevaluates the grant.
+func BranchroomSourceReadGrantPost(ctx *context.Context) {
+	branchroomDirectUserGrantPost(ctx, branchroomSourceReadGrantForm, createBranchroomSourceReadGrant, branchroom_service.ErrSourceReadGrantAlreadyExists,
+		"repo.settings.branchroom.source_grant_exists", "repo.settings.branchroom.source_grant_create_failed", "repo.settings.branchroom.source_grant_created")
 }
 
 // BranchroomWorkspacePost provisions an isolated store from the current default branch.
-// The store remains unreachable until a later transport gateway is reviewed and added.
+// A ready store remains hidden until a direct user passes the Git HTTP authorization gate.
 func BranchroomWorkspacePost(ctx *context.Context) {
 	if !requireBranchroomScopeOwner(ctx) {
 		return
@@ -226,6 +229,108 @@ func BranchroomWorkspacePost(ctx *context.Context) {
 
 // BranchroomDiscoveryGrantRevokePost revokes one direct-user discovery grant.
 func BranchroomDiscoveryGrantRevokePost(ctx *context.Context) {
+	branchroomDirectUserGrantRevokePost(ctx, revokeBranchroomDiscoveryGrant,
+		"repo.settings.branchroom.grant_revoke_failed", "repo.settings.branchroom.grant_revoked")
+}
+
+// BranchroomSourceReadGrantRevokePost revokes one direct-user source-read grant.
+func BranchroomSourceReadGrantRevokePost(ctx *context.Context) {
+	branchroomDirectUserGrantRevokePost(ctx, revokeBranchroomSourceReadGrant,
+		"repo.settings.branchroom.source_grant_revoke_failed", "repo.settings.branchroom.source_grant_revoked")
+}
+
+type branchroomGrantFormValues struct {
+	ScopeID  int64
+	Username string
+}
+
+type branchroomGrantCreateFunc func(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error
+
+func branchroomDiscoveryGrantForm(ctx *context.Context) branchroomGrantFormValues {
+	form := web.GetForm[*forms.BranchroomDiscoveryGrantForm](ctx)
+	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
+}
+
+func branchroomSourceReadGrantForm(ctx *context.Context) branchroomGrantFormValues {
+	form := web.GetForm[*forms.BranchroomSourceReadGrantForm](ctx)
+	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
+}
+
+func createBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
+	_, err := branchroom_service.CreateRepositoryDiscoveryGrant(ctx, branchroom_service.CreateRepositoryDiscoveryGrantRequest{
+		RepoID:          repoID,
+		ScopeID:         scopeID,
+		Actor:           actor,
+		SubjectUsername: username,
+		Surface:         branchroom_model.SurfaceWeb,
+	})
+	return err
+}
+
+func createBranchroomSourceReadGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
+	_, err := branchroom_service.CreateRepositorySourceReadGrant(ctx, branchroom_service.CreateRepositorySourceReadGrantRequest{
+		RepoID:          repoID,
+		ScopeID:         scopeID,
+		Actor:           actor,
+		SubjectUsername: username,
+		Surface:         branchroom_model.SurfaceWeb,
+	})
+	return err
+}
+
+func branchroomDirectUserGrantPost(ctx *context.Context, getForm func(ctx *context.Context) branchroomGrantFormValues, createGrant branchroomGrantCreateFunc, existsError error, existsMessage, failedMessage, successMessage string) {
+	if !requireBranchroomScopeOwner(ctx) {
+		return
+	}
+	form := getForm(ctx)
+	if ctx.HasError() {
+		ctx.Flash.Error(ctx.GetErrMsg())
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	err := createGrant(ctx, ctx.Repo.Repository.ID, form.ScopeID, branchroom_service.ActorFromUser(ctx.Doer), form.Username)
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound(nil)
+			return
+		}
+		if errors.Is(err, existsError) {
+			ctx.Flash.Error(ctx.Tr(existsMessage))
+		} else {
+			ctx.Flash.Error(ctx.Tr(failedMessage))
+		}
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr(successMessage))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+type branchroomGrantRevokeFunc func(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error
+
+func revokeBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error {
+	return branchroom_service.RevokeRepositoryDiscoveryGrant(ctx, branchroom_service.RevokeRepositoryDiscoveryGrantRequest{
+		RepoID:  repoID,
+		ScopeID: scopeID,
+		GrantID: grantID,
+		Actor:   actor,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+}
+
+func revokeBranchroomSourceReadGrant(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error {
+	return branchroom_service.RevokeRepositorySourceReadGrant(ctx, branchroom_service.RevokeRepositorySourceReadGrantRequest{
+		RepoID:  repoID,
+		ScopeID: scopeID,
+		GrantID: grantID,
+		Actor:   actor,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+}
+
+func branchroomDirectUserGrantRevokePost(ctx *context.Context, revokeGrant branchroomGrantRevokeFunc, failedMessage, successMessage string) {
 	if !requireBranchroomScopeOwner(ctx) {
 		return
 	}
@@ -235,24 +340,18 @@ func BranchroomDiscoveryGrantRevokePost(ctx *context.Context) {
 		ctx.NotFound(nil)
 		return
 	}
-	err := branchroom_service.RevokeRepositoryDiscoveryGrant(ctx, branchroom_service.RevokeRepositoryDiscoveryGrantRequest{
-		RepoID:  ctx.Repo.Repository.ID,
-		ScopeID: scopeID,
-		GrantID: grantID,
-		Actor:   branchroom_service.ActorFromUser(ctx.Doer),
-		Surface: branchroom_model.SurfaceWeb,
-	})
+	err := revokeGrant(ctx, ctx.Repo.Repository.ID, scopeID, grantID, branchroom_service.ActorFromUser(ctx.Doer))
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
 			ctx.NotFound(nil)
 			return
 		}
-		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_revoke_failed"))
+		ctx.Flash.Error(ctx.Tr(failedMessage))
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 		return
 	}
 
-	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.grant_revoked"))
+	ctx.Flash.Success(ctx.Tr(successMessage))
 	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 }
 
@@ -289,7 +388,7 @@ func BranchroomPost(ctx *context.Context) {
 }
 
 func requireBranchroomScopeOwner(ctx *context.Context) bool {
-	if !setting.Branchroom.Enabled || !ctx.Repo.Repository.UnitEnabled(ctx, unit_model.TypeCode) {
+	if !setting.Branchroom.Enabled || ctx.Doer == nil || ctx.DoerIsImpersonated() || ctx.Doer.MustChangePassword || !ctx.Repo.Repository.UnitEnabled(ctx, unit_model.TypeCode) {
 		ctx.NotFound(nil)
 		return false
 	}

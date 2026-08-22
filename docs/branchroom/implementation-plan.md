@@ -1,10 +1,10 @@
 # Branchroom implementation plan
 
-- Status: M0–M1 foundations, M4a–M4b isolated-workspace storage, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet exposed
+- Status: M0–M1 foundations, M4a–M4f isolated-workspace storage, source-policy, narrow read-only Git HTTP, and authorized clone handoff plumbing, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet complete
 - Working name: Branchroom
 - Fork status: maintained separately and developed fork-first; an upstream design discussion may be useful later, but no proposal is active
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
-- Last updated: 21 August 2026
+- Last updated: 22 August 2026
 
 This is the versioned implementation plan for this fork. A separately maintained
 HTML copy is not built or published by this repository. Until a milestone lands, the
@@ -46,10 +46,12 @@ actual repository owner or an organization team with repository-admin access can
 create a repository scope; a Gitea site administrator is not a Branchroom bypass.
 Creating a scope writes the creator's explicit discovery grant and a safe audit event.
 The page can also create and revoke a direct, active individual user's `discover`
-grant for an active scope. It does not create team, bot, deploy-key, Actions-task,
-source, write, or expiring grants. Retired scopes are hidden from a new repository
-owner after transfer. The page deliberately says that it creates policy metadata, not
-a restricted Git workspace.
+grant for an active scope. Once M4d has verified a ready isolated workspace, it can
+also create and revoke that user's `read_source` grant; this is policy preparation,
+not source exposure. It does not create team, bot, deploy-key, Actions-task, write,
+or expiring grants. Retired scopes are hidden from a new repository owner after
+transfer. The page deliberately says that it creates policy metadata, not a restricted
+Git workspace.
 
 M4a adds ordered migration 350 and a persisted `branchroom_workspace` mapping. Its
 logical workspace and physical-store identities are separate opaque UUIDs; the record
@@ -59,8 +61,8 @@ owner-authorized server-internal creator reserves a `provisioning` row, copies t
 public store using the M0 import primitive, verifies the exact commit and object
 format in the isolated store, then marks it `ready` and appends an audit event. A
 failed import remains non-ready (and is marked `failed` when its safe failure record
-commits), so it never becomes routable. No HTTP, SSH, LFS, API, or clone URL resolves
-a mapping to its isolated store.
+commits), so it never becomes routable. M4a itself added no HTTP, SSH, LFS, API, or
+clone URL that resolved a mapping to its isolated store.
 
 M4b makes isolated storage manageable without exposing it. The owner-only settings
 page can provision one active repository scope from the current default-branch commit
@@ -68,7 +70,20 @@ and show the safe workspace state plus its pinned public-base SHA. The handler n
 accepts a store identifier or filesystem path, and the rendered page never contains a
 store ID, workspace UUID, physical path, or clone URL. It cannot provision an
 environment scope, retired scope, or scope in another repository. A `ready` mapping
-still has no Git HTTP, SSH, LFS, API, CLI, or Actions route.
+has only the narrow M4e Git HTTP read route after a direct-user authorization decision;
+it still has no SSH, LFS, API, CLI, or Actions route.
+
+M4c adds a package-internal source-read resolver for a ready repository workspace.
+It accepts only a repository ID, opaque workspace key, and direct user ID; it reloads
+the user and their ordinary code-read permission, serializes with transfer and
+deletion, rechecks the repository scope and workspace lifecycle under row locks, and
+requires an explicit direct-user `read_source` grant. The only currently accepted
+policy surfaces are `system` and the dedicated M4e Git HTTP adapter; team, deploy-key,
+and Actions-task source grants do not match. It returns a restricted repository facade
+only after the allow audit commits, and every denial returns the same no-such-workspace
+result. M4d adds the narrowly scoped owner route to manage direct-user source-read
+grants for a ready workspace; it does not render a clone URL. The resolver is a
+non-cacheable internal seam, not a general source-access feature.
 
 M2a adds ordered migration 351 and encrypted-environment revision and lease records.
 It is a deliberately sealed development-only backend, not an environment product
@@ -125,10 +140,12 @@ environment revision exists, deletion fails closed until a retention collector c
 remove the restricted store or encrypted record outside the database transaction. This
 avoids silently orphaning or erasing restricted data.
 
-There is still no restricted Git HTTP/SSH/LFS route, public Branchroom API,
-production KMS, environment-reference integration, materialization CLI, Actions
-integration, cache isolation, or backup enforcement. The storage and policy
-foundations do not yet claim an end-to-end source access-control boundary.
+M4e and M4f provide one narrow restricted Git HTTP read boundary: an authorized direct
+user can retrieve a clone locator from a stable signed-in page, then Git independently
+reauthorizes the actual protocol requests. There is still no SSH, LFS, write/push,
+public Branchroom API, production KMS, environment-reference integration,
+materialization CLI, Actions integration, cache isolation, or backup enforcement. This
+is not an end-to-end collaboration boundary.
 
 The codebase is Go with a JavaScript and TypeScript frontend. It uses
 `modelmigration/` for persisted-schema changes, `models/` for data and permission
@@ -738,18 +755,101 @@ security fixes.
   never a physical path, store ID, workspace key, or clone URL. Environment, retired,
   disabled, foreign-repository, duplicate, and non-owner requests fail closed.
 - Provisioning is synchronous and a mapping still blocks repository deletion until a
-  retention collector exists. There is deliberately no retry, delete, source grant,
-  Git route, LFS namespace, or API.
+  retention collector exists. M4b itself added no retry, delete, source grant, Git
+  route, LFS namespace, or API.
+
+#### Implemented M4c: internal direct-user source authorization
+
+- `authorizeWorkspaceRead` is package-internal and accepts only a repository ID,
+  opaque workspace UUID, and direct user ID. It never accepts a scope ID, store ID,
+  caller-supplied policy actor, permission ceiling, or protocol surface.
+- It locks the repository lifecycle, scope, and workspace in that order, reloads the
+  direct active individual user and ordinary Gitea code-read ceiling, then evaluates
+  an explicit direct-user `read_source` grant for `workspace/<opaque-key>` on the
+  internal system surface. A non-ready workspace produces an audited safe denial;
+  unknown, malformed, disabled-feature, and pre-policy mapping denials stay opaque.
+- The returned facade is not a cacheable capability. M4e adds one narrowly bounded
+  Git HTTP caller; there is still no generic web, API, SSH, LFS, Actions, or CLI
+  caller. A high-volume transport gateway will need a less contentious lifecycle
+  serialization mechanism before it calls this once per protected Git operation.
+- Focused tests cover discovery-only, not-yet-valid, expired, revoked, direct active
+  grants; ordinary-permission denial; malformed and foreign keys; workspace retirement;
+  transfer; and ambient-transaction rejection. Source-read grants are currently
+  structurally limited to direct users.
+
+#### Implemented M4d: controlled source-read grants
+
+- A repository owner can create or revoke a direct active individual's `read_source`
+  grant only after the repository scope has a valid `ready` isolated workspace. The
+  browser supplies a scope ID and username only; it never supplies a workspace key,
+  store ID, physical path, clone URL, or source object.
+- Creation locks the repository lifecycle, scope, and workspace in the same order as
+  workspace authorization; revocation serializes with the lifecycle and scope. The
+  operations reject disabled, retired, foreign, environment, non-owner, duplicate,
+  and non-ready creation targets without creating a grant or an audit event; successful
+  changes are audited.
+- The settings page displays safe direct-user grant state and explicitly says that a
+  source-read grant does not itself reveal a clone URL. M4e makes it one required
+  check for a narrow Git HTTP read route; SSH, LFS, API, CLI, Actions, and other public
+  source routes still do not call the resolver.
+
+#### Implemented M4e: narrow read-only smart Git HTTP
+
+- Migration 352 gives every workspace an independent, cryptographically random,
+  lowercase base32 route key. It is a non-correlating locator rather than an
+  authorization credential; migration backfill generates fresh random values and
+  preserves existing values on retry.
+- The only registered restricted route is
+  `/_branchroom/{owner}/{repository}/{route-key}.git`. It accepts only GET/HEAD
+  `info/refs?service=git-upload-pack` and POST `git-upload-pack`; every other method,
+  query shape, service, object, archive, LFS, and wildcard path returns the same
+  generic not-found response before policy evaluation.
+- A valid operation requires Basic authentication from an active individual, ordinary
+  Gitea code-read permission, a ready repository workspace bound to that exact
+  repository and route key, and an active direct-user `read_source` grant. PATs need
+  `read:repository`; public-only PATs, browser sessions, bearer/OAuth credentials,
+  Actions identities, bots, deploy keys, and unsupported token scopes fail closed.
+  Authorization repeats separately for advertisement and RPC.
+- The gateway runs only `git upload-pack --stateless-rpc` against the isolated facade.
+  It does not call normal Git HTTP repository resolution, and it exposes no physical
+  path, store ID, workspace UUID, ref, or object through denial responses. Responses
+  are `private, no-store`, vary by `Authorization`, and skip the normal `go-get`
+  metadata interceptor.
+- Integration coverage proves a granted user clones a restricted-only commit from the
+  isolated store while normal public Git HTTP cannot advertise it. It also covers
+  anonymous/session/bearer indistinguishability, token scope restrictions, feature
+  gates, wrong-repository route-key replay, malformed/unsupported request auditing,
+  revocation between advertisement and RPC, and all deliberately absent HTTP surfaces.
+- This is an experimental transport proof, not a full workspace: the settings page
+  reveals no route key or clone URL, and there is no write, SSH, LFS, API, Actions, PR,
+  search, retention, or recovery flow.
+
+#### Implemented M4f: authorized clone handoff
+
+- The stable signed-in page `/{owner}/{repository}/-/branchroom` returns source
+  handoffs only for an active direct individual with ordinary Gitea code-read
+  permission and both active direct `discover` and `read_source` grants for a ready
+  repository workspace. It returns the same not-found response to everyone else,
+  including an owner or site administrator without those direct grants.
+- The page URL itself has no workspace, scope, route key, store ID, or source object.
+  It renders only each authorized scope name and that scope's opaque clone URL.
+  It uses `private, no-store`, varies by Cookie and Authorization, disables referrers,
+  and opts out of indexing. Ordinary repository pages and settings continue to reveal
+  no clone locator.
+- Page rendering reads fresh lifecycle, user, permission, scope, grant, and workspace
+  state without using the decision evaluator, so refreshes do not append policy
+  decisions or audit events. The M4e gateway remains the authority for source access:
+  it reevaluates and audits advertisement and RPC separately.
+- Integration coverage proves grants are intersected, another user's scope and locator
+  do not render, the authorized URL clones the isolated store, and revoking source
+  access removes both the handoff and fresh Git access.
 
 Work:
 
-- Define a restricted workspace's public URL, clone URL, logical repository ID,
-  physical store identity, public-base SHA, and retention state. Do not expose the
-  physical path.
-- Implement public-base import as a data copy into the restricted store. Do not use
-  Git alternates, shared pack files, hard links, or a shared LFS store.
-- Route HTTP smart and dumb Git requests before any ref advertisement, pack read, or
-  object lookup. Route SSH before it returns a repository storage path.
+- Add an explicit, audited owner-only locator-rotation action for incident response.
+- Extend the read boundary to the remaining required protocols only after separate
+  design and review: SSH, LFS, and any future write/push path. Do not route dumb HTTP,
+  archive, or generic repository object lookups to a restricted store by accident.
 - Decide v1 behaviour for wikis, repository archives, blame, raw-file URLs, badges,
   releases, packages, dependency metadata, imports, exports, mirrors, forks, and
   attachments. Unsupported operations must reject a restricted workspace clearly.
@@ -847,7 +947,7 @@ must be added to this inventory before it is enabled.
 
 | Surface | Verified starting point | Required proof |
 | --- | --- | --- |
-| Smart Git HTTP | `routers/web/repo/githttp.go` | An authorized actor can advertise and transfer the restricted workspace. An unauthorized actor gets the same non-disclosing result for ref advertisement, upload-pack, receive-pack, and archive. |
+| Restricted smart Git HTTP | `routers/web/repo/branchroom_githttp.go` | An authorized actor can advertise and transfer the restricted workspace through upload-pack only. An unauthorized actor gets the same non-disclosing result for ref advertisement and upload-pack. |
 | Dumb Git HTTP | `GetLooseObject`, `GetPackFile`, and `GetIdxFile` in `routers/web/repo/githttp.go` | A known restricted blob, tree, commit, pack, or index cannot be fetched by URL. |
 | SSH | `routers/private/serv.go` | An unauthorized user or deploy key cannot receive a restricted storage path, clone, fetch by SHA, or push. |
 | LFS | `services/lfs/` | Batch, object, lock, and direct-download paths do not reveal restricted object IDs or bytes. |

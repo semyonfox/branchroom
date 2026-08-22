@@ -16,9 +16,6 @@ import (
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
-	access_model "gitea.dev/models/perm/access"
-	repo_model "gitea.dev/models/repo"
-	user_model "gitea.dev/models/user"
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
@@ -205,7 +202,7 @@ func issueEnvironmentLease(ctx context.Context, request issueEnvironmentLeaseReq
 		if scope.RepoID != request.RepoID || scope.Kind != branchroom_model.ScopeKindEnvironment || revision.ScopeID != scope.ID || revision.RepoID != request.RepoID || revision.RevisionKey != request.RevisionKey || revision.State != branchroom_model.EnvironmentRevisionStateActive {
 			return issuedEnvironmentLease{denied: true}, nil
 		}
-		ceiling, allowed, err := resolveEnvironmentUserCeiling(txCtx, request.RepoID, request.Actor)
+		ceiling, allowed, err := resolveDirectUserRepositoryCeiling(txCtx, request.RepoID, request.Actor)
 		if err != nil {
 			return issuedEnvironmentLease{}, err
 		}
@@ -380,34 +377,6 @@ func requireDevelopmentEnvironment() error {
 	return nil
 }
 
-func resolveEnvironmentUserCeiling(ctx context.Context, repoID int64, actor Actor) (RepositoryCeiling, bool, error) {
-	if actor.Type != branchroom_model.ActorTypeUser || actor.ID <= 0 {
-		return RepositoryCeiling{}, false, nil
-	}
-	user, err := user_model.GetUserByID(ctx, actor.ID)
-	if err != nil {
-		if errors.Is(err, util.ErrNotExist) {
-			return RepositoryCeiling{}, false, nil
-		}
-		return RepositoryCeiling{}, false, err
-	}
-	if !user.IsIndividual() || !user.IsActive || user.ProhibitLogin {
-		return RepositoryCeiling{}, false, nil
-	}
-	repository, err := repo_model.GetRepositoryByID(ctx, repoID)
-	if err != nil {
-		if errors.Is(err, util.ErrNotExist) {
-			return RepositoryCeiling{}, false, nil
-		}
-		return RepositoryCeiling{}, false, err
-	}
-	permission, err := access_model.GetIndividualUserRepoPermission(ctx, repository, user)
-	if err != nil {
-		return RepositoryCeiling{}, false, err
-	}
-	return NewRepositoryCeiling(permission), true, nil
-}
-
 func claimEnvironmentLease(ctx context.Context, initialLease *branchroom_model.EnvironmentLease, initialRevision *branchroom_model.EnvironmentRevision, request materializeEnvironmentLeaseRequest) (claimedEnvironmentLease, error) {
 	return db.WithTx2(ctx, func(txCtx context.Context) (claimedEnvironmentLease, error) {
 		if err := lockRepositoryLifecycle(txCtx, initialRevision.RepoID); err != nil {
@@ -444,7 +413,7 @@ func claimEnvironmentLease(ctx context.Context, initialLease *branchroom_model.E
 		if revision.State != branchroom_model.EnvironmentRevisionStateActive {
 			return claimDeniedEnvironmentLease(txCtx, scope, revision, lease, request, false)
 		}
-		ceiling, allowed, err := resolveEnvironmentUserCeiling(txCtx, revision.RepoID, request.Actor)
+		ceiling, allowed, err := resolveDirectUserRepositoryCeiling(txCtx, revision.RepoID, request.Actor)
 		if err != nil {
 			return claimedEnvironmentLease{}, err
 		}

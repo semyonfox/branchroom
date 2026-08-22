@@ -59,7 +59,7 @@ func TestEnvironmentRevisionLeaseMaterialization(t *testing.T) {
 	assert.NotContains(t, string(revision.PayloadCiphertext), plaintextValue)
 	assert.NotContains(t, string(revision.WrappedDEKCiphertext), plaintextValue)
 	assert.Equal(t, int64(len(plaintextValue)), revision.PlaintextLength)
-	ceiling, allowed, err := resolveEnvironmentUserCeiling(ctx, 1, owner)
+	ceiling, allowed, err := resolveDirectUserRepositoryCeiling(ctx, 1, owner)
 	require.NoError(t, err)
 	require.True(t, allowed)
 	decision, err := NewDBEvaluator().Evaluate(ctx, Request{
