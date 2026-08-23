@@ -67,7 +67,7 @@ func authorizeWorkspaceRead(ctx context.Context, request authorizeWorkspaceReadR
 	if request.RepoID <= 0 || request.UserID <= 0 {
 		return nil, workspaceReadNotFound()
 	}
-	if !isWorkspaceResourceID(workspaceResourceID(request.WorkspaceKey)) || db.InTransaction(ctx) {
+	if !branchroom_model.IsCanonicalUUID(request.WorkspaceKey) || db.InTransaction(ctx) {
 		return nil, workspaceReadNotFound()
 	}
 

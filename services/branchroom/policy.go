@@ -19,8 +19,6 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -37,6 +35,25 @@ const (
 	ReasonMaterializeUnavailable = "materialize_unavailable"
 	ReasonReadSourceUnavailable  = "read_source_unavailable"
 	ReasonWriteSourceUnavailable = "write_source_unavailable"
+)
+
+// audit reason codes recorded alongside manage-policy and lifecycle decisions.
+const (
+	reasonScopeCreated                 = "scope_created"
+	reasonWorkspaceCreated             = "workspace_created"
+	reasonWorkspaceStoreUnavailable    = "store_unavailable"
+	reasonWorkspaceImportFailed        = "import_failed"
+	reasonWorkspaceImportVerifyFailed  = "import_verification_failed"
+	reasonWorkspaceRouteKeyRotated     = "workspace_route_key_rotated"
+	reasonDiscoveryGrantCreated        = "discovery_grant_created"
+	reasonSourceReadGrantCreated       = "source_read_grant_created"
+	reasonEnvironmentRevisionCreated   = "environment_revision_created"
+	reasonEnvironmentLeaseIssued       = "environment_lease_issued"
+	reasonEnvironmentLeaseExpired      = "environment_lease_expired"
+	reasonEnvironmentLeaseClaimed      = "environment_lease_claimed"
+	reasonEnvironmentLeaseDenied       = "environment_lease_denied"
+	reasonEnvironmentLeaseMaterialized = "environment_lease_materialized"
+	reasonEnvironmentLeaseFailed       = "environment_lease_failed"
 )
 
 // Actor is the concrete authenticated identity considered by policy.
@@ -249,12 +266,12 @@ func environmentRevisionResourceID(scopeID int64, revisionKey string) string {
 func isEnvironmentRevisionResourceID(scopeID int64, resourceID string) bool {
 	prefix := scopeResourceID(scopeID) + "/environment-revision/"
 	revisionKey, ok := strings.CutPrefix(resourceID, prefix)
-	return ok && uuid.Validate(revisionKey) == nil && uuid.MustParse(revisionKey).String() == revisionKey
+	return ok && branchroom_model.IsCanonicalUUID(revisionKey)
 }
 
 func isWorkspaceResourceID(resourceID string) bool {
 	workspaceKey, ok := strings.CutPrefix(resourceID, "workspace/")
-	return ok && uuid.Validate(workspaceKey) == nil && uuid.MustParse(workspaceKey).String() == workspaceKey
+	return ok && branchroom_model.IsCanonicalUUID(workspaceKey)
 }
 
 func (request Request) ordinaryAllowed() bool {

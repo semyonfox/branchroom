@@ -85,7 +85,7 @@ func (ReceiveSession) TableName() string { return "branchroom_receive_session" }
 
 // Validate checks that a session contains only opaque credentials and safe lifecycle metadata.
 func (session *ReceiveSession) Validate() error {
-	if !isCanonicalUUID(session.SessionKey) || !isSHA256Hex(session.BearerSecretHash) || session.ScopeID <= 0 || session.WorkspaceID <= 0 || session.RepoID <= 0 || session.ActorType != ActorTypeUser || session.ActorID <= 0 {
+	if !IsCanonicalUUID(session.SessionKey) || !isSHA256Hex(session.BearerSecretHash) || session.ScopeID <= 0 || session.WorkspaceID <= 0 || session.RepoID <= 0 || session.ActorType != ActorTypeUser || session.ActorID <= 0 {
 		return util.NewInvalidArgumentErrorf("invalid Branchroom receive session identity")
 	}
 	if session.IssuedUnix <= 0 || session.ExpiresUnix <= session.IssuedUnix || session.ClaimedUnix < 0 || !IsReceiveSessionStateValid(session.State) || !IsReceiveSessionOutcomeValid(session.Outcome) {
@@ -167,7 +167,7 @@ func getReceiveSessionByID(ctx context.Context, id int64, forUpdate bool) (*Rece
 
 // GetReceiveSessionByKey returns a receive session by its opaque UUID key.
 func GetReceiveSessionByKey(ctx context.Context, sessionKey string) (*ReceiveSession, error) {
-	if !isCanonicalUUID(sessionKey) {
+	if !IsCanonicalUUID(sessionKey) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom receive session key")
 	}
 	session := new(ReceiveSession)

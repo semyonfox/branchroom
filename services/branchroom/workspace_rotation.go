@@ -35,23 +35,9 @@ func RotateRepositoryWorkspaceRouteKey(ctx context.Context, request RotateReposi
 	}
 
 	err := db.WithTx(ctx, func(txCtx context.Context) error {
-		if err := lockRepositoryLifecycle(txCtx, request.RepoID); err != nil {
-			return workspaceRouteKeyRotationError(err)
-		}
-		owner, err := CanManageRepositoryScopes(txCtx, request.RepoID, request.Actor)
+		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom workspace does not exist")
 		if err != nil {
 			return workspaceRouteKeyRotationError(err)
-		}
-		if !owner {
-			return errWorkspaceRouteKeyRotationDenied
-		}
-
-		scope, err := branchroom_model.GetScopeByIDForUpdate(txCtx, request.ScopeID)
-		if err != nil {
-			return workspaceRouteKeyRotationError(err)
-		}
-		if scope.Validate() != nil || scope.RepoID != request.RepoID || scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
-			return errWorkspaceRouteKeyRotationDenied
 		}
 
 		workspace, err := branchroom_model.GetWorkspaceByScopeIDForUpdate(txCtx, scope.ID)
@@ -85,7 +71,7 @@ func RotateRepositoryWorkspaceRouteKey(ctx context.Context, request RotateReposi
 			ResourceID:      workspaceResourceID(workspace.WorkspaceKey),
 			Surface:         request.Surface,
 			Result:          branchroom_model.DecisionResultAllow,
-			ReasonCode:      "workspace_route_key_rotated",
+			ReasonCode:      reasonWorkspaceRouteKeyRotated,
 			OrdinaryAllowed: true,
 			RequestID:       request.RequestID,
 			ExpiresUnix:     now,

@@ -30,7 +30,7 @@ type ScopeMetadata struct {
 }
 
 // GetScopeMetadata is the first protected Branchroom operation.
-func GetScopeMetadata(ctx context.Context, evaluator Evaluator, request ScopeMetadataRequest) (*ScopeMetadata, error) {
+func getScopeMetadata(ctx context.Context, evaluator Evaluator, request ScopeMetadataRequest) (*ScopeMetadata, error) {
 	if evaluator == nil {
 		return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
 	}

@@ -19,42 +19,11 @@ import (
 
 const tplBranchroomSourceHandoffs templates.TplName = "repo/branchroom/source_handoffs"
 
-type branchroomSourceHandoffResponseWriter struct {
-	http.ResponseWriter
-}
-
-func (resp *branchroomSourceHandoffResponseWriter) setPrivacyHeaders() {
-	setBranchroomSourceHandoffResponseHeaders(resp.Header())
-}
-
-func (resp *branchroomSourceHandoffResponseWriter) WriteHeader(status int) {
-	resp.setPrivacyHeaders()
-	resp.ResponseWriter.WriteHeader(status)
-}
-
-func (resp *branchroomSourceHandoffResponseWriter) Write(data []byte) (int, error) {
-	resp.setPrivacyHeaders()
-	return resp.ResponseWriter.Write(data)
-}
-
-func (resp *branchroomSourceHandoffResponseWriter) Flush() {
-	resp.setPrivacyHeaders()
-	if flusher, ok := resp.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
-func (resp *branchroomSourceHandoffResponseWriter) Unwrap() http.ResponseWriter {
-	return resp.ResponseWriter
-}
-
 // BranchroomSourceHandoffHeaders protects every response selected by the source
 // handoff route, including responses produced by earlier route middleware.
 var BranchroomSourceHandoffHeaders types.PreMiddlewareProvider = func(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
-		privateResp := &branchroomSourceHandoffResponseWriter{ResponseWriter: resp}
-		privateResp.setPrivacyHeaders()
-		next.ServeHTTP(privateResp, req)
+		next.ServeHTTP(newBranchroomPrivacyResponseWriter(resp, setBranchroomSourceHandoffResponseHeaders), req)
 	})
 }
 
@@ -67,7 +36,7 @@ type branchroomSourceHandoffData struct {
 // can use to retrieve a read-only Branchroom HTTP clone URL.
 func BranchroomSourceHandoffs(ctx *context.Context) {
 	setBranchroomSourceHandoffHeaders(ctx)
-	if !setting.Branchroom.Enabled || !ctx.IsSigned || ctx.Doer == nil || ctx.DoerIsImpersonated() || !ctx.Doer.IsIndividual() || !ctx.Doer.IsActive || ctx.Doer.ProhibitLogin || ctx.Doer.MustChangePassword || ctx.Doer.IsGiteaActions() {
+	if !setting.Branchroom.Enabled || !ctx.IsSigned || !isEligibleBranchroomDoer(ctx) {
 		ctx.NotFound(nil)
 		return
 	}

@@ -129,7 +129,7 @@ func (EnvironmentRevision) TableName() string { return "branchroom_environment_r
 
 // Validate checks the encrypted revision's bounded, non-plaintext metadata.
 func (revision *EnvironmentRevision) Validate() error {
-	if !isCanonicalUUID(revision.RevisionKey) || revision.ScopeID <= 0 || revision.RepoID <= 0 || revision.Revision <= 0 || revision.CreatedByID <= 0 {
+	if !IsCanonicalUUID(revision.RevisionKey) || revision.ScopeID <= 0 || revision.RepoID <= 0 || revision.Revision <= 0 || revision.CreatedByID <= 0 {
 		return util.NewInvalidArgumentErrorf("invalid Branchroom environment revision identity")
 	}
 	if !IsEnvironmentCipherSuiteValid(revision.CipherSuite) || !IsEnvironmentKeyProviderValid(revision.KeyProvider) || !isEnvironmentKeyReference(revision.KeyReference) || revision.PlaintextLength < 0 || !IsEnvironmentRevisionStateValid(revision.State) || revision.RetiredUnix < 0 {
@@ -177,7 +177,7 @@ func (EnvironmentLease) TableName() string { return "branchroom_environment_leas
 
 // Validate checks that a lease contains only opaque credentials and safe lifecycle metadata.
 func (lease *EnvironmentLease) Validate() error {
-	if !isCanonicalUUID(lease.LeaseKey) || !isSHA256Hex(lease.BearerSecretHash) || lease.ScopeID <= 0 || lease.RevisionID <= 0 || lease.GrantID <= 0 || lease.DecisionID <= 0 || !isEnvironmentLeaseActorValid(lease.ActorType, lease.ActorID) {
+	if !IsCanonicalUUID(lease.LeaseKey) || !isSHA256Hex(lease.BearerSecretHash) || lease.ScopeID <= 0 || lease.RevisionID <= 0 || lease.GrantID <= 0 || lease.DecisionID <= 0 || !isEnvironmentLeaseActorValid(lease.ActorType, lease.ActorID) {
 		return util.NewInvalidArgumentErrorf("invalid Branchroom environment lease identity")
 	}
 	if lease.IssuedUnix <= 0 || lease.ExpiresUnix <= lease.IssuedUnix || lease.ClaimedUnix < 0 || !IsEnvironmentLeaseStateValid(lease.State) || !IsEnvironmentLeaseOutcomeValid(lease.Outcome) {
@@ -253,7 +253,7 @@ func getEnvironmentRevisionByID(ctx context.Context, id int64, forUpdate bool) (
 
 // GetEnvironmentRevisionByKey returns an encrypted revision by its opaque UUID key.
 func GetEnvironmentRevisionByKey(ctx context.Context, revisionKey string) (*EnvironmentRevision, error) {
-	if !isCanonicalUUID(revisionKey) {
+	if !IsCanonicalUUID(revisionKey) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom environment revision key")
 	}
 	revision := new(EnvironmentRevision)
@@ -384,7 +384,7 @@ func getEnvironmentLeaseByID(ctx context.Context, id int64, forUpdate bool) (*En
 
 // GetEnvironmentLeaseByKey returns a lease by its opaque UUID key.
 func GetEnvironmentLeaseByKey(ctx context.Context, leaseKey string) (*EnvironmentLease, error) {
-	if !isCanonicalUUID(leaseKey) {
+	if !IsCanonicalUUID(leaseKey) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom environment lease key")
 	}
 	lease := new(EnvironmentLease)

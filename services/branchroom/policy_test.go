@@ -41,7 +41,7 @@ func TestDBEvaluatorDirectGrantRevocationAndMetadata(t *testing.T) {
 	assert.Equal(t, ReasonGrantMatched, decision.ReasonCode)
 	assert.NotEmpty(t, decision.Key)
 
-	metadata, err := GetScopeMetadata(ctx, evaluator, ScopeMetadataRequest{
+	metadata, err := getScopeMetadata(ctx, evaluator, ScopeMetadataRequest{
 		ScopeID: scope.ID,
 		RepoID:  scope.RepoID,
 		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
@@ -57,7 +57,7 @@ func TestDBEvaluatorDirectGrantRevocationAndMetadata(t *testing.T) {
 	assert.False(t, decision.Allowed)
 	assert.Equal(t, ReasonNoActiveGrant, decision.ReasonCode)
 
-	_, err = GetScopeMetadata(ctx, evaluator, ScopeMetadataRequest{
+	_, err = getScopeMetadata(ctx, evaluator, ScopeMetadataRequest{
 		ScopeID: scope.ID,
 		RepoID:  scope.RepoID,
 		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
@@ -538,7 +538,7 @@ func TestCreateRepositoryScopeUsesActualOwnerAndBootstrapsDiscovery(t *testing.T
 	require.Len(t, grants, 1)
 	assert.EqualValues(t, 2, grants[0].SubjectID)
 
-	metadata, err := GetScopeMetadata(ctx, fixedEvaluator(timeutil.TimeStampNow()), ScopeMetadataRequest{
+	metadata, err := getScopeMetadata(ctx, fixedEvaluator(timeutil.TimeStampNow()), ScopeMetadataRequest{
 		ScopeID: scope.ID,
 		RepoID:  scope.RepoID,
 		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: 2},

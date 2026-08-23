@@ -52,15 +52,8 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 	}
 
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Scope, error) {
-		if err := lockRepositoryLifecycle(txCtx, request.RepoID); err != nil {
+		if err := requireScopeOwnerTx(txCtx, request.RepoID, request.Actor, "Branchroom scope does not exist"); err != nil {
 			return nil, err
-		}
-		owner, err := CanManageRepositoryScopes(txCtx, request.RepoID, request.Actor)
-		if err != nil {
-			return nil, err
-		}
-		if !owner {
-			return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
 		}
 
 		scope := &branchroom_model.Scope{
@@ -97,7 +90,7 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 		}
 
 		now := timeutil.TimeStampNow()
-		_, err = branchroom_model.RecordDecisionAndAudit(txCtx, scope, &branchroom_model.Decision{
+		if _, err := branchroom_model.RecordDecisionAndAudit(txCtx, scope, &branchroom_model.Decision{
 			ScopeID:         scope.ID,
 			RepoID:          scope.RepoID,
 			ActorType:       request.Actor.Type,
@@ -107,17 +100,49 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 			ResourceID:      "scope/" + strconv.FormatInt(scope.ID, 10),
 			Surface:         request.Surface,
 			Result:          branchroom_model.DecisionResultAllow,
-			ReasonCode:      "scope_created",
+			ReasonCode:      reasonScopeCreated,
 			OrdinaryAllowed: true,
 			RequestID:       request.RequestID,
 			ExpiresUnix:     now,
 			CreatedUnix:     now,
-		})
-		if err != nil {
+		}); err != nil {
 			return nil, err
 		}
 		return scope, nil
 	})
+}
+
+// requireScopeOwnerTx locks the repository lifecycle and verifies real owner
+// authority. notExistMessage keeps unauthorized callers indistinguishable from
+// missing resources.
+func requireScopeOwnerTx(ctx context.Context, repoID int64, actor Actor, notExistMessage string) error {
+	if err := lockRepositoryLifecycle(ctx, repoID); err != nil {
+		return err
+	}
+	owner, err := CanManageRepositoryScopes(ctx, repoID, actor)
+	if err != nil {
+		return err
+	}
+	if !owner {
+		return util.NewNotExistErrorf("%s", notExistMessage)
+	}
+	return nil
+}
+
+// requireActiveScopeTx additionally fetches one locked scope and requires it to
+// belong to the repository, carry kind, and stay active.
+func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeID int64, kind branchroom_model.ScopeKind, notExistMessage string) (*branchroom_model.Scope, error) {
+	if err := requireScopeOwnerTx(ctx, repoID, actor, notExistMessage); err != nil {
+		return nil, err
+	}
+	scope, err := branchroom_model.GetScopeByIDForUpdate(ctx, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	if scope.RepoID != repoID || scope.Kind != kind || scope.State != branchroom_model.ScopeStateActive {
+		return nil, util.NewNotExistErrorf("%s", notExistMessage)
+	}
+	return scope, nil
 }
 
 // lockRepositoryLifecycle serializes scope and workspace changes with repository

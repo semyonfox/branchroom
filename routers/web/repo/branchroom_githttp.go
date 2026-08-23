@@ -26,42 +26,15 @@ import (
 
 const branchroomGitHTTPMaxRequestBody = 1 << 20
 
-type branchroomGitHTTPResponseWriter struct {
-	http.ResponseWriter
-}
-
-func (resp *branchroomGitHTTPResponseWriter) setPrivacyHeaders() {
-	resp.Header().Set("Cache-Control", "private, no-store")
-	resp.Header().Set("Vary", "Authorization")
-}
-
-func (resp *branchroomGitHTTPResponseWriter) WriteHeader(status int) {
-	resp.setPrivacyHeaders()
-	resp.ResponseWriter.WriteHeader(status)
-}
-
-func (resp *branchroomGitHTTPResponseWriter) Write(data []byte) (int, error) {
-	resp.setPrivacyHeaders()
-	return resp.ResponseWriter.Write(data)
-}
-
-func (resp *branchroomGitHTTPResponseWriter) Flush() {
-	resp.setPrivacyHeaders()
-	if flusher, ok := resp.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
-func (resp *branchroomGitHTTPResponseWriter) Unwrap() http.ResponseWriter {
-	return resp.ResponseWriter
+func setBranchroomGitHTTPResponseHeaders(header http.Header) {
+	header.Set("Cache-Control", "private, no-store")
+	header.Set("Vary", "Authorization")
 }
 
 // BranchroomGitHTTPHeaders prevents restricted transport responses from being shared.
 var BranchroomGitHTTPHeaders types.PreMiddlewareProvider = func(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
-		privateResp := &branchroomGitHTTPResponseWriter{ResponseWriter: resp}
-		privateResp.setPrivacyHeaders()
-		next.ServeHTTP(privateResp, req)
+		next.ServeHTTP(newBranchroomPrivacyResponseWriter(resp, setBranchroomGitHTTPResponseHeaders), req)
 	})
 }
 
@@ -166,7 +139,7 @@ func authorizeBranchroomGitHTTPRead(ctx *context.Context) (gitrepo.RepositoryFac
 		branchroomGitHTTPUnauthorized(ctx)
 		return nil, false
 	}
-	if ctx.DoerIsImpersonated() || !ctx.Doer.IsIndividual() || !ctx.Doer.IsActive || ctx.Doer.ProhibitLogin || ctx.Doer.MustChangePassword || ctx.Doer.IsGiteaActions() {
+	if !isEligibleBranchroomDoer(ctx) {
 		branchroomGitHTTPNotFound(ctx)
 		return nil, false
 	}
