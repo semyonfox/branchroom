@@ -77,7 +77,13 @@ func CreateRepositoryWorkspace(ctx context.Context, request CreateRepositoryWork
 	if err != nil {
 		return nil, err
 	}
+	return importReservedWorkspace(ctx, repository, workspace, request)
+}
 
+// importReservedWorkspace is the durable physical import for an already-reserved
+// provisioning workspace: it fills the isolated store, installs transport guards,
+// then marks the mapping ready or failed.
+func importReservedWorkspace(ctx context.Context, repository *repo_model.Repository, workspace *branchroom_model.Workspace, request CreateRepositoryWorkspaceRequest) (*branchroom_model.Workspace, error) {
 	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
 	if err != nil {
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceStoreUnavailable)
@@ -106,11 +112,7 @@ func CreateRepositoryWorkspace(ctx context.Context, request CreateRepositoryWork
 		return nil, ErrWorkspaceProvisioning
 	}
 
-	ready, err := markWorkspaceReady(ctx, workspace, request)
-	if err != nil {
-		return nil, err
-	}
-	return ready, nil
+	return markWorkspaceReady(ctx, workspace, request)
 }
 
 func removeFailedRestrictedStore(ctx context.Context, restricted gitrepo.RepositoryFacade) {
@@ -143,6 +145,9 @@ func reserveRepositoryWorkspace(ctx context.Context, request CreateRepositoryWor
 		if _, err := branchroom_model.GetWorkspaceByScopeIDForUpdate(txCtx, scope.ID); err == nil {
 			return nil, ErrWorkspaceAlreadyExists
 		} else if !errors.Is(err, util.ErrNotExist) {
+			return nil, err
+		}
+		if err := enforceWorkspaceOwnerQuota(txCtx, scope.OwnerID); err != nil {
 			return nil, err
 		}
 

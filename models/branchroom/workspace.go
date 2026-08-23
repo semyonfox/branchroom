@@ -29,12 +29,13 @@ const (
 	WorkspaceStateReady        WorkspaceState = "ready"
 	WorkspaceStateFailed       WorkspaceState = "failed"
 	WorkspaceStateRetired      WorkspaceState = "retired"
+	WorkspaceStatePurged       WorkspaceState = "purged"
 )
 
 // IsWorkspaceStateValid reports whether state is persisted by the current model.
 func IsWorkspaceStateValid(state WorkspaceState) bool {
 	switch state {
-	case WorkspaceStateProvisioning, WorkspaceStateReady, WorkspaceStateFailed, WorkspaceStateRetired:
+	case WorkspaceStateProvisioning, WorkspaceStateReady, WorkspaceStateFailed, WorkspaceStateRetired, WorkspaceStatePurged:
 		return true
 	default:
 		return false
@@ -76,7 +77,7 @@ func (workspace *Workspace) Validate() error {
 		if !isReasonCode(workspace.FailureCode) || workspace.RetiredUnix != 0 {
 			return util.NewInvalidArgumentErrorf("invalid Branchroom workspace failure")
 		}
-	case WorkspaceStateRetired:
+	case WorkspaceStateRetired, WorkspaceStatePurged:
 		if workspace.FailureCode != "" || workspace.RetiredUnix <= 0 {
 			return util.NewInvalidArgumentErrorf("invalid Branchroom workspace retirement")
 		}
@@ -293,7 +294,7 @@ func TransitionWorkspace(ctx context.Context, workspaceID int64, from, to Worksp
 		if !isReasonCode(failureCode) || retiredUnix != 0 {
 			return false, util.NewInvalidArgumentErrorf("invalid Branchroom workspace failure transition")
 		}
-	} else if to == WorkspaceStateRetired {
+	} else if to == WorkspaceStateRetired || to == WorkspaceStatePurged {
 		if failureCode != "" || retiredUnix <= 0 {
 			return false, util.NewInvalidArgumentErrorf("invalid Branchroom workspace retirement transition")
 		}
@@ -341,11 +342,29 @@ func isWorkspaceTransitionValid(from, to WorkspaceState) bool {
 	switch from {
 	case WorkspaceStateProvisioning:
 		return to == WorkspaceStateReady || to == WorkspaceStateFailed || to == WorkspaceStateRetired
-	case WorkspaceStateReady, WorkspaceStateFailed:
-		return to == WorkspaceStateRetired
+	case WorkspaceStateFailed:
+		return to == WorkspaceStateRetired || to == WorkspaceStatePurged || to == WorkspaceStateProvisioning
+	case WorkspaceStateReady:
+		return to == WorkspaceStateRetired || to == WorkspaceStatePurged
+	case WorkspaceStateRetired:
+		return to == WorkspaceStatePurged
 	default:
 		return false
 	}
+}
+
+// CountOwnerActiveWorkspaces counts workspaces in provisioning, ready, or failed
+// state across all scopes owned by ownerID.
+func CountOwnerActiveWorkspaces(ctx context.Context, ownerID int64) (int64, error) {
+	if ownerID <= 0 {
+		return 0, util.NewInvalidArgumentErrorf("invalid Branchroom scope owner ID")
+	}
+	return db.GetEngine(ctx).
+		Table(new(Workspace)).
+		Join("INNER", new(Scope), "branchroom_scope.id = branchroom_workspace.scope_id").
+		Where("branchroom_scope.owner_id = ?", ownerID).
+		In("branchroom_workspace.state", WorkspaceStateProvisioning, WorkspaceStateReady, WorkspaceStateFailed).
+		Count()
 }
 
 func init() {

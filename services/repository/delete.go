@@ -102,6 +102,9 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 	}
 	needRewriteKeysFile := deleted > 0
 
+	if err := branchroom_service.ReleaseRepositoryWorkspaceRetention(ctx, repoID); err != nil {
+		return fmt.Errorf("release Branchroom workspace retention: %w", err)
+	}
 	if err := branchroom_service.PurgeRepositoryPolicy(ctx, repoID); err != nil {
 		return fmt.Errorf("purge Branchroom policy: %w", err)
 	}

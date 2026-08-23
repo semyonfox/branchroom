@@ -5,6 +5,7 @@ package branchroom
 
 import (
 	"context"
+	"encoding/base32"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,8 +21,10 @@ import (
 	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -244,6 +247,306 @@ func TestCreateRepositoryWorkspaceRejectsAmbientTransaction(t *testing.T) {
 
 	_, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
 	assert.ErrorIs(t, err, util.ErrNotExist)
+}
+
+func TestRetryWorkspaceProvisioningReimportsFailedStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-retry")
+
+	goodRoot := setting.Branchroom.RestrictedRepoRootPath
+	blockedRoot := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockedRoot, []byte("blocked"), 0o600))
+	setting.Branchroom.RestrictedRepoRootPath = blockedRoot
+
+	_, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       scope.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrWorkspaceProvisioning)
+	failed, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
+	require.NoError(t, err)
+	require.Equal(t, branchroom_model.WorkspaceStateFailed, failed.State)
+
+	setting.Branchroom.RestrictedRepoRootPath = goodRoot
+	retried, err := RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateReady, retried.State)
+	assert.Equal(t, baseSHA, retried.PublicBaseSHA)
+	assert.Empty(t, retried.FailureCode)
+
+	restricted, err := branchroom_module.RestrictedRepository(retried.StoreID)
+	require.NoError(t, err)
+	exists, err := git.IsRepositoryExist(t.Context(), restricted)
+	require.NoError(t, err)
+	assert.True(t, exists)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		ResourceID: workspaceResourceID(retried.WorkspaceKey),
+		ReasonCode: "workspace_retry_requested",
+	})
+
+	_, err = RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrWorkspaceStateChanged)
+
+	_, err = RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID + 1000},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+
+	require.NoError(t, db.WithTx(t.Context(), func(txCtx context.Context) error {
+		_, err := RetryWorkspaceProvisioning(txCtx, RetryWorkspaceProvisioningRequest{
+			RepoID:  repository.ID,
+			ScopeID: scope.ID,
+			Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+			Surface: branchroom_model.SurfaceSystem,
+		})
+		assert.ErrorIs(t, err, ErrWorkspaceInTransaction)
+		return nil
+	}))
+}
+
+func TestRetireWorkspaceTransitionsAndAudits(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-retire")
+	request := RetireWorkspaceRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	}
+
+	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       scope.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+
+	retired, err := RetireWorkspace(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateRetired, retired.State)
+	assert.NotZero(t, retired.RetiredUnix)
+	assert.Empty(t, retired.FailureCode)
+	stored, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateRetired, stored.State)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		ResourceID: workspaceResourceID(workspace.WorkspaceKey),
+		ReasonCode: "workspace_retired",
+	})
+
+	_, err = RetireWorkspace(t.Context(), request)
+	assert.ErrorIs(t, err, ErrWorkspaceStateChanged)
+
+	nonOwner := request
+	nonOwner.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID + 1000}
+	_, err = RetireWorkspace(t.Context(), nonOwner)
+	assert.ErrorIs(t, err, util.ErrNotExist)
+}
+
+func TestRetireWorkspaceAllowsFailedWorkspace(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-retire-failed")
+
+	blockedRoot := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockedRoot, []byte("blocked"), 0o600))
+	setting.Branchroom.RestrictedRepoRootPath = blockedRoot
+	_, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       scope.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrWorkspaceProvisioning)
+
+	retired, err := RetireWorkspace(t.Context(), RetireWorkspaceRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateRetired, retired.State)
+	stored, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateRetired, stored.State)
+	assert.Empty(t, stored.FailureCode)
+}
+
+func TestPurgeWorkspaceRemovesStoreThenMarksPurged(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-purge")
+	request := PurgeWorkspaceRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	}
+
+	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       scope.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	require.NoError(t, err)
+	storePath := gitrepo.RepoLocalPath(restricted)
+	assert.DirExists(t, storePath)
+
+	purged, err := PurgeWorkspace(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStatePurged, purged.State)
+	assert.NotZero(t, purged.RetiredUnix)
+	assert.NoDirExists(t, storePath)
+	assert.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, ".branchroom-hooks", workspace.StoreID))
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		ResourceID: workspaceResourceID(workspace.WorkspaceKey),
+		ReasonCode: "workspace_purged",
+	})
+	stored, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStatePurged, stored.State)
+
+	_, err = PurgeWorkspace(t.Context(), request)
+	assert.ErrorIs(t, err, ErrWorkspaceStateChanged)
+
+	nonOwner := request
+	nonOwner.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID + 1000}
+	_, err = PurgeWorkspace(t.Context(), nonOwner)
+	assert.ErrorIs(t, err, util.ErrNotExist)
+
+	require.NoError(t, db.WithTx(t.Context(), func(txCtx context.Context) error {
+		_, err := PurgeWorkspace(txCtx, request)
+		assert.ErrorIs(t, err, ErrWorkspaceInTransaction)
+		return nil
+	}))
+}
+
+func TestPurgeWorkspaceToleratesMissingStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-purge-missing")
+
+	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       scope.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	require.NoError(t, err)
+	require.NoError(t, git.DeleteRepository(t.Context(), restricted))
+
+	purged, err := PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStatePurged, purged.State)
+}
+
+func TestPurgeWorkspaceRejectsProvisioningWorkspace(t *testing.T) {
+	_, repository, _ := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-purge-provisioning")
+	insertRawWorkspace(t, scope, branchroom_model.WorkspaceStateProvisioning)
+
+	_, err := PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{
+		RepoID:  repository.ID,
+		ScopeID: scope.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrWorkspaceStateChanged)
+}
+
+func TestCreateRepositoryWorkspaceEnforcesOwnerQuota(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	setting.Branchroom.MaxWorkspacesPerOwner = 1
+
+	first := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-quota-first")
+	_, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       first.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+
+	second := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-quota-second")
+	_, err = CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       second.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrWorkspaceQuotaReached)
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	_, err = branchroom_model.GetWorkspaceByScopeID(t.Context(), second.ID)
+	assert.ErrorIs(t, err, util.ErrNotExist)
+
+	setting.Branchroom.MaxWorkspacesPerOwner = 0
+	_, err = CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       second.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	assert.NoError(t, err)
+}
+
+func insertRawWorkspace(t *testing.T, scope *branchroom_model.Scope, state branchroom_model.WorkspaceState) *branchroom_model.Workspace {
+	t.Helper()
+	workspaceKey := uuid.NewString()
+	storeID := uuid.NewString()
+	routeUUID := uuid.New()
+	routeKey := base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding).EncodeToString(routeUUID[:])
+	workspace := &branchroom_model.Workspace{
+		WorkspaceKey:     workspaceKey,
+		RouteKey:         routeKey,
+		ScopeID:          scope.ID,
+		RepoID:           scope.RepoID,
+		StoreID:          storeID,
+		PublicBaseSHA:    strings.Repeat("a", 40),
+		ObjectFormatName: "sha1",
+		State:            state,
+		RetiredUnix:      timeutil.TimeStampNow(),
+		CreatedByID:      scope.CreatedByID,
+	}
+	if state != branchroom_model.WorkspaceStatePurged && state != branchroom_model.WorkspaceStateRetired {
+		workspace.RetiredUnix = 0
+	}
+	require.NoError(t, branchroom_model.InsertWorkspace(t.Context(), workspace))
+	return workspace
 }
 
 func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *repo_model.Repository, string) {
