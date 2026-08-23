@@ -422,13 +422,15 @@ func prepareMigrationTasks() []*migration {
 		newMigration(346, "Add license_path column to repo_license and backfill", v28.AddLicensePathToRepoLicense),
 		newMigration(347, "Add watch options", v28.AddWatchOptions),
 		newMigration(348, "Recreate email_hash table for SHA256 avatar hashes", v28.RecreateEmailHashTable),
-		newMigration(349, "Add Branchroom policy schema", v28.AddBranchroomPolicySchema),
-		newMigration(350, "Add Branchroom workspace schema", v28.AddBranchroomWorkspaceSchema),
-		newMigration(351, "Add Branchroom environment schema", v28.AddBranchroomEnvironmentSchema),
-		newMigration(352, "Add Branchroom workspace route keys", v28.AddBranchroomWorkspaceRouteKey),
-		newMigration(353, "Expand action_schedule content column", v28.ExpandActionScheduleContent),
-		newMigration(354, "Add Branchroom receive session schema", v28.AddBranchroomReceiveSessionSchema),
-		newMigration(355, "Add Branchroom receive session outcomes", v28.AddBranchroomReceiveSessionOutcomes),
+		newMigration(349, "Expand action_schedule content column", v28.ExpandActionScheduleContent),
+		newMigration(350, "Add published_unix column to release", v28.AddPublishedUnixToRelease),
+		newMigration(351, "Track transfer recipient access grants", v28.AddRecipientAccessGrantedToRepoTransfer),
+		newMigration(356, "Add Branchroom policy schema", v28.AddBranchroomPolicySchema),
+		newMigration(357, "Add Branchroom workspace schema", v28.AddBranchroomWorkspaceSchema),
+		newMigration(358, "Add Branchroom environment schema", v28.AddBranchroomEnvironmentSchema),
+		newMigration(359, "Add Branchroom workspace route keys", v28.AddBranchroomWorkspaceRouteKey),
+		newMigration(360, "Add Branchroom receive session schema", v28.AddBranchroomReceiveSessionSchema),
+		newMigration(361, "Add Branchroom receive session outcomes", v28.AddBranchroomReceiveSessionOutcomes),
 	}
 	return preparedMigrations
 }
