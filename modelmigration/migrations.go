@@ -427,6 +427,8 @@ func prepareMigrationTasks() []*migration {
 		newMigration(351, "Add Branchroom environment schema", v28.AddBranchroomEnvironmentSchema),
 		newMigration(352, "Add Branchroom workspace route keys", v28.AddBranchroomWorkspaceRouteKey),
 		newMigration(353, "Expand action_schedule content column", v28.ExpandActionScheduleContent),
+		newMigration(354, "Add Branchroom receive session schema", v28.AddBranchroomReceiveSessionSchema),
+		newMigration(355, "Add Branchroom receive session outcomes", v28.AddBranchroomReceiveSessionOutcomes),
 	}
 	return preparedMigrations
 }

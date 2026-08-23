@@ -52,6 +52,21 @@ func TestCreateRepositoryWorkspaceImportsPublicBase(t *testing.T) {
 	_, _, err = gitcmd.NewCommand("cat-file", "-e").AddDynamicArguments(baseSHA + "^{commit}").WithRepo(restricted).RunStdString(t.Context())
 	require.NoError(t, err)
 
+	expectedHookDir := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, ".branchroom-hooks", workspace.StoreID)
+	hooksPath, _, err := gitcmd.NewCommand("config", "--local", "--null", "--get-all").AddDynamicArguments("core.hooksPath").WithRepo(restricted).RunStdBytes(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, expectedHookDir+"\x00", string(hooksPath))
+	preReceive := filepath.Join(expectedHookDir, "pre-receive")
+	preReceiveContent, err := os.ReadFile(preReceive)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_module.ReceivePreReceiveHookTemplate(), string(preReceiveContent))
+	// Lstat sees the link itself, so a planted symlink cannot satisfy these checks
+	preReceiveInfo, err := os.Lstat(preReceive)
+	require.NoError(t, err)
+	assert.True(t, preReceiveInfo.Mode().IsRegular())
+	assert.Equal(t, os.FileMode(0o700), preReceiveInfo.Mode().Perm())
+	assert.Zero(t, preReceiveInfo.Mode()&(os.ModeSetuid|os.ModeSetgid))
+
 	require.NoError(t, git.ForceFastImport(t.Context(), restricted, []git.FastImportCommit{{
 		Ref:     "refs/heads/restricted",
 		Message: "restricted change",
@@ -107,6 +122,35 @@ func TestCreateRepositoryWorkspaceFailedImportStaysNonRoutable(t *testing.T) {
 	assert.NotEqual(t, branchroom_model.WorkspaceStateReady, stored.State)
 	_, err = branchroom_model.TransitionWorkspace(t.Context(), stored.ID, branchroom_model.WorkspaceStateFailed, branchroom_model.WorkspaceStateReady, "", 0)
 	assert.ErrorIs(t, err, util.ErrInvalidArgument)
+}
+
+func TestCreateRepositoryWorkspaceHookInstallFailureStaysNonRoutable(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-hook-install-failed")
+
+	require.NoError(t, os.Chmod(setting.Branchroom.RestrictedRepoRootPath, 0o770))
+
+	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
+		RepoID:        repository.ID,
+		ScopeID:       scope.ID,
+		Actor:         Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+		PublicBaseSHA: baseSHA,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	assert.Nil(t, workspace)
+	assert.ErrorIs(t, err, ErrWorkspaceProvisioning)
+
+	stored, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateFailed, stored.State)
+	assert.Equal(t, "receive_hook_install_failed", stored.FailureCode)
+
+	restricted, err := branchroom_module.RestrictedRepository(stored.StoreID)
+	require.NoError(t, err)
+	exists, err := git.IsRepositoryExist(t.Context(), restricted)
+	require.NoError(t, err)
+	assert.False(t, exists)
+	assert.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, ".branchroom-hooks", stored.StoreID))
 }
 
 func TestCreateRepositoryWorkspaceRejectsEnvironmentScope(t *testing.T) {

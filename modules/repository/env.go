@@ -31,6 +31,10 @@ const (
 	EnvIsInternal    = "GITEA_INTERNAL_PUSH"
 	EnvAppURL        = "GITEA_ROOT_URL"
 	EnvActionsTaskID = "GITEA_ACTIONS_TASK_ID"
+
+	// Branchroom receive-hook session keys, delivered to the hook process only
+	EnvBranchroomReceiveSessionKey   = "GITEA_BRANCHROOM_RECEIVE_SESSION_KEY"
+	EnvBranchroomReceiveBearerSecret = "GITEA_BRANCHROOM_RECEIVE_BEARER_SECRET"
 )
 
 type PushTrigger string

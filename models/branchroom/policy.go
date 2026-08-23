@@ -178,12 +178,15 @@ const (
 	SurfaceGitSSH  Surface = "git_ssh"
 	SurfaceActions Surface = "actions"
 	SurfaceSystem  Surface = "system"
+
+	// SurfaceBranchroomReceive classifies audit records from the Branchroom pre-receive admission path only.
+	SurfaceBranchroomReceive Surface = "branchroom_receive"
 )
 
 // IsSurfaceValid reports whether surface is persisted by the current model.
 func IsSurfaceValid(surface Surface) bool {
 	switch surface {
-	case SurfaceWeb, SurfaceAPI, SurfaceGitHTTP, SurfaceGitSSH, SurfaceActions, SurfaceSystem:
+	case SurfaceWeb, SurfaceAPI, SurfaceGitHTTP, SurfaceGitSSH, SurfaceActions, SurfaceSystem, SurfaceBranchroomReceive:
 		return true
 	default:
 		return false

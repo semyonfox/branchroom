@@ -100,6 +100,32 @@
 									<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_read"}}</button>
 								</form>
 							{{end}}
+							<div class="item-body tw-mt-3">
+								<strong>{{ctx.Locale.Tr "repo.settings.branchroom.source_write_grants"}}</strong>
+								<div class="help tw-mt-1">{{ctx.Locale.Tr "repo.settings.branchroom.source_write_stored_only"}}</div>
+								<div class="ui list">
+									{{range .SourceWriteGrants}}
+										<div class="item flex-text-block">
+											<span>{{.SubjectName}}</span>
+											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-write-grants/{{.ID}}/revoke" method="post">
+												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
+											</form>
+										</div>
+									{{else}}
+										<div class="item">{{ctx.Locale.Tr "repo.settings.branchroom.no_source_write_grants"}}</div>
+									{{end}}
+								</div>
+								{{if .CanGrantSourceWrite}}
+									<form class="ui form flex-text-block tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/source-write-grants" method="post">
+										<input type="hidden" name="scope_id" value="{{.ID}}">
+										<div class="required field tw-mb-0 tw-flex-1">
+											<label for="branchroom-source-write-grant-user-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.grant_user"}}</label>
+											<input id="branchroom-source-write-grant-user-{{.ID}}" name="username" maxlength="255" required>
+										</div>
+										<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_write"}}</button>
+									</form>
+								{{end}}
+							</div>
 						</div>
 					</div>
 				{{else}}

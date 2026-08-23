@@ -75,6 +75,7 @@ func Routes() *web.Router {
 	// Since internal API will be sent only from Gitea sub commands and it's under control (checked by InternalToken), we can trust the headers.
 	r.AfterRouting(setRealIP)
 
+	r.Post("/branchroom/pre-receive", BranchroomPreReceive)
 	r.Get("/dummy", misc.DummyOK)
 	r.Post("/ssh/authorized_keys", AuthorizedPublicKeyByContent)
 	r.Post("/ssh/{id}/update/{repoid}", UpdatePublicKeyInRepo)

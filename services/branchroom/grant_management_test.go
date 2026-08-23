@@ -571,6 +571,119 @@ func TestRepositorySourceReadGrantRevocationRemainsAvailableForDisabledTargets(t
 	assert.ErrorIs(t, err, util.ErrNotExist)
 }
 
+func TestRepositorySourceWriteGrantManagement(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	owner := Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+
+	scope, err := CreateRepositoryScope(ctx, CreateRepositoryScopeRequest{
+		RepoID:  1,
+		Actor:   owner,
+		Name:    "direct-source-write-grants",
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+
+	_, err = CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "user4",
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+
+	workspace := insertReadyWorkspaceForGrant(t, scope, owner.ID)
+	grant, err := CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "user4",
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.SubjectTypeUser, grant.SubjectType)
+	assert.EqualValues(t, 4, grant.SubjectID)
+	assert.Equal(t, branchroom_model.ActionWriteSource, grant.Action)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		GrantID:    grant.ID,
+		ReasonCode: "source_write_grant_created",
+	})
+
+	decision, err := fixedEvaluator(timeutil.TimeStampNow()).Evaluate(ctx, Request{
+		ScopeID:      scope.ID,
+		RepoID:       scope.RepoID,
+		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 4},
+		Ceiling:      RepositoryCeiling{CodeRead: true, CodeWrite: true},
+		Action:       branchroom_model.ActionWriteSource,
+		ResourceType: branchroom_model.ResourceTypeWorkspace,
+		ResourceID:   workspaceResourceID(workspace.WorkspaceKey),
+		Surface:      branchroom_model.SurfaceGitHTTP,
+	})
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
+	assert.Zero(t, decision.GrantID)
+
+	_, err = CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "user4",
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrSourceWriteGrantAlreadyExists)
+
+	_, err = CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "org3",
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrInvalidSourceWriteGrantTarget)
+
+	err = RevokeRepositorySourceReadGrant(ctx, RevokeRepositorySourceReadGrantRequest{
+		RepoID:  1,
+		ScopeID: scope.ID,
+		GrantID: grant.ID,
+		Actor:   owner,
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+
+	err = RevokeRepositorySourceWriteGrant(ctx, RevokeRepositorySourceWriteGrantRequest{
+		RepoID:  1,
+		ScopeID: scope.ID,
+		GrantID: grant.ID,
+		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: 1},
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	stored, err := branchroom_model.GetGrantByID(ctx, grant.ID)
+	require.NoError(t, err)
+	assert.Zero(t, stored.RevokedUnix)
+
+	require.NoError(t, RevokeRepositorySourceWriteGrant(ctx, RevokeRepositorySourceWriteGrantRequest{
+		RepoID:  1,
+		ScopeID: scope.ID,
+		GrantID: grant.ID,
+		Actor:   owner,
+		Surface: branchroom_model.SurfaceSystem,
+	}))
+	stored, err = branchroom_model.GetGrantByID(ctx, grant.ID)
+	require.NoError(t, err)
+	assert.NotZero(t, stored.RevokedUnix)
+	assert.Equal(t, owner.ID, stored.RevokedByID)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		GrantID:    grant.ID,
+		ReasonCode: "source_write_grant_revoked",
+	})
+}
+
 func insertReadyWorkspaceForGrant(t *testing.T, scope *branchroom_model.Scope, ownerID int64) *branchroom_model.Workspace {
 	t.Helper()
 	workspace := &branchroom_model.Workspace{

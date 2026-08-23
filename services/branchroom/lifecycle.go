@@ -47,6 +47,9 @@ func RetireRepositoryScopesForTransfer(ctx context.Context, repoID, actorID int6
 	if _, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).Cols("updated_unix").Update(&branchroom_model.EnvironmentRevision{UpdatedUnix: now}); err != nil {
 		return err
 	}
+	if _, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).Cols("updated_unix").Update(&branchroom_model.ReceiveSession{UpdatedUnix: now}); err != nil {
+		return err
+	}
 
 	scopes, err := branchroom_model.FindScopesByRepoIDForUpdate(ctx, repoID)
 	if err != nil {
@@ -103,6 +106,20 @@ func RetireRepositoryScopesForTransfer(ctx context.Context, repoID, actorID int6
 			}
 			changed = changed || revoked
 		}
+		sessions, err := branchroom_model.FindReceiveSessionsByScopeIDForUpdate(ctx, scope.ID)
+		if err != nil {
+			return err
+		}
+		for _, session := range sessions {
+			if session.State != branchroom_model.ReceiveSessionStateIssued {
+				continue
+			}
+			revoked, err := branchroom_model.RevokeReceiveSession(ctx, session.ID)
+			if err != nil {
+				return err
+			}
+			changed = changed || revoked
+		}
 		if !changed {
 			continue
 		}
@@ -147,6 +164,9 @@ func PurgeRepositoryPolicy(ctx context.Context, repoID int64) error {
 	if _, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).Cols("updated_unix").Update(&branchroom_model.EnvironmentRevision{UpdatedUnix: timeutil.TimeStampNow()}); err != nil {
 		return err
 	}
+	if _, err := db.GetEngine(ctx).Where("repo_id = ?", repoID).Cols("updated_unix").Update(&branchroom_model.ReceiveSession{UpdatedUnix: timeutil.TimeStampNow()}); err != nil {
+		return err
+	}
 
 	workspaces, err := branchroom_model.FindWorkspacesByRepoIDForUpdate(ctx, repoID)
 	if err != nil {
@@ -177,6 +197,9 @@ func PurgeRepositoryPolicy(ctx context.Context, repoID int64) error {
 		return err
 	}
 	if _, err := engine.Where("repo_id = ?", repoID).Delete(new(branchroom_model.Decision)); err != nil {
+		return err
+	}
+	if _, err := engine.Where("repo_id = ?", repoID).Delete(new(branchroom_model.ReceiveSession)); err != nil {
 		return err
 	}
 	if len(scopeIDs) == 0 {

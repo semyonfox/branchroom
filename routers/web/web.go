@@ -1221,6 +1221,8 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/scopes/{scopeID}/grants/{grantID}/revoke", repo_setting.BranchroomDiscoveryGrantRevokePost)
 			m.Post("/source-grants", web.Bind[*forms.BranchroomSourceReadGrantForm](), repo_setting.BranchroomSourceReadGrantPost)
 			m.Post("/scopes/{scopeID}/source-grants/{grantID}/revoke", repo_setting.BranchroomSourceReadGrantRevokePost)
+			m.Post("/source-write-grants", web.Bind[*forms.BranchroomSourceWriteGrantForm](), repo_setting.BranchroomSourceWriteGrantPost)
+			m.Post("/scopes/{scopeID}/source-write-grants/{grantID}/revoke", repo_setting.BranchroomSourceWriteGrantRevokePost)
 		}, repo_setting.MustEnableBranchroom)
 
 		m.Group("/hooks/git", func() {

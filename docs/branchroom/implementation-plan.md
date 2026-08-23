@@ -1,8 +1,8 @@
 # Branchroom implementation plan
 
-- Status: M0–M1 foundations, M4a–M4h.1 isolated-workspace storage, source-policy, narrow read-only Git HTTP, authorized clone handoff, clone-locator rotation, and deny-only source-write policy plumbing, and M2a–M2c development-only encrypted-environment plumbing implemented; v1 restricted workspaces are not yet complete
+- Status: M0–M1 foundations; M4a–M4h.2a isolated-workspace storage, source policy, narrow read-only Git HTTP, clone handoff/locator rotation, and deny-only source-write/receive groundwork; M2a–M2c development-only encrypted-environment plumbing; v1 restricted workspaces not complete
 - Working name: Branchroom
-- Fork status: maintained separately and developed fork-first; an upstream design discussion may be useful later, but no proposal is active
+- Fork status: maintained on this fork only; no Branchroom upstream submission or architecture discussion is planned; a read-only Gitea remote is maintenance reference only
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
 - Last updated: 22 August 2026
 
@@ -127,10 +127,13 @@ It deliberately does not flag generic `password` configuration or custom GitLab
 prefixes. There is no inline source bypass: a future exception must be external and
 audited. No push, pull request, import, or publication path calls the preflight yet.
 
-For the current self-hosted demo, production KMS work is deliberately deferred.
-`[branchroom.environment]` stays disabled, and all secret-bearing work remains
-unavailable. The development-only encryption code is a test seam, not a local secret
-manager or a beta feature.
+KMS is not part of the self-hosted Git-only V1. `[branchroom.environment]` remains
+disabled; no production provider is selected and there is no supported production
+environment-materialization mode. If environment materialization returns to scope, it
+requires its own key-management design and security review. The development-only
+encryption code is a test seam, not a local secret manager or a beta feature: it
+reads a local development key, is refused in production, and stores no key bytes. It
+is not a supported environment-materialization deployment mode.
 
 Repository transfer retires every affected scope, revokes its active grants, and
 retires its workspace mappings and active environment revisions in the same
@@ -144,10 +147,21 @@ M4e, M4f, and M4g provide one narrow restricted Git HTTP read boundary: an autho
 direct user can retrieve a clone locator from a stable signed-in page, then Git
 independently reauthorizes the actual protocol requests. A repository owner can hard
 cut over the locator for a ready workspace without revealing either key in settings.
-M4h.1 adds a distinct `write_source` policy action and captures both ordinary code-read
-and code-write permission for it. Evaluation is intentionally deny-only: it never
-matches a grant and returns `write_source_unavailable`. It adds no grant management,
-session, hook, or Git receive-pack route.
+M4h.2a adds deny-only source-write and receive-boundary groundwork. Ready-workspace
+owners can create and revoke audited direct, active-user `write_source` grants on the
+existing grant-management path, but evaluation still checks only ordinary code
+read/write permission and always returns `write_source_unavailable` before any grant
+can match. Migration 354 adds the one-use hash-only receive-session model; a bounded
+server-internal session verifier, a hidden pre-receive delegate command, and a static
+server-owned `core.hooksPath` pre-receive hook are installed and verified during
+provisioning, before a new workspace becomes ready, and all of them deny. Migration
+355 adds session outcomes: the internal verifier can complete only a fully bound,
+correctly bearer-authenticated claimed session with a valid private ref request as
+`completed/denied`, atomically with the unchanged `write_source_unavailable` denial;
+a replay adds no second audit. Nominal expiry after a valid claim does not block that
+denied completion. There is no session issuer, claimant route, user-facing API, Git
+receive-pack route, SSH route, or allow path. Older ready workspaces are not
+retrofitted.
 There is still no SSH, LFS, write/push, public Branchroom API, production KMS,
 environment-reference integration, materialization CLI, Actions integration, cache
 isolation, or backup enforcement. This is not an end-to-end collaboration boundary.
@@ -158,10 +172,10 @@ logic, `services/` for server behaviour, `routers/` for HTTP and SSH-adjacent
 handlers, and `modules/setting/` for configuration. Build and test guidance lives
 in `docs/development.md` and `docs/testing.md`.
 
-This is a fork-first effort. A future read-only reference to upstream Gitea may help
-with maintenance releases. If Branchroom earns interest, start with an upstream
-architecture discussion before proposing code; that does not promise acceptance or
-an upstream implementation plan.
+This fork is maintained on this fork only. A read-only reference to upstream Gitea
+may help with maintenance releases; no Branchroom upstream submission or
+architecture discussion is planned, and a read-only Gitea remote is maintenance
+reference only.
 
 ## The decision
 
@@ -304,16 +318,16 @@ A team name such as "core team" is not a permission by itself. The policy must s
 
 ### V1 actions
 
-| Action | Meaning | Example |
-| --- | --- | --- |
-| Discover | See a scope in a list, search result, or notification. | A reviewer can find the restricted PR. |
-| Read source | Fetch refs and inspect commits, trees, diffs, and files. | The security team clones its workspace. |
-| Write source | Push a server-defined private ref in an isolated workspace. | A maintainer updates an embargoed fix. |
-| Write and review | Comment, request changes, approve, or run checks. | A maintainer reviews an embargoed fix. |
-| Materialize | Receive one environment revision as a temporary file. | A deploy job writes revision 42 to .env. |
-| Read history | Inspect earlier environment revisions and audit entries. | An environment owner investigates a rollback. |
-| Publish | Move selected restricted work into public history. | A release manager publishes a security patch. |
-| Manage policy | Create scopes, grants, revocations, and retention rules. | A project owner adds a reviewer. |
+| Action           | Meaning                                                     | Example                                       |
+| ---------------- | ----------------------------------------------------------- | --------------------------------------------- |
+| Discover         | See a scope in a list, search result, or notification.      | A reviewer can find the restricted PR.        |
+| Read source      | Fetch refs and inspect commits, trees, diffs, and files.    | The security team clones its workspace.       |
+| Write source     | Push a server-defined private ref in an isolated workspace. | A maintainer updates an embargoed fix.        |
+| Write and review | Comment, request changes, approve, or run checks.           | A maintainer reviews an embargoed fix.        |
+| Materialize      | Receive one environment revision as a temporary file.       | A deploy job writes revision 42 to .env.      |
+| Read history     | Inspect earlier environment revisions and audit entries.    | An environment owner investigates a rollback. |
+| Publish          | Move selected restricted work into public history.          | A release manager publishes a security patch. |
+| Manage policy    | Create scopes, grants, revocations, and retention rules.    | A project owner adds a reviewer.              |
 
 Branchroom starts with deny by default. A scope grant can only narrow ordinary Gitea repository access. It never gives someone broader repository access than Gitea already allows.
 
@@ -381,18 +395,18 @@ The plan builds on the existing permission calculation. It does not replace it.
 identities. A Branchroom allow must be an additional, narrower decision after the
 existing Gitea permission ceiling.
 
-| Concern | Current seam in this checkout | Required Branchroom work |
-| --- | --- | --- |
-| Repository permissions | `models/perm/access/repo_permission.go`, especially `GetDoerRepoPermission` | Compose a scope decision with existing user, organization-team, deploy-key, Actions-user, repository-unit, and token rules. |
-| Git over smart HTTP | `routers/web/repo/githttp.go`, especially `httpBase` | Decide and route the workspace before ref advertisement or RPC. Test upload-pack, receive-pack, archive, and anonymous paths. |
-| Git over dumb HTTP | `routers/web/repo/githttp.go`, `GetLooseObject`, `GetPackFile`, and `GetIdxFile` | Deny object, pack, and index reads outside the scope, including known-SHA attempts. |
-| Git over SSH | `routers/private/serv.go`, `ServCommand` | Check the scope before returning `RepoStoragePath`. Cover deploy keys and the `refs/for` receive-pack path. |
-| Repository location | `models/repo/repo_location.go`, `modules/setting/repository.go`, and `[repository] ROOT` in `custom/conf/app.example.ini` | Add a separate restricted root and a store mapping. Do not overload the normal repository root. Decide whether v1 permits restricted wikis. |
-| LFS | `services/lfs/` and `[storage.lfs]` | Give restricted work a separate LFS namespace and verify batch, object, lock, and direct-download paths use the policy decision. |
-| Actions identity | `models/perm/access/repo_permission.go`, `services/actions/auth.go`, and `services/actions/workflow.go` | Bind a lease to one task, repository, workflow, ref, runner, scope, and expiry. Existing task permissions remain the upper bound. |
-| Actions storage | `modules/setting/actions.go`, `modules/storage/storage.go`, and `models/actions/artifact.go` | Route logs, artifacts, and caches to scope-separated storage. Never rely on a public object URL as an authorization check. |
-| Metadata reads | `routers/web/`, `routers/api/`, `services/feed/`, `services/webhook/`, search models, and notification models | Inventory every query and response that can reveal names, counts, IDs, links, payloads, or status. Filter before pagination and indexing. |
-| Schema and API | `modelmigration/migrations.go`, `docs/development.md` | Add migrations in order. New API routes need Swagger comments, generated output, and validation. |
+| Concern                | Current seam in this checkout                                                                                             | Required Branchroom work                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository permissions | `models/perm/access/repo_permission.go`, especially `GetDoerRepoPermission`                                               | Compose a scope decision with existing user, organization-team, deploy-key, Actions-user, repository-unit, and token rules.                 |
+| Git over smart HTTP    | `routers/web/repo/githttp.go`, especially `httpBase`                                                                      | Decide and route the workspace before ref advertisement or RPC. Test upload-pack, receive-pack, archive, and anonymous paths.               |
+| Git over dumb HTTP     | `routers/web/repo/githttp.go`, `GetLooseObject`, `GetPackFile`, and `GetIdxFile`                                          | Deny object, pack, and index reads outside the scope, including known-SHA attempts.                                                         |
+| Git over SSH           | `routers/private/serv.go`, `ServCommand`                                                                                  | Check the scope before returning `RepoStoragePath`. Cover deploy keys and the `refs/for` receive-pack path.                                 |
+| Repository location    | `models/repo/repo_location.go`, `modules/setting/repository.go`, and `[repository] ROOT` in `custom/conf/app.example.ini` | Add a separate restricted root and a store mapping. Do not overload the normal repository root. Decide whether v1 permits restricted wikis. |
+| LFS                    | `services/lfs/` and `[storage.lfs]`                                                                                       | Give restricted work a separate LFS namespace and verify batch, object, lock, and direct-download paths use the policy decision.            |
+| Actions identity       | `models/perm/access/repo_permission.go`, `services/actions/auth.go`, and `services/actions/workflow.go`                   | Bind a lease to one task, repository, workflow, ref, runner, scope, and expiry. Existing task permissions remain the upper bound.           |
+| Actions storage        | `modules/setting/actions.go`, `modules/storage/storage.go`, and `models/actions/artifact.go`                              | Route logs, artifacts, and caches to scope-separated storage. Never rely on a public object URL as an authorization check.                  |
+| Metadata reads         | `routers/web/`, `routers/api/`, `services/feed/`, `services/webhook/`, search models, and notification models             | Inventory every query and response that can reveal names, counts, IDs, links, payloads, or status. Filter before pagination and indexing.   |
+| Schema and API         | `modelmigration/migrations.go`, `docs/development.md`                                                                     | Add migrations in order. New API routes need Swagger comments, generated output, and validation.                                            |
 
 The feature must use a single policy interface in server code. Page handlers,
 transport handlers, background jobs, and storage adapters may call it, but none may
@@ -411,18 +425,23 @@ reimplement grant matching locally.
 
 The exact database schema can follow the first spike. These record boundaries need to exist from the start.
 
-| Record | Purpose | Must never contain |
-| --- | --- | --- |
-| Scope | Names a restricted workspace, environment, or later overlay. | Secret content |
-| Grant | Names subject, action, resource, conditions, expiry, and revocation. | A hidden broad admin bypass |
-| Restricted store mapping | Links a logical branch or PR to its isolated bare repository and public base. | Public-store alternates |
-| Environment revision | Holds immutable encrypted payload, key reference, revision number, and safe digest. | Plaintext in ordinary Git |
-| Lease | Names one job, one resource set, one expiry, and one request ID. | A reusable owner token |
-| Audit event | Records who asked, what the service allowed or denied, when, and why. | Secret values or raw environment text |
+| Record                   | Purpose                                                                             | Must never contain                    |
+| ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------- |
+| Scope                    | Names a restricted workspace, environment, or later overlay.                        | Secret content                        |
+| Grant                    | Names subject, action, resource, conditions, expiry, and revocation.                | A hidden broad admin bypass           |
+| Restricted store mapping | Links a logical branch or PR to its isolated bare repository and public base.       | Public-store alternates               |
+| Environment revision     | Holds immutable encrypted payload, key reference, revision number, and safe digest. | Plaintext in ordinary Git             |
+| Lease                    | Names one job, one resource set, one expiry, and one request ID.                    | A reusable owner token                |
+| Audit event              | Records who asked, what the service allowed or denied, when, and why.               | Secret values or raw environment text |
 
-Use envelope encryption. Each environment revision gets its own data key. A configured key provider encrypts that data key.
+Use envelope encryption: each environment revision gets its own data key, and a
+configured key provider encrypts that data key. That discussion is future
+environment work, not current V1 behaviour.
 
-For the first production deployment, use one managed KMS provider. A local development provider is useful, but it must be clearly unsafe for production. Support SOPS import later. Do not try to replace Vault in the first release.
+KMS is not part of the self-hosted Git-only V1. `[branchroom.environment]` remains
+disabled; no production provider is selected and there is no supported production
+environment-materialization mode. If environment materialization returns to scope, it
+requires its own key-management design and security review.
 
 ### First schema checkpoint
 
@@ -431,14 +450,14 @@ should have stable IDs, timestamps, actor IDs, state, and explicit foreign keys.
 The exact table names can follow local conventions, but the relationships cannot be
 implicit:
 
-| Record | Minimum relationship and fields to settle in M1 |
-| --- | --- |
-| Scope | Kind, display name, state, owner, and the logical repository or environment it protects. |
-| Grant | Scope, subject type and ID, action, conditions, not-before time, expiry, revocation time, and revoker. |
+| Record                   | Minimum relationship and fields to settle in M1                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Scope                    | Kind, display name, state, owner, and the logical repository or environment it protects.                                        |
+| Grant                    | Scope, subject type and ID, action, conditions, not-before time, expiry, revocation time, and revoker.                          |
 | Restricted store mapping | Scope, logical public repository, physical restricted repository identity, public-base SHA, object format, and retention state. |
-| Environment revision | Environment scope, revision, ciphertext reference, wrapped-key reference, safe digest, creator, and lifecycle state. |
-| Lease | Task, scope, revision set, workflow, ref, runner, request ID, expiry, and one-use state. |
-| Audit event | Decision ID, actor, action, resource, result, safe reason, timestamp, and a tamper-evidence strategy. |
+| Environment revision     | Environment scope, revision, ciphertext reference, wrapped-key reference, safe digest, creator, and lifecycle state.            |
+| Lease                    | Task, scope, revision set, workflow, ref, runner, request ID, expiry, and one-use state.                                        |
+| Audit event              | Decision ID, actor, action, resource, result, safe reason, timestamp, and a tamper-evidence strategy.                           |
 
 `Repository.IsPrivate` is not the data model for restricted source. It describes
 ordinary Gitea privacy and still uses the normal repository store. The first
@@ -468,11 +487,11 @@ workflow definitions come from. It is not a confidentiality boundary. Branchroom
 must use a distinct model, route, configuration, and UI name such as "Branchroom
 scope" or "restricted workspace" so a reviewer cannot mistake one for the other.
 
-| Job type | Allowed access | Default safety rule |
-| --- | --- | --- |
-| Normal PR job | Read-only job token. No restricted refs or protected environments. | Fork work gets no private data and no shared cache. |
-| Restricted job | Named restricted workspace. Logs, artifacts, and status inherit its scope. | Use an ephemeral isolated worker. |
-| Production deploy | One selected environment revision after approval. Optional cloud OIDC exchange. | The lease expires with the job. |
+| Job type          | Allowed access                                                                  | Default safety rule                                 |
+| ----------------- | ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Normal PR job     | Read-only job token. No restricted refs or protected environments.              | Fork work gets no private data and no shared cache. |
+| Restricted job    | Named restricted workspace. Logs, artifacts, and status inherit its scope.      | Use an ephemeral isolated worker.                   |
+| Production deploy | One selected environment revision after approval. Optional cloud OIDC exchange. | The lease expires with the job.                     |
 
 Rules that fail closed:
 
@@ -632,10 +651,11 @@ model.
   safe key-provider metadata, and retirement state. Leases contain only an opaque
   UUID, SHA-256 bearer hash, actor, grant/decision binding, expiry, and one-use state.
 - The only configured provider is `development-file`. It reads a base64 32-byte
-  development key from an absolute `file:` URI, is refused in production, and is not
-  a substitute for the managed KMS required for a real deployment. Configuration
-  retains only the local key-file path; database rows never hold key bytes or that
-  path as a key reference.
+  development key from an absolute `file:` URI, is refused in production, and stores
+  no key bytes: configuration retains only the local key-file path, and database rows
+  never hold key bytes or that path as a key reference. It is not a supported
+  environment-materialization deployment mode, and no managed KMS is awaited for this
+  V1.
 - The server-internal revision service clears its input buffer, makes a fresh data key
   for every revision, uses authenticated encryption with revision metadata as AAD, and
   records only safe audit metadata. An environment scope gives its creator an explicit
@@ -644,10 +664,10 @@ model.
 - The server-internal lease service recomputes the direct user's ordinary Gitea
   code-read ceiling, evaluates the exact `scope/<id>/environment-revision/<uuid>`
   resource, persists only a hash of a fresh 32-byte bearer secret, and issues a bounded
-one-use lease. It repeats policy evaluation before claim and consumes the lease on
-success, denial, expiry, or local-write failure. Claim is deliberately the
-irreversible authorization boundary; later revocation cannot recall an in-progress
-plaintext release.
+  one-use lease. It repeats policy evaluation before claim and consumes the lease on
+  success, denial, expiry, or local-write failure. Claim is deliberately the
+  irreversible authorization boundary; later revocation cannot recall an in-progress
+  plaintext release.
 - The root writer uses an `os.Root` supplied by a future isolated runner. It accepts
   only a strict relative destination and writes an fsynced 0600 temporary file before
   renaming it into that root. It is not a generic checkout writer.
@@ -670,20 +690,22 @@ Work:
 
 - Specify and strictly parse the tracked reference format. Environment name,
   revision, and destination must be validated before a materialization request.
-- Add an encrypted revision store with an interface for one managed production KMS
-  and a plainly unsafe local development provider.
+- Only if environment materialization returns to scope, choose a revision-store key
+  provider through its own key-management design and security review. Until then no
+  provider is selected and none blocks the self-hosted Git-only V1.
 - Materialize only through a lease. Reject path traversal, absolute destinations,
   symlink escapes, repeated lease use, expired leases, and unapproved runners.
 - Define protected paths, detector patterns, allowed false-positive bypasses, and
   audit rules for push, pull-request creation, import, and publication.
 - Keep ciphertext, key references, and safe digests separate from plaintext. Logs,
   errors, artifacts, and audit events must not contain the value.
-- Before any user-facing M2 surface, add one managed production KMS provider,
-  explicit key rotation/recovery rules, an isolated runner root lifecycle, safe
-  completion/reconciliation for failed physical writes, and the repository retention
-  collector. That collector must preserve a durable per-scope revision high-water
-  mark or tombstone: a numeric tracked revision must never be reused for different
-  ciphertext after retention. Do not reuse the development provider in production.
+- If environment materialization returns to scope, its own key-management design and
+  security review must cover explicit key rotation/recovery rules, an isolated runner
+  root lifecycle, safe completion/reconciliation for failed physical writes, and the
+  repository retention collector. That collector must preserve a durable per-scope
+  revision high-water mark or tombstone: a numeric tracked revision must never be
+  reused for different ciphertext after retention. The development-file seam stays
+  refused in production and is not a supported deployment mode.
 
 Verification:
 
@@ -869,40 +891,62 @@ security fixes.
   stale-key failure, fresh authorized handoff, grant preservation, and rejection of
   retired or non-ready state.
 
-#### Implemented M4h.1: deny-only source-write policy groundwork
+#### Implemented M4h.2a: deny-only source-write and receive-boundary groundwork
 
-- `write_source` is a separate action from source reading and review activity. It is
-  structurally limited to a direct user, and evaluation records the ordinary Gitea
-  code-read and code-write ceiling.
-- It remains unavailable for every caller, even if a direct-user grant exists. The
-  evaluator records the safe `write_source_unavailable` denial before it considers
-  grants. This makes the policy vocabulary and audit semantics testable without
-  creating a write capability.
-- This slice registers no Git receive-pack, SSH, API, CLI, Actions, UI, session,
-  hook, or source-write-grant-management surface. The existing restricted Git route
-  remains upload-pack only.
+- Owners of a ready workspace can store and revoke audited direct `write_source`
+  grants for active users. The evaluator still checks ordinary Gitea code read and
+  write permission, then unconditionally records the safe `write_source_unavailable`
+  denial before it ever matches a grant. Every stored grant is inert.
+- Migration 354 adds the one-use receive-session record. It stores only the session
+  UUID key, a SHA-256 hash of the bearer token, its scope, workspace, repository,
+  and direct-user binding, and expiry plus state. It stores no raw bearer token,
+  filesystem path, ref, locator, or store ID. Migration 355 adds terminal outcomes.
+  The internal verifier can only complete a fully bound, correctly
+  bearer-authenticated claimed session as denied alongside the unchanged static
+  policy denial, so replay creates no second audit; a nominally expired claimed
+  session can still finish denied. No issuer, claimant route, or user-facing API
+  exists yet.
+- A bounded internal-token verifier and a hidden pre-receive delegate exist only as
+  internal call targets. The delegate enforces a strict syntactic, non-delete
+  `refs/heads/branchroom/` policy. Provisioning installs a server-owned static hook
+  under `.branchroom-hooks/<store UUID>` and verifies the exact local `core.hooksPath`
+  before a newly provisioned workspace becomes ready; verification failures leave it
+  failed and non-routable. Older ready workspaces are not retrofitted. Every write is
+  denied. There is no receive-pack, SSH, or allow route.
 
-Before any source-write endpoint can exist, the next bounded steps are:
+#### Dependency-order V1 roadmap
 
-1. Add an internal, one-use receive session scoped to one ready workspace and direct
-   user. Store only a secret hash and safe identity metadata. Define a server-owned
-   `core.hooksPath` pre-receive hook that rechecks current lifecycle and authorization
-   state and enforces an initially small, server-defined private-ref policy. Do not
-   use ordinary repository hooks or let the client select a ref policy.
-2. Add controlled direct-user `write_source` grant management only after the session
-   and hook boundary is tested. Grant creation, revocation, transfer, and deletion
-   must serialize with the workspace lifecycle.
-3. Only then add a separate isolated HTTPS receive-pack gateway. It must accept the
-   exact smart-protocol endpoints, require a non-public write-capable credential plus
-   ordinary code-read and code-write permission and a direct grant, and recheck the
-   one-use session in pre-receive. It must not call normal Git HTTP storage lookup or
-   normal repository hook dispatch.
+Each step below depends on the earlier ones and must land in this order:
 
-SSH stays after the HTTPS write path has been proven. It needs a separate command and
-key-origin boundary; it must not reuse the normal SSH `ServCommand` storage-path
-resolution. The public-content preflight module also remains disconnected from
-restricted source writes until its policy and false-positive behaviour are designed
-for that use.
+1. Verify ready-store integrity before any admission: the exact local `core.hooksPath`,
+   the expected hook directory containing a static regular-file script, safe ownership
+   and modes, and no symlinks. Repair nothing silently. This check includes older ready
+   workspaces, not only newly provisioned ones.
+2. Build unreachable server-internal session issue and claim admission. The current
+   denied finalization is complete; the short CSPRNG bearer must exist only in memory
+   and the receive-pack child environment, never in a browser, client, database, log,
+   or error.
+3. Wire hook-integrity verification and trusted quarantine facts into dedicated
+   admission, never as a general `ActionWriteSource` allow. Bind object format,
+   validate quarantine commits, accept only `refs/heads/branchroom/*`, reject tags,
+   deletes, force updates, and mixed formats, and require fast-forward updates only.
+4. Add an isolated HTTPS receive-pack gateway with independent auth on both advertise
+   and RPC. It must inject the bearer server-to-child and never route through normal
+   Git routing, storage lookup, or ordinary hook dispatch. Its terminal admitted
+   outcome means pre-receive admission accepted, not that Git committed refs.
+5. Cover the path with actual Git-push adversarial integration tests: revocation
+   between phases, replay and concurrency, lifecycle races, hook and configuration
+   tamper, limits, and known-SHA public-store isolation.
+6. Close out self-hosted operations: stated limits, stale session cleanup,
+   diagnostics and reconciliation, a recovery guide, and a restricted backup/restore
+   drill.
+
+The narrow Git-only self-hosted V1 may stop after step 5 or step 6 and means
+direct-user clone and push over the isolated HTTPS transport only. Out of V1 stay
+SSH, LFS, normal Git HTTP, API, and CLI, archives and raw paths, pull requests,
+reviews, search, notifications, and webhooks, Actions, runners, artifacts, and
+caches, environment materialization and KMS, promotion and retention, hosted and
+multitenant operation, per-role histories, and partial clones.
 
 Work:
 
@@ -1005,29 +1049,29 @@ These are product requirements. If one fails, the related feature remains behind
 The security gates need named tests, not only a checklist. Each new protected route
 must be added to this inventory before it is enabled.
 
-| Surface | Verified starting point | Required proof |
-| --- | --- | --- |
-| Restricted smart Git HTTP | `routers/web/repo/branchroom_githttp.go` | An authorized actor can advertise and transfer the restricted workspace through upload-pack only. An unauthorized actor gets the same non-disclosing result for ref advertisement and upload-pack. |
-| Dumb Git HTTP | `GetLooseObject`, `GetPackFile`, and `GetIdxFile` in `routers/web/repo/githttp.go` | A known restricted blob, tree, commit, pack, or index cannot be fetched by URL. |
-| SSH | `routers/private/serv.go` | An unauthorized user or deploy key cannot receive a restricted storage path, clone, fetch by SHA, or push. |
-| LFS | `services/lfs/` | Batch, object, lock, and direct-download paths do not reveal restricted object IDs or bytes. |
-| Web and API | `routers/web/` and `routers/api/` | Lists, counters, pages, raw files, archives, diffs, blame, autocomplete, and pagination hide inaccessible work before response construction. |
-| Search, feeds, and notifications | Search models, `services/feed/`, and notification handlers | An inaccessible workspace contributes no name, count, ID, link, payload, or timing clue. |
-| Webhooks | `services/webhook/` | Creation, delivery, replay, payload persistence, retry, and diagnostics inherit the scope. |
-| Actions | Actions models, services, and storage | Logs, artifacts, caches, coverage, statuses, runner diagnostics, and job tokens cannot cross the scope. |
-| Object storage and backups | Storage adapters and deployment jobs | A signed or direct object URL, backup, restore, garbage collector, or cache key cannot bypass the policy or combine stores. |
-| Promotion | Publication service | Only the approved patch reaches the public store. Private comments, rejected attempts, earlier commits, logs, and attachments remain restricted. |
+| Surface                          | Verified starting point                                                            | Required proof                                                                                                                                                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Restricted smart Git HTTP        | `routers/web/repo/branchroom_githttp.go`                                           | An authorized actor can advertise and transfer the restricted workspace through upload-pack only. An unauthorized actor gets the same non-disclosing result for ref advertisement and upload-pack. |
+| Dumb Git HTTP                    | `GetLooseObject`, `GetPackFile`, and `GetIdxFile` in `routers/web/repo/githttp.go` | A known restricted blob, tree, commit, pack, or index cannot be fetched by URL.                                                                                                                    |
+| SSH                              | `routers/private/serv.go`                                                          | An unauthorized user or deploy key cannot receive a restricted storage path, clone, fetch by SHA, or push.                                                                                         |
+| LFS                              | `services/lfs/`                                                                    | Batch, object, lock, and direct-download paths do not reveal restricted object IDs or bytes.                                                                                                       |
+| Web and API                      | `routers/web/` and `routers/api/`                                                  | Lists, counters, pages, raw files, archives, diffs, blame, autocomplete, and pagination hide inaccessible work before response construction.                                                       |
+| Search, feeds, and notifications | Search models, `services/feed/`, and notification handlers                         | An inaccessible workspace contributes no name, count, ID, link, payload, or timing clue.                                                                                                           |
+| Webhooks                         | `services/webhook/`                                                                | Creation, delivery, replay, payload persistence, retry, and diagnostics inherit the scope.                                                                                                         |
+| Actions                          | Actions models, services, and storage                                              | Logs, artifacts, caches, coverage, statuses, runner diagnostics, and job tokens cannot cross the scope.                                                                                            |
+| Object storage and backups       | Storage adapters and deployment jobs                                               | A signed or direct object URL, backup, restore, garbage collector, or cache key cannot bypass the policy or combine stores.                                                                        |
+| Promotion                        | Publication service                                                                | Only the approved patch reaches the public store. Private comments, rejected attempts, earlier commits, logs, and attachments remain restricted.                                                   |
 
 ## What to take from other platforms
 
-| Platform | Bring over | Do not mistake it for |
-| --- | --- | --- |
-| Gitea | MIT Go base, teams, repository UX, Actions, ephemeral runners, normal Git compatibility. | Repository-wide roles and Actions secrets are not scoped confidential work. |
-| GitHub | Environment approvals, OIDC workload identity, CODEOWNERS, private-fork security advisory flow. | Protected branches and environments do not hide source directories in a normal clone. |
-| GitLab | Short-lived job tokens, environment-scoped file variables, project allowlists. | A protected branch is not an isolated confidential object store. |
-| Forgejo | Runner scoping and the clear warning that host runners are not a security boundary. | Exact GitHub Actions behavior should not become a product promise. |
-| Gerrit | Separate rights for access, review, approval, and submit. | Private changes are unsafe for embargoed fixes when commits share a repository object store. |
-| OneDev | First-class job configuration and private build inputs. | It is not the starting base. Branchroom stays Go and Gitea-based. |
+| Platform | Bring over                                                                                      | Do not mistake it for                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Gitea    | MIT Go base, teams, repository UX, Actions, ephemeral runners, normal Git compatibility.        | Repository-wide roles and Actions secrets are not scoped confidential work.                  |
+| GitHub   | Environment approvals, OIDC workload identity, CODEOWNERS, private-fork security advisory flow. | Protected branches and environments do not hide source directories in a normal clone.        |
+| GitLab   | Short-lived job tokens, environment-scoped file variables, project allowlists.                  | A protected branch is not an isolated confidential object store.                             |
+| Forgejo  | Runner scoping and the clear warning that host runners are not a security boundary.             | Exact GitHub Actions behavior should not become a product promise.                           |
+| Gerrit   | Separate rights for access, review, approval, and submit.                                       | Private changes are unsafe for embargoed fixes when commits share a repository object store. |
+| OneDev   | First-class job configuration and private build inputs.                                         | It is not the starting base. Branchroom stays Go and Gitea-based.                            |
 
 ## Where GitX fits
 
@@ -1073,18 +1117,18 @@ The first demo worth showing is one security fix end to end. Create a restricted
 
 These choices do not change the v1 design. They set the first deployment shape.
 
-| Decision | Recommended first choice |
-| --- | --- |
-| Deployment | Self-hosted or single-tenant. |
-| Identity | Native Gitea users and organization teams. Add SSO and SCIM after scope rules settle. |
-| Key provider | A pluggable interface with one managed KMS provider in production and an unsafe local provider for development. |
-| Naming | Keep Branchroom as a working name. Keep code and protocol names easy to rename later. |
+| Decision                   | Recommended first choice                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Deployment                 | Self-hosted or single-tenant.                                                                                                   |
+| Identity                   | Native Gitea users and organization teams. Add SSO and SCIM after scope rules settle.                                           |
+| Key provider               | Deferred: no provider for self-hosted Git-only V1; decide only if environment materialization returns to scope.                 |
+| Naming                     | Keep Branchroom as a working name. Keep code and protocol names easy to rename later.                                           |
 | Restricted source identity | A user-facing restricted workspace backed by a new physical bare repository. It is never a hidden ref in the public repository. |
-| Public-base import | Copy into the restricted store without Git alternates, hard links, shared packs, shared indexes, or shared LFS storage. |
-| Promotion | Freeze both SHAs and apply one server-controlled patch or cherry-pick to the public target. Do not promote a ref. |
-| Scope cache and revocation | Short-lived allow decisions with explicit invalidation. A revoked grant blocks the next protected request. |
-| Audit integrity | Write an append-only event with tamper evidence. Define who can read it and what happens when the writer is unavailable. |
-| Secret-bearing runner | An ephemeral isolated runtime with no host mode or mounted Docker socket. Define the supported implementation before M3. |
+| Public-base import         | Copy into the restricted store without Git alternates, hard links, shared packs, shared indexes, or shared LFS storage.         |
+| Promotion                  | Freeze both SHAs and apply one server-controlled patch or cherry-pick to the public target. Do not promote a ref.               |
+| Scope cache and revocation | Short-lived allow decisions with explicit invalidation. A revoked grant blocks the next protected request.                      |
+| Audit integrity            | Write an append-only event with tamper evidence. Define who can read it and what happens when the writer is unavailable.        |
+| Secret-bearing runner      | An ephemeral isolated runtime with no host mode or mounted Docker socket. Define the supported implementation before M3.        |
 
 ## Source material
 

@@ -5,16 +5,16 @@ Branchroom is an independent, MIT-licensed fork of
 isolated workspaces for embargoed source changes and controlled environment
 materialization.
 
-This fork is maintained separately and developed here first. If the design proves
-useful, it may later be discussed with Gitea upstream; there is no upstream proposal
-or commitment today.
+Branchroom is maintained on this fork only, and there is no plan to submit its
+changes to Gitea upstream. A read-only Gitea remote may be kept here for maintenance
+reference only.
 
 ## Status
 
 Branchroom has completed M0a, the M0b.1 storage proof, M0b.2 public-route regression,
-the first M1 policy foundation, the M4a–M4h.1 isolated-workspace storage,
-source-policy, read-only Git HTTP, authorized clone-handoff, and clone-locator
-rotation slices, and
+the first M1 policy foundation, the M4a–M4h.2a isolated-workspace storage,
+source-policy, read-only Git HTTP, authorized clone-handoff, clone-locator
+rotation, inert receive-session foundations, and
 the M2a–M2c development-only environment foundations. It adds a disabled-by-default
 restricted-store root, a path-safe repository facade, and a public-base import that
 forbids local cloning and hard links. The regression checks that ordinary public Git
@@ -40,7 +40,10 @@ environment revision exists, pending an explicit retention collector.
 
 The owner-only Branchroom settings page can now provision that isolated store from a
 repository's current default-branch commit and show its safe state and pinned base.
-It does not render a store ID, filesystem path, workspace UUID, or clone URL. A
+Provisioning creates and verifies the server-owned static pre-receive hook before the
+workspace becomes ready; older ready workspaces were not retrofitted. A hook
+installation failure leaves the workspace failed safely. It
+does not render a store ID, filesystem path, workspace UUID, or clone URL. A
 provisioned store stays non-routable until a direct user receives a `read_source`
 grant.
 
@@ -53,11 +56,20 @@ not bypass ordinary Gitea code-read permission or direct grants: Git still requi
 The audit record names the rotation without either route key, a URL, a filesystem path,
 or a store ID.
 
-M4h.1 reserves `write_source` as a distinct policy action and records both ordinary
-Gitea code-read and code-write permission when evaluating it. It is deliberately
-deny-only: every `write_source` request returns `write_source_unavailable`, before a
-grant can match. There is no source-write grant management, receive session, hook, or
-Git receive-pack route. This does not enable push.
+M4h.2a deny-only receive-boundary groundwork exists. For a ready workspace, the
+owner can store and revoke audited direct-active-user `write_source` grants from the
+same settings page. These grants are stored-only and inert: the policy check
+evaluates ordinary Gitea code-read and code-write permission and then always returns
+`write_source_unavailable` before a stored grant can match, so a stored grant never
+enables a push. The migration-354 receive-session model exists, along with a bounded
+internal verifier, a hidden pre-receive command, and a static server-owned
+`core.hooksPath` hook, all of which deny. There is no production issuer, claimant
+route, user-facing session API, Git receive-pack route, SSH route, or allow path.
+Migration 355 lets the internal verifier complete a fully bound, correctly
+bearer-authenticated claimed session as `completed/denied`, in the same transaction
+as the unchanged `write_source_unavailable` denial; a replay adds no second audit.
+Nominal expiry after a valid claim does not block that denied completion. This still
+does not enable a push.
 
 There is now a deliberately narrow, read-only smart Git HTTP gateway for a ready
 workspace. It accepts only upload-pack advertisement and upload-pack RPC at a route
@@ -94,13 +106,16 @@ scanner.
 This is still not a full restricted Git workspace. The experimental HTTP read path has
 a tightly gated handoff page, but no push, SSH, LFS, public Branchroom API, production
 KMS, tracked-reference integration, materialization CLI, Actions integration, pull
-requests, or retention collector. The settings page explicitly labels scopes as policy
-metadata so it cannot be mistaken for a protected-branch control.
+requests, or retention collector. Environment materialization and production KMS stay
+deferred and disabled, with no production provider selected. The settings page
+explicitly labels scopes as policy metadata so it cannot be mistaken for a
+protected-branch control.
 
 The fork-local source of truth is the
 [implementation plan](docs/branchroom/implementation-plan.md). It explains the
 scope, threat model, Gitea integration points, milestones, and security gates. The
-separately maintained HTML copy is not built or published by this repository.
+standalone HTML copy is a separately maintained shareable document that this
+repository neither generates nor deploys.
 
 ## Self-hosted demo today
 
@@ -108,14 +123,16 @@ This is a policy demo, not a confidential-source or secret-management demo. Run 
 only with synthetic repositories and throwaway accounts.
 
 Enable `[branchroom]` in your local `app.ini` and point `RESTRICTED_ROOT` at an
-existing directory outside `[repository] ROOT`. Leave `[branchroom.environment]`
-disabled. As a repository owner, open repository settings → Branchroom, create a
-scope, grant discovery to a second test account, then revoke it. That shows the
-current owner, grant, audit, and revocation behaviour while ordinary Gitea remains
-unchanged. After provisioning a ready synthetic workspace, you may also add and
-revoke a direct `read_source` grant. Give the same account the direct discovery grant,
-then have it open `/{owner}/{repository}/-/branchroom` while signed in. That page shows
-only its authorized clone URL. The settings page does not reveal or distribute one.
+existing real directory—not a symlink, and not group or world writable—outside
+`[repository] ROOT`. Leave `[branchroom.environment]` disabled. As a repository
+owner, open repository settings → Branchroom, create a scope, grant discovery to a
+second test account, then revoke it. That shows the current owner, grant, audit, and
+revocation behaviour while ordinary Gitea remains unchanged. After provisioning a
+ready synthetic workspace, you may also add and revoke a direct `read_source` grant.
+Give the same account the direct discovery grant as well—a clone needs both
+`discover` and `read_source`—then have it open `/{owner}/{repository}/-/branchroom`
+while signed in. That page shows only its authorized clone URL. The settings page
+does not reveal or distribute one.
 
 Do not put real secrets in Branchroom or create a workspace for real restricted
 source. You may provision an isolated store with synthetic source to demonstrate the
@@ -155,9 +172,10 @@ Run `make help` to list all development targets.
 
 ## Fork development
 
-Keep active implementation work in this fork. The upstream Gitea contributor guide
-is useful for code, test, and review conventions. If this earns outside interest,
-start with an upstream design discussion rather than a large implementation proposal.
+Keep active implementation work in this fork. Branchroom changes are not submitted
+to Gitea upstream. The upstream Gitea contributor guide remains useful for code,
+test, and review conventions, and a read-only Gitea remote may be used as a
+maintenance reference only.
 
 Read the [implementation plan](docs/branchroom/implementation-plan.md) before
 starting a Branchroom feature. Start with the isolated-store proof in M0 rather than

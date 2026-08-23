@@ -208,6 +208,27 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	assert.Error(t, tampered.Validate())
 }
 
+// The Branchroom receive surface is an audit classification only, persisted through decisions and events.
+func TestBranchroomReceiveSurface(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+
+	assert.True(t, IsSurfaceValid(SurfaceBranchroomReceive))
+	assert.False(t, IsSurfaceValid(Surface("branchroom")))
+
+	scope := newTestScope()
+	require.NoError(t, InsertScope(ctx, scope))
+	decision := newTestDecision(scope, DecisionResultDeny, "branchroom_admitted")
+	decision.Surface = SurfaceBranchroomReceive
+	event, err := RecordDecisionAndAudit(ctx, scope, decision)
+	require.NoError(t, err)
+	assert.Equal(t, SurfaceBranchroomReceive, event.Surface)
+
+	stored, err := GetScopeByID(ctx, scope.ID)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, stored.AuditSequence)
+}
+
 func newTestScope() *Scope {
 	return &Scope{
 		Kind:        ScopeKindRepository,

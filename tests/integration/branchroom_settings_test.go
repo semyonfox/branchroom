@@ -36,6 +36,7 @@ func TestBranchroomSettings(t *testing.T) {
 	workspacesURL := branchroomURL + "/workspaces"
 	grantsURL := branchroomURL + "/grants"
 	sourceGrantsURL := branchroomURL + "/source-grants"
+	sourceWriteGrantsURL := branchroomURL + "/source-write-grants"
 
 	t.Run("disabled is undiscoverable", func(t *testing.T) {
 		setting.Branchroom = setting.BranchroomConfig{}
@@ -49,6 +50,8 @@ func TestBranchroomSettings(t *testing.T) {
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceGrantsURL, map[string]string{"scope_id": "1", "username": "user4"}), http.StatusNotFound)
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/1/route-key/rotate"), http.StatusNotFound)
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/1/source-grants/1/revoke"), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{"scope_id": "1", "username": "user4"}), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/1/source-write-grants/1/revoke"), http.StatusNotFound)
 	})
 
 	t.Run("real owner creates a scope without a site-admin bypass", func(t *testing.T) {
@@ -73,6 +76,7 @@ func TestBranchroomSettings(t *testing.T) {
 		require.Len(t, scopes, 1)
 		scope := scopes[0]
 		AssertHTMLElement(t, doc, "#branchroom-source-grant-user-"+strconv.FormatInt(scope.ID, 10), false)
+		AssertHTMLElement(t, doc, "#branchroom-source-write-grant-user-"+strconv.FormatInt(scope.ID, 10), false)
 		AssertHTMLElement(t, doc, "#branchroom-route-key-rotate-"+strconv.FormatInt(scope.ID, 10), false)
 
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, workspacesURL, map[string]string{
@@ -113,6 +117,7 @@ func TestBranchroomSettings(t *testing.T) {
 		doc = NewHTMLParser(t, resp.Body)
 		assert.Contains(t, doc.Find(".help").Text(), "remains hidden until a direct user")
 		AssertHTMLElement(t, doc, "#branchroom-source-grant-user-"+strconv.FormatInt(scope.ID, 10), true)
+		AssertHTMLElement(t, doc, "#branchroom-source-write-grant-user-"+strconv.FormatInt(scope.ID, 10), true)
 		AssertHTMLElement(t, doc, "#branchroom-route-key-rotate-"+strconv.FormatInt(scope.ID, 10), true)
 
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, "/-/admin/users/2/impersonate"), http.StatusOK)
@@ -121,6 +126,8 @@ func TestBranchroomSettings(t *testing.T) {
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, branchroomURL, map[string]string{"name": "impersonated-owner"}), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/route-key/rotate"), http.StatusNotFound)
+		siteAdmin.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user4"}), http.StatusNotFound)
+		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/1/revoke"), http.StatusNotFound)
 		storedScopeCount, err := db.GetEngine(t.Context()).Where("repo_id = ?", 1).Count(new(branchroom_model.Scope))
 		require.NoError(t, err)
 		assert.Equal(t, impersonatedScopeCount, storedScopeCount)
@@ -139,6 +146,8 @@ func TestBranchroomSettings(t *testing.T) {
 			"scope_id": strconv.FormatInt(scope.ID, 10),
 		}), http.StatusNotFound)
 		collaborator.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/route-key/rotate"), http.StatusNotFound)
+		collaborator.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user4"}), http.StatusNotFound)
+		collaborator.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/1/revoke"), http.StatusNotFound)
 		storedWorkspace, err = branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
 		require.NoError(t, err)
 		assert.Equal(t, workspace.RouteKey, storedWorkspace.RouteKey)
@@ -225,12 +234,38 @@ func TestBranchroomSettings(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotZero(t, storedSourceGrant.RevokedUnix)
 
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{
+			"scope_id": strconv.FormatInt(scope.ID, 10),
+			"username": "user4",
+		}), http.StatusSeeOther)
+		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
+		body = resp.Body.String()
+		assert.NotContains(t, body, workspace.WorkspaceKey)
+		assert.NotContains(t, body, workspace.RouteKey)
+		assert.NotContains(t, body, workspace.StoreID)
+		assert.NotContains(t, body, gitrepo.RepoLocalPath(restricted))
+		doc = NewHTMLParser(t, resp.Body)
+		assert.Contains(t, doc.Find(".ui.list").Text(), "user4")
+		sourceWriteGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, branchroom_model.ActionWriteSource, timeutil.TimeStampNow())
+		require.NoError(t, err)
+		require.Len(t, sourceWriteGrants, 1)
+		assert.Equal(t, branchroom_model.SubjectTypeUser, sourceWriteGrants[0].SubjectType)
+		assert.Equal(t, int64(4), sourceWriteGrants[0].SubjectID)
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/"+strconv.FormatInt(sourceWriteGrants[0].ID, 10)+"/revoke"), http.StatusSeeOther)
+		storedSourceWriteGrant, err := branchroom_model.GetGrantByID(t.Context(), sourceWriteGrants[0].ID)
+		require.NoError(t, err)
+		assert.NotZero(t, storedSourceWriteGrant.RevokedUnix)
+		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
+		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".ui.list").Text(), "user4")
+
 		_, err = db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateRetired})
 		require.NoError(t, err)
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".item-title").Text(), "security-fix")
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, grantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/"+strconv.FormatInt(storedSourceWriteGrant.ID, 10)+"/revoke"), http.StatusNotFound)
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/route-key/rotate"), http.StatusNotFound)
 
 		environmentScope := &branchroom_model.Scope{
@@ -262,6 +297,22 @@ func TestBranchroomSettings(t *testing.T) {
 			"scope_id": strconv.FormatInt(environmentScope.ID, 10),
 			"username": "user5",
 		}), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{
+			"scope_id": strconv.FormatInt(environmentScope.ID, 10),
+			"username": "user5",
+		}), http.StatusNotFound)
+		environmentWriteGrant := &branchroom_model.Grant{
+			ScopeID:     environmentScope.ID,
+			SubjectType: branchroom_model.SubjectTypeUser,
+			SubjectID:   4,
+			Action:      branchroom_model.ActionWriteSource,
+			CreatedByID: 2,
+		}
+		require.NoError(t, branchroom_model.InsertGrant(t.Context(), environmentWriteGrant))
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(environmentScope.ID, 10)+"/source-write-grants/"+strconv.FormatInt(environmentWriteGrant.ID, 10)+"/revoke"), http.StatusNotFound)
+		storedEnvironmentWriteGrant, err := branchroom_model.GetGrantByID(t.Context(), environmentWriteGrant.ID)
+		require.NoError(t, err)
+		assert.Zero(t, storedEnvironmentWriteGrant.RevokedUnix)
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(environmentScope.ID, 10)+"/route-key/rotate"), http.StatusNotFound)
 		_, err = branchroom_model.GetWorkspaceByScopeID(t.Context(), environmentScope.ID)
 		assert.ErrorIs(t, err, util.ErrNotExist)
@@ -275,8 +326,10 @@ func TestBranchroomSettings(t *testing.T) {
 		siteAdmin.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, branchroomURL, map[string]string{"name": "admin-bypass"}), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, grantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
+		siteAdmin.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/route-key/rotate"), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/grants/1/revoke"), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-grants/1/revoke"), http.StatusNotFound)
+		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/1/revoke"), http.StatusNotFound)
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/log"
@@ -26,7 +28,13 @@ import (
 
 const (
 	hookBatchSize = 500
+	// maxBranchroomSessionKeyBytes bounds the local session key length accepted from the hook environment.
+	maxBranchroomSessionKeyBytes = 128
 )
+
+// errBranchroomReceiveDenied is the only error this command ever reports, so no session
+// data or remote response text can leak through git's push output.
+var errBranchroomReceiveDenied = errors.New("Branchroom receive denied")
 
 func newHookCommand() *cli.Command {
 	return &cli.Command{
@@ -40,6 +48,7 @@ func newHookCommand() *cli.Command {
 			newHookUpdateCommand(),
 			newHookPostReceiveCommand(),
 			newHookProcReceiveCommand(),
+			newHookBranchroomPreReceiveCommand(),
 		},
 	}
 }
@@ -99,6 +108,63 @@ func newHookProcReceiveCommand() *cli.Command {
 			},
 		},
 	}
+}
+
+func newHookBranchroomPreReceiveCommand() *cli.Command {
+	return &cli.Command{
+		Name:        "branchroom-pre-receive",
+		Usage:       "Delegate pre-receive Git hook to Branchroom",
+		Description: "This command should only be called by Git",
+		Hidden:      true,
+		Action:      runHookBranchroomPreReceive,
+	}
+}
+
+func runHookBranchroomPreReceive(ctx context.Context, _ *cli.Command) error {
+	return hookBranchroomPreReceive(ctx,
+		os.Stdin,
+		os.Getenv(repo_module.EnvBranchroomReceiveSessionKey),
+		[]byte(os.Getenv(repo_module.EnvBranchroomReceiveBearerSecret)),
+		branchroom.ReceiveQuarantineValues{
+			ObjectDirectory:            os.Getenv(private.GitObjectDirectory),
+			AlternateObjectDirectories: os.Getenv(private.GitAlternativeObjectDirectories),
+			QuarantinePath:             os.Getenv(private.GitQuarantinePath),
+		},
+	)
+}
+
+// branchroomPreReceive exists only as a test seam, never as public configurability
+var branchroomPreReceive = private.BranchroomPreReceive
+
+// hookBranchroomPreReceive is deny-only: it validates the bounded receive payload and
+// forwards it to the internal endpoint, but always reports errBranchroomReceiveDenied.
+func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey string, bearerSecret []byte, quarantine branchroom.ReceiveQuarantineValues) error {
+	defer clear(bearerSecret)
+	updates, err := io.ReadAll(io.LimitReader(stdin, branchroom.MaxReceiveUpdatesBytes+1))
+	defer clear(updates)
+	if err != nil || len(updates) == 0 || len(updates) > branchroom.MaxReceiveUpdatesBytes ||
+		sessionKey == "" || len(sessionKey) > maxBranchroomSessionKeyBytes ||
+		len(bearerSecret) == 0 || len(bearerSecret) > branchroom.MaxReceiveBearerSecretBytes {
+		return errBranchroomReceiveDenied
+	}
+	for _, raw := range []string{quarantine.ObjectDirectory, quarantine.AlternateObjectDirectories, quarantine.QuarantinePath} {
+		if raw != "" && len(raw) > branchroom.MaxReceiveQuarantineValueBytes {
+			return errBranchroomReceiveDenied
+		}
+	}
+	// guard against the log.Fatal in NewInternalRequest, which would print config details
+	if setting.InternalToken == "" {
+		return errBranchroomReceiveDenied
+	}
+	_ = branchroomPreReceive(ctx, private.BranchroomPreReceiveRequest{
+		SessionKey:                 sessionKey,
+		BearerSecret:               bearerSecret,
+		Updates:                    updates,
+		ObjectDirectory:            quarantine.ObjectDirectory,
+		AlternateObjectDirectories: quarantine.AlternateObjectDirectories,
+		QuarantinePath:             quarantine.QuarantinePath,
+	})
+	return errBranchroomReceiveDenied
 }
 
 type delayWriter struct {

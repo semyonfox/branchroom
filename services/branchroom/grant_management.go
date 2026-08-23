@@ -25,6 +25,10 @@ var (
 	ErrSourceReadGrantAlreadyExists = errors.New("Branchroom source-read grant already exists")
 	// ErrInvalidSourceReadGrantTarget means a subject cannot authenticate as a direct Branchroom user.
 	ErrInvalidSourceReadGrantTarget = errors.New("invalid Branchroom source-read grant target")
+	// ErrSourceWriteGrantAlreadyExists means the recipient already has an active direct source-write grant.
+	ErrSourceWriteGrantAlreadyExists = errors.New("Branchroom source-write grant already exists")
+	// ErrInvalidSourceWriteGrantTarget means a subject cannot authenticate as a direct Branchroom user.
+	ErrInvalidSourceWriteGrantTarget = errors.New("invalid Branchroom source-write grant target")
 )
 
 // CreateRepositoryDiscoveryGrantRequest contains an owner-authorized direct-user discovery grant.
@@ -119,12 +123,71 @@ type CreateRepositorySourceReadGrantRequest struct {
 
 // CreateRepositorySourceReadGrant grants source read to one active direct user for a ready isolated workspace.
 func CreateRepositorySourceReadGrant(ctx context.Context, request CreateRepositorySourceReadGrantRequest) (*branchroom_model.Grant, error) {
+	return createRepositorySourceGrant(ctx, createRepositorySourceGrantRequest{
+		RepoID:                request.RepoID,
+		ScopeID:               request.ScopeID,
+		Actor:                 request.Actor,
+		SubjectUsername:       request.SubjectUsername,
+		Surface:               request.Surface,
+		RequestID:             request.RequestID,
+		Action:                branchroom_model.ActionReadSource,
+		RequestInvalidMessage: "invalid Branchroom source-read grant request",
+		ErrInvalidTarget:      ErrInvalidSourceReadGrantTarget,
+		ErrGrantAlreadyExists: ErrSourceReadGrantAlreadyExists,
+		AuditReasonCode:       "source_read_grant_created",
+	})
+}
+
+// CreateRepositorySourceWriteGrantRequest contains an owner-authorized direct-user source-write grant.
+// It is stored policy groundwork for a future receive boundary; no source-write path exists today.
+type CreateRepositorySourceWriteGrantRequest struct {
+	RepoID          int64
+	ScopeID         int64
+	Actor           Actor
+	SubjectUsername string
+	Surface         branchroom_model.Surface
+	RequestID       string
+}
+
+// CreateRepositorySourceWriteGrant records a direct-user source-write policy grant for a ready isolated workspace.
+// Stored groundwork only: Branchroom still denies every source write until a future receive boundary exists.
+func CreateRepositorySourceWriteGrant(ctx context.Context, request CreateRepositorySourceWriteGrantRequest) (*branchroom_model.Grant, error) {
+	return createRepositorySourceGrant(ctx, createRepositorySourceGrantRequest{
+		RepoID:                request.RepoID,
+		ScopeID:               request.ScopeID,
+		Actor:                 request.Actor,
+		SubjectUsername:       request.SubjectUsername,
+		Surface:               request.Surface,
+		RequestID:             request.RequestID,
+		Action:                branchroom_model.ActionWriteSource,
+		RequestInvalidMessage: "invalid Branchroom source-write grant request",
+		ErrInvalidTarget:      ErrInvalidSourceWriteGrantTarget,
+		ErrGrantAlreadyExists: ErrSourceWriteGrantAlreadyExists,
+		AuditReasonCode:       "source_write_grant_created",
+	})
+}
+
+type createRepositorySourceGrantRequest struct {
+	RepoID                int64
+	ScopeID               int64
+	Actor                 Actor
+	SubjectUsername       string
+	Surface               branchroom_model.Surface
+	RequestID             string
+	Action                branchroom_model.Action
+	RequestInvalidMessage string
+	ErrInvalidTarget      error
+	ErrGrantAlreadyExists error
+	AuditReasonCode       string
+}
+
+func createRepositorySourceGrant(ctx context.Context, request createRepositorySourceGrantRequest) (*branchroom_model.Grant, error) {
 	if !setting.Branchroom.Enabled {
 		return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
 	}
 	request.SubjectUsername = strings.TrimSpace(request.SubjectUsername)
 	if request.RepoID <= 0 || request.ScopeID <= 0 || request.SubjectUsername == "" || len(request.SubjectUsername) > 255 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
-		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom source-read grant request")
+		return nil, util.NewInvalidArgumentErrorf("%s", request.RequestInvalidMessage)
 	}
 
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Grant, error) {
@@ -157,22 +220,22 @@ func CreateRepositorySourceReadGrant(ctx context.Context, request CreateReposito
 		subject, err := user_model.GetIndividualUserByName(txCtx, request.SubjectUsername)
 		if err != nil {
 			if errors.Is(err, util.ErrNotExist) {
-				return nil, ErrInvalidSourceReadGrantTarget
+				return nil, request.ErrInvalidTarget
 			}
 			return nil, err
 		}
 		if !subject.IsActive || subject.ProhibitLogin {
-			return nil, ErrInvalidSourceReadGrantTarget
+			return nil, request.ErrInvalidTarget
 		}
 
 		now := timeutil.TimeStampNow()
-		grants, err := branchroom_model.FindActiveGrantsAt(txCtx, scope.ID, branchroom_model.ActionReadSource, now)
+		grants, err := branchroom_model.FindActiveGrantsAt(txCtx, scope.ID, request.Action, now)
 		if err != nil {
 			return nil, err
 		}
 		for _, grant := range grants {
 			if grant.SubjectType == branchroom_model.SubjectTypeUser && grant.SubjectID == subject.ID {
-				return nil, ErrSourceReadGrantAlreadyExists
+				return nil, request.ErrGrantAlreadyExists
 			}
 		}
 
@@ -180,13 +243,13 @@ func CreateRepositorySourceReadGrant(ctx context.Context, request CreateReposito
 			ScopeID:     scope.ID,
 			SubjectType: branchroom_model.SubjectTypeUser,
 			SubjectID:   subject.ID,
-			Action:      branchroom_model.ActionReadSource,
+			Action:      request.Action,
 			CreatedByID: request.Actor.ID,
 		}
 		if err := branchroom_model.InsertGrant(txCtx, grant); err != nil {
 			return nil, err
 		}
-		if err := recordDirectUserGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, "source_read_grant_created"); err != nil {
+		if err := recordDirectUserGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, request.AuditReasonCode); err != nil {
 			return nil, err
 		}
 		return grant, nil
@@ -254,6 +317,38 @@ func RevokeRepositorySourceReadGrant(ctx context.Context, request RevokeReposito
 		Action:          branchroom_model.ActionReadSource,
 		NotExistMessage: "active Branchroom source-read grant does not exist",
 		AuditReasonCode: "source_read_grant_revoked",
+	})
+}
+
+// RevokeRepositorySourceWriteGrantRequest identifies one direct-user source-write grant to revoke.
+type RevokeRepositorySourceWriteGrantRequest struct {
+	RepoID    int64
+	ScopeID   int64
+	GrantID   int64
+	Actor     Actor
+	Surface   branchroom_model.Surface
+	RequestID string
+}
+
+// RevokeRepositorySourceWriteGrant revokes a direct-user source-write grant while retaining its audit history.
+func RevokeRepositorySourceWriteGrant(ctx context.Context, request RevokeRepositorySourceWriteGrantRequest) error {
+	if !setting.Branchroom.Enabled {
+		return util.NewNotExistErrorf("Branchroom scope does not exist")
+	}
+	if request.RepoID <= 0 || request.ScopeID <= 0 || request.GrantID <= 0 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
+		return util.NewInvalidArgumentErrorf("invalid Branchroom source-write grant revocation request")
+	}
+
+	return revokeRepositoryDirectUserGrant(ctx, revokeRepositoryDirectUserGrantRequest{
+		RepoID:          request.RepoID,
+		ScopeID:         request.ScopeID,
+		GrantID:         request.GrantID,
+		Actor:           request.Actor,
+		Surface:         request.Surface,
+		RequestID:       request.RequestID,
+		Action:          branchroom_model.ActionWriteSource,
+		NotExistMessage: "active Branchroom source-write grant does not exist",
+		AuditReasonCode: "source_write_grant_revoked",
 	})
 }
 

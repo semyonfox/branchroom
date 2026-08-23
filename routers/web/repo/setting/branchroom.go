@@ -30,6 +30,7 @@ type branchroomScopeData struct {
 	State                 branchroom_model.ScopeState
 	CanGrantDiscovery     bool
 	CanGrantSourceRead    bool
+	CanGrantSourceWrite   bool
 	CanProvisionWorkspace bool
 	CanRotateRouteKey     bool
 	HasWorkspace          bool
@@ -37,6 +38,7 @@ type branchroomScopeData struct {
 	WorkspacePublicBase   string
 	DiscoveryGrants       []branchroomDirectUserGrantData
 	SourceReadGrants      []branchroomDirectUserGrantData
+	SourceWriteGrants     []branchroomDirectUserGrantData
 }
 
 type branchroomDirectUserGrantData struct {
@@ -89,6 +91,7 @@ func Branchroom(ctx *context.Context) {
 
 	discoveryGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	sourceReadGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
+	sourceWriteGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	userIDs := make([]int64, 0)
 	now := timeutil.TimeStampNow()
 	for _, scope := range visibleScopes {
@@ -116,6 +119,18 @@ func Branchroom(ctx *context.Context) {
 			sourceReadGrantsByScopeID[scope.ID] = append(sourceReadGrantsByScopeID[scope.ID], grant)
 			userIDs = append(userIDs, grant.SubjectID)
 		}
+		sourceWriteGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionWriteSource, now)
+		if err != nil {
+			ctx.ServerError("FindActiveBranchroomSourceWriteGrants", err)
+			return
+		}
+		for _, grant := range sourceWriteGrants {
+			if grant.SubjectType != branchroom_model.SubjectTypeUser {
+				continue
+			}
+			sourceWriteGrantsByScopeID[scope.ID] = append(sourceWriteGrantsByScopeID[scope.ID], grant)
+			userIDs = append(userIDs, grant.SubjectID)
+		}
 	}
 	users, err := user_model.GetUsersMapByIDs(ctx, userIDs)
 	if err != nil {
@@ -136,11 +151,13 @@ func Branchroom(ctx *context.Context) {
 			HasWorkspace:          workspace != nil,
 			DiscoveryGrants:       make([]branchroomDirectUserGrantData, 0, len(discoveryGrantsByScopeID[scope.ID])),
 			SourceReadGrants:      make([]branchroomDirectUserGrantData, 0, len(sourceReadGrantsByScopeID[scope.ID])),
+			SourceWriteGrants:     make([]branchroomDirectUserGrantData, 0, len(sourceWriteGrantsByScopeID[scope.ID])),
 		}
 		if workspace != nil {
 			data.WorkspaceState = workspace.State
 			data.WorkspacePublicBase = workspace.PublicBaseSHA
 			data.CanGrantSourceRead = scope.State == branchroom_model.ScopeStateActive && workspace.State == branchroom_model.WorkspaceStateReady
+			data.CanGrantSourceWrite = data.CanGrantSourceRead
 			data.CanRotateRouteKey = data.CanGrantSourceRead
 		}
 		for _, grant := range discoveryGrantsByScopeID[scope.ID] {
@@ -159,6 +176,16 @@ func Branchroom(ctx *context.Context) {
 				subjectName = user.Name
 			}
 			data.SourceReadGrants = append(data.SourceReadGrants, branchroomDirectUserGrantData{
+				ID:          grant.ID,
+				SubjectName: subjectName,
+			})
+		}
+		for _, grant := range sourceWriteGrantsByScopeID[scope.ID] {
+			subjectName := string(ctx.Tr("repo.settings.branchroom.deleted_user", grant.SubjectID))
+			if user, ok := users[grant.SubjectID]; ok {
+				subjectName = user.Name
+			}
+			data.SourceWriteGrants = append(data.SourceWriteGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
 				SubjectName: subjectName,
 			})
@@ -183,6 +210,13 @@ func BranchroomDiscoveryGrantPost(ctx *context.Context) {
 func BranchroomSourceReadGrantPost(ctx *context.Context) {
 	branchroomDirectUserGrantPost(ctx, branchroomSourceReadGrantForm, createBranchroomSourceReadGrant, branchroom_service.ErrSourceReadGrantAlreadyExists,
 		"repo.settings.branchroom.source_grant_exists", "repo.settings.branchroom.source_grant_create_failed", "repo.settings.branchroom.source_grant_created")
+}
+
+// BranchroomSourceWriteGrantPost stores a source-write policy grant for one direct user.
+// It is deny-only groundwork for a future receive boundary; no write path exists today.
+func BranchroomSourceWriteGrantPost(ctx *context.Context) {
+	branchroomDirectUserGrantPost(ctx, branchroomSourceWriteGrantForm, createBranchroomSourceWriteGrant, branchroom_service.ErrSourceWriteGrantAlreadyExists,
+		"repo.settings.branchroom.source_write_grant_exists", "repo.settings.branchroom.source_write_grant_create_failed", "repo.settings.branchroom.source_write_grant_created")
 }
 
 // BranchroomWorkspacePost provisions an isolated store from the current default branch.
@@ -271,6 +305,12 @@ func BranchroomSourceReadGrantRevokePost(ctx *context.Context) {
 		"repo.settings.branchroom.source_grant_revoke_failed", "repo.settings.branchroom.source_grant_revoked")
 }
 
+// BranchroomSourceWriteGrantRevokePost revokes one direct-user source-write policy grant.
+func BranchroomSourceWriteGrantRevokePost(ctx *context.Context) {
+	branchroomDirectUserGrantRevokePost(ctx, revokeBranchroomSourceWriteGrant,
+		"repo.settings.branchroom.source_write_grant_revoke_failed", "repo.settings.branchroom.source_write_grant_revoked")
+}
+
 type branchroomGrantFormValues struct {
 	ScopeID  int64
 	Username string
@@ -288,6 +328,11 @@ func branchroomSourceReadGrantForm(ctx *context.Context) branchroomGrantFormValu
 	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
 }
 
+func branchroomSourceWriteGrantForm(ctx *context.Context) branchroomGrantFormValues {
+	form := web.GetForm[*forms.BranchroomSourceWriteGrantForm](ctx)
+	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
+}
+
 func createBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
 	_, err := branchroom_service.CreateRepositoryDiscoveryGrant(ctx, branchroom_service.CreateRepositoryDiscoveryGrantRequest{
 		RepoID:          repoID,
@@ -301,6 +346,17 @@ func createBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID int64,
 
 func createBranchroomSourceReadGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
 	_, err := branchroom_service.CreateRepositorySourceReadGrant(ctx, branchroom_service.CreateRepositorySourceReadGrantRequest{
+		RepoID:          repoID,
+		ScopeID:         scopeID,
+		Actor:           actor,
+		SubjectUsername: username,
+		Surface:         branchroom_model.SurfaceWeb,
+	})
+	return err
+}
+
+func createBranchroomSourceWriteGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
+	_, err := branchroom_service.CreateRepositorySourceWriteGrant(ctx, branchroom_service.CreateRepositorySourceWriteGrantRequest{
 		RepoID:          repoID,
 		ScopeID:         scopeID,
 		Actor:           actor,
@@ -354,6 +410,16 @@ func revokeBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID, grant
 
 func revokeBranchroomSourceReadGrant(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error {
 	return branchroom_service.RevokeRepositorySourceReadGrant(ctx, branchroom_service.RevokeRepositorySourceReadGrantRequest{
+		RepoID:  repoID,
+		ScopeID: scopeID,
+		GrantID: grantID,
+		Actor:   actor,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+}
+
+func revokeBranchroomSourceWriteGrant(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error {
+	return branchroom_service.RevokeRepositorySourceWriteGrant(ctx, branchroom_service.RevokeRepositorySourceWriteGrantRequest{
 		RepoID:  repoID,
 		ScopeID: scopeID,
 		GrantID: grantID,

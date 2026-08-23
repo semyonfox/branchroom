@@ -10,8 +10,9 @@ workspace or real secret-management system.
 Use a development instance, a throwaway repository, and two throwaway accounts. Do
 not use source or credentials that matter. Keep `[branchroom.environment]` disabled.
 
-Create a separate existing directory for restricted stores. It must not be the public
-repository root, live inside it, or contain it. For example:
+Create a separate existing directory for restricted stores. It must be a real
+directory, not a symlink, and it must not be group or world writable. It must not be
+the public repository root, live inside it, or contain it. For example:
 
 ```ini
 [branchroom]
@@ -50,7 +51,8 @@ Set `[server] ROOT_URL` to the public HTTPS address, or forward the public Host 
    private repository, add it as a collaborator before creating Branchroom grants.
 6. Add a direct discovery grant for the second throwaway account.
 7. Once the workspace is `ready`, add a direct `read_source` grant for that same
-   account. The second account now needs both `discover` and `read_source` grants.
+   account. The second account now needs both `discover` and `read_source` grants,
+   and a clone requires both.
 8. Refresh the page and confirm that the scope, workspace state, and both grants are
    shown.
 9. Sign in as the second account and open
@@ -67,12 +69,17 @@ Set `[server] ROOT_URL` to the public HTTPS address, or forward the public Host 
     the copied URL fails.
 
 Provisioning copies the public base, so a normal local demo clone may contain only
-that public-base history. Do not inject private commits into the restricted store just
+that public-base history. It also creates and verifies the server-owned static
+pre-receive hook before the workspace becomes ready; if installation fails, the
+workspace stays failed safely, and older ready workspaces were not retrofitted.
+Do not inject private commits into the restricted store just
 to make the demo more dramatic. The feature still lacks a safe user-facing write path.
 
 The repository owner receives an explicit discovery grant when creating the scope.
-A site administrator is not a Branchroom bypass. Teams, bots, deploy keys, Actions
-tasks, and write grants are not available through this page. Source-read grants are
+A site administrator is not a Branchroom bypass. Teams, bots, deploy keys, and
+Actions tasks are not available through this page. The owner can store and revoke a
+direct `write_source` grant for a ready workspace, but such grants are stored-only
+and inert and do not enable a push. Source-read grants are
 limited to active individual users and a ready repository workspace. They are one
 required check for the experimental read-only gateway, not a general-purpose access
 role.
@@ -88,12 +95,23 @@ URL, a filesystem path, or a store ID.
   read-only smart HTTP upload-pack path. Its opaque clone URL appears only on the
   signed-in handoff page after both direct grants, and it is not linked from ordinary
   repository pages.
-- `write_source` is only deny-only policy groundwork. It has no grant-management,
-  session, hook, or receive-pack surface, so it does not enable a push in this demo.
+- `write_source` stays deny-only. The owner can store and revoke audited
+  direct-active-user `write_source` grants for a ready workspace, but those grants
+  are stored-only and inert: evaluation checks ordinary code-read and code-write
+  permission and then always returns `write_source_unavailable` before a grant can
+  match. The migration-backed receive-session model, bounded internal verifier,
+  hidden pre-receive command, and static server-owned `core.hooksPath` hook exist
+  but all deny. Migration 355 lets the internal verifier complete only a fully bound,
+  correctly bearer-authenticated claimed session as denied with the unchanged static
+  policy denial; replay adds no second audit, and nominal expiry after a valid claim
+  does not block that completion. There is no production issuer, claimant route,
+  user-facing session API, receive-pack route, SSH route, or allow path, so nothing
+  here enables a push.
 - Provisioned isolated storage has no retry or deletion control. It is not a usable
   collaboration workspace.
 - No real secret storage or release. The development-only encryption code is sealed
-  internal plumbing and refuses production startup.
+  internal plumbing and refuses production startup. Environment materialization and
+  production KMS stay deferred and disabled, with no selected production provider.
 - No push-time secret scanner. The current preflight module is not wired into pushes,
   pull requests, imports, or publication.
 
@@ -107,4 +125,5 @@ Basic authentication, and rechecks authorization before both protocol phases. It
 no receive-pack, archive, dumb-object, SSH, LFS, API, CLI, or runner surface. The
 handoff page is not the security boundary. Git checks the current grant again for each
 advertisement and RPC request. The next work is the remaining transport and lifecycle
-boundaries. Production KMS and secret-bearing runner work stay deferred.
+boundaries. Production KMS and secret-bearing runner work stay deferred and disabled,
+with no production provider selected.

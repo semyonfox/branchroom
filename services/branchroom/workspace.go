@@ -94,6 +94,18 @@ func CreateRepositoryWorkspace(ctx context.Context, request CreateRepositoryWork
 		return nil, ErrWorkspaceProvisioning
 	}
 
+	hookDir, err := branchroom_module.InstallRestrictedStoreHook(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID)
+	if err != nil {
+		removeFailedRestrictedStore(ctx, restricted)
+		markWorkspaceProvisioningFailed(ctx, workspace, request, "receive_hook_install_failed")
+		return nil, ErrWorkspaceProvisioning
+	}
+	if err := git.ManagedConfigSetAndVerify(ctx, restricted, "core.hooksPath", hookDir); err != nil {
+		removeFailedRestrictedStore(ctx, restricted)
+		markWorkspaceProvisioningFailed(ctx, workspace, request, "receive_hook_config_failed")
+		return nil, ErrWorkspaceProvisioning
+	}
+
 	ready, err := markWorkspaceReady(ctx, workspace, request)
 	if err != nil {
 		return nil, err

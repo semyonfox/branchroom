@@ -174,6 +174,13 @@ type BranchroomSourceReadGrantForm struct {
 	Username string `binding:"Required;MaxSize(255)"`
 }
 
+// BranchroomSourceWriteGrantForm stores a source-write policy grant for one direct user.
+type BranchroomSourceWriteGrantForm struct {
+	middleware.FormDefaultValidator
+	ScopeID  int64  `binding:"Required"`
+	Username string `binding:"Required;MaxSize(255)"`
+}
+
 // ProtectBranchForm form for changing protected branch settings
 type ProtectBranchForm struct {
 	middleware.FormDefaultValidator
