@@ -1,0 +1,12 @@
+{{$prefix := .prefix}}
+	<div class="fields">
+		<div class="field">
+			<label for="{{$prefix}}-not-before">{{ctx.Locale.Tr "repo.settings.branchroom.grant_not_before"}}</label>
+			<input type="datetime-local" id="{{$prefix}}-not-before" name="not_before">
+		</div>
+		<div class="field">
+			<label for="{{$prefix}}-expires">{{ctx.Locale.Tr "repo.settings.branchroom.grant_expires"}}</label>
+			<input type="datetime-local" id="{{$prefix}}-expires" name="expires">
+		</div>
+	</div>
+	<div class="help">{{ctx.Locale.Tr "repo.settings.branchroom.grant_time_help"}}</div>

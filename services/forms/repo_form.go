@@ -163,22 +163,38 @@ type BranchroomWorkspaceForm struct {
 // BranchroomDiscoveryGrantForm grants scope discovery to one direct user.
 type BranchroomDiscoveryGrantForm struct {
 	middleware.FormDefaultValidator
-	ScopeID  int64  `binding:"Required"`
-	Username string `binding:"Required;MaxSize(255)"`
+	ScopeID   int64  `binding:"Required"`
+	Username  string `binding:"Required;MaxSize(255)"`
+	NotBefore string
+	Expires   string
 }
 
 // BranchroomSourceReadGrantForm grants source read to one direct user.
 type BranchroomSourceReadGrantForm struct {
 	middleware.FormDefaultValidator
-	ScopeID  int64  `binding:"Required"`
-	Username string `binding:"Required;MaxSize(255)"`
+	ScopeID   int64  `binding:"Required"`
+	Username  string `binding:"Required;MaxSize(255)"`
+	NotBefore string
+	Expires   string
 }
 
 // BranchroomSourceWriteGrantForm stores a source-write policy grant for one direct user.
 type BranchroomSourceWriteGrantForm struct {
 	middleware.FormDefaultValidator
-	ScopeID  int64  `binding:"Required"`
-	Username string `binding:"Required;MaxSize(255)"`
+	ScopeID   int64  `binding:"Required"`
+	Username  string `binding:"Required;MaxSize(255)"`
+	NotBefore string
+	Expires   string
+}
+
+// BranchroomTeamGrantForm grants discover or source read to one organization team.
+type BranchroomTeamGrantForm struct {
+	middleware.FormDefaultValidator
+	ScopeID   int64  `binding:"Required"`
+	Team      string `binding:"Required;MaxSize(255)"`
+	Action    string `binding:"Required;In(discover,read_source)"`
+	NotBefore string
+	Expires   string
 }
 
 // ProtectBranchForm form for changing protected branch settings

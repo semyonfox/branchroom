@@ -5,9 +5,13 @@ package setting
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
+	organization_model "gitea.dev/models/organization"
 	unit_model "gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
@@ -33,17 +37,27 @@ type branchroomScopeData struct {
 	CanGrantSourceWrite   bool
 	CanProvisionWorkspace bool
 	CanRotateRouteKey     bool
+	CanRetryWorkspace     bool
+	CanRetireWorkspace    bool
+	CanPurgeWorkspace     bool
 	HasWorkspace          bool
 	WorkspaceState        branchroom_model.WorkspaceState
 	WorkspacePublicBase   string
 	DiscoveryGrants       []branchroomDirectUserGrantData
 	SourceReadGrants      []branchroomDirectUserGrantData
 	SourceWriteGrants     []branchroomDirectUserGrantData
+	TeamGrants            []branchroomTeamGrantData
 }
 
 type branchroomDirectUserGrantData struct {
 	ID          int64
 	SubjectName string
+}
+
+type branchroomTeamGrantData struct {
+	ID       int64
+	TeamName string
+	Action   branchroom_model.Action
 }
 
 // MustEnableBranchroom hides all Branchroom routes while the feature is disabled.
@@ -92,7 +106,9 @@ func Branchroom(ctx *context.Context) {
 	discoveryGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	sourceReadGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	sourceWriteGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
+	teamGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	userIDs := make([]int64, 0)
+	teamIDs := make([]int64, 0)
 	now := timeutil.TimeStampNow()
 	for _, scope := range visibleScopes {
 		discoveryGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionDiscover, now)
@@ -101,11 +117,14 @@ func Branchroom(ctx *context.Context) {
 			return
 		}
 		for _, grant := range discoveryGrants {
-			if grant.SubjectType != branchroom_model.SubjectTypeUser {
-				continue
+			switch grant.SubjectType {
+			case branchroom_model.SubjectTypeUser:
+				discoveryGrantsByScopeID[scope.ID] = append(discoveryGrantsByScopeID[scope.ID], grant)
+				userIDs = append(userIDs, grant.SubjectID)
+			case branchroom_model.SubjectTypeTeam:
+				teamGrantsByScopeID[scope.ID] = append(teamGrantsByScopeID[scope.ID], grant)
+				teamIDs = append(teamIDs, grant.SubjectID)
 			}
-			discoveryGrantsByScopeID[scope.ID] = append(discoveryGrantsByScopeID[scope.ID], grant)
-			userIDs = append(userIDs, grant.SubjectID)
 		}
 		sourceReadGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionReadSource, now)
 		if err != nil {
@@ -113,11 +132,14 @@ func Branchroom(ctx *context.Context) {
 			return
 		}
 		for _, grant := range sourceReadGrants {
-			if grant.SubjectType != branchroom_model.SubjectTypeUser {
-				continue
+			switch grant.SubjectType {
+			case branchroom_model.SubjectTypeUser:
+				sourceReadGrantsByScopeID[scope.ID] = append(sourceReadGrantsByScopeID[scope.ID], grant)
+				userIDs = append(userIDs, grant.SubjectID)
+			case branchroom_model.SubjectTypeTeam:
+				teamGrantsByScopeID[scope.ID] = append(teamGrantsByScopeID[scope.ID], grant)
+				teamIDs = append(teamIDs, grant.SubjectID)
 			}
-			sourceReadGrantsByScopeID[scope.ID] = append(sourceReadGrantsByScopeID[scope.ID], grant)
-			userIDs = append(userIDs, grant.SubjectID)
 		}
 		sourceWriteGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionWriteSource, now)
 		if err != nil {
@@ -135,6 +157,11 @@ func Branchroom(ctx *context.Context) {
 	users, err := user_model.GetUsersMapByIDs(ctx, userIDs)
 	if err != nil {
 		ctx.ServerError("GetBranchroomGrantUsers", err)
+		return
+	}
+	teams, err := organization_model.GetTeamsByIDs(ctx, teamIDs)
+	if err != nil {
+		ctx.ServerError("GetBranchroomGrantTeams", err)
 		return
 	}
 
@@ -159,6 +186,9 @@ func Branchroom(ctx *context.Context) {
 			data.CanGrantSourceRead = scope.State == branchroom_model.ScopeStateActive && workspace.State == branchroom_model.WorkspaceStateReady
 			data.CanGrantSourceWrite = data.CanGrantSourceRead
 			data.CanRotateRouteKey = data.CanGrantSourceRead
+			data.CanRetryWorkspace = workspace.State == branchroom_model.WorkspaceStateFailed
+			data.CanRetireWorkspace = workspace.State == branchroom_model.WorkspaceStateReady || workspace.State == branchroom_model.WorkspaceStateFailed
+			data.CanPurgeWorkspace = data.CanRetireWorkspace || workspace.State == branchroom_model.WorkspaceStateRetired
 		}
 		for _, grant := range discoveryGrantsByScopeID[scope.ID] {
 			subjectName := string(ctx.Tr("repo.settings.branchroom.deleted_user", grant.SubjectID))
@@ -188,6 +218,17 @@ func Branchroom(ctx *context.Context) {
 			data.SourceWriteGrants = append(data.SourceWriteGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
 				SubjectName: subjectName,
+			})
+		}
+		for _, grant := range teamGrantsByScopeID[scope.ID] {
+			teamName := fmt.Sprintf("#%d", grant.SubjectID)
+			if team, ok := teams[grant.SubjectID]; ok {
+				teamName = team.Name
+			}
+			data.TeamGrants = append(data.TeamGrants, branchroomTeamGrantData{
+				ID:       grant.ID,
+				TeamName: teamName,
+				Action:   grant.Action,
 			})
 		}
 		scopeData = append(scopeData, data)
@@ -312,55 +353,87 @@ func BranchroomSourceWriteGrantRevokePost(ctx *context.Context) {
 }
 
 type branchroomGrantFormValues struct {
-	ScopeID  int64
-	Username string
+	ScopeID   int64
+	Username  string
+	NotBefore string
+	Expires   string
 }
 
-type branchroomGrantCreateFunc func(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error
+// parseBranchroomGrantWindow converts optional datetime-local inputs into unix stamps; empty means unset.
+func parseBranchroomGrantWindow(notBefore, expires string) (timeutil.TimeStamp, timeutil.TimeStamp, bool) {
+	notBeforeUnix, ok := parseBranchroomLocalDatetime(notBefore)
+	if !ok {
+		return 0, 0, false
+	}
+	expiresUnix, ok := parseBranchroomLocalDatetime(expires)
+	if !ok {
+		return 0, 0, false
+	}
+	return notBeforeUnix, expiresUnix, true
+}
+
+func parseBranchroomLocalDatetime(value string) (timeutil.TimeStamp, bool) {
+	if value == "" {
+		return 0, true
+	}
+	parsed, err := time.ParseInLocation("2006-01-02T15:04", value, time.Local)
+	if err != nil {
+		return 0, false
+	}
+	return timeutil.TimeStamp(parsed.Unix()), true
+}
+
+type branchroomGrantCreateFunc func(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string, notBefore, expires timeutil.TimeStamp) error
 
 func branchroomDiscoveryGrantForm(ctx *context.Context) branchroomGrantFormValues {
 	form := web.GetForm[*forms.BranchroomDiscoveryGrantForm](ctx)
-	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
+	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username, NotBefore: form.NotBefore, Expires: form.Expires}
 }
 
 func branchroomSourceReadGrantForm(ctx *context.Context) branchroomGrantFormValues {
 	form := web.GetForm[*forms.BranchroomSourceReadGrantForm](ctx)
-	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
+	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username, NotBefore: form.NotBefore, Expires: form.Expires}
 }
 
 func branchroomSourceWriteGrantForm(ctx *context.Context) branchroomGrantFormValues {
 	form := web.GetForm[*forms.BranchroomSourceWriteGrantForm](ctx)
-	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username}
+	return branchroomGrantFormValues{ScopeID: form.ScopeID, Username: form.Username, NotBefore: form.NotBefore, Expires: form.Expires}
 }
 
-func createBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
+func createBranchroomDiscoveryGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string, notBefore, expires timeutil.TimeStamp) error {
 	_, err := branchroom_service.CreateRepositoryDiscoveryGrant(ctx, branchroom_service.CreateRepositoryDiscoveryGrantRequest{
 		RepoID:          repoID,
 		ScopeID:         scopeID,
 		Actor:           actor,
 		SubjectUsername: username,
+		NotBeforeUnix:   notBefore,
+		ExpiresUnix:     expires,
 		Surface:         branchroom_model.SurfaceWeb,
 	})
 	return err
 }
 
-func createBranchroomSourceReadGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
+func createBranchroomSourceReadGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string, notBefore, expires timeutil.TimeStamp) error {
 	_, err := branchroom_service.CreateRepositorySourceReadGrant(ctx, branchroom_service.CreateRepositorySourceReadGrantRequest{
 		RepoID:          repoID,
 		ScopeID:         scopeID,
 		Actor:           actor,
 		SubjectUsername: username,
+		NotBeforeUnix:   notBefore,
+		ExpiresUnix:     expires,
 		Surface:         branchroom_model.SurfaceWeb,
 	})
 	return err
 }
 
-func createBranchroomSourceWriteGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string) error {
+func createBranchroomSourceWriteGrant(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor, username string, notBefore, expires timeutil.TimeStamp) error {
 	_, err := branchroom_service.CreateRepositorySourceWriteGrant(ctx, branchroom_service.CreateRepositorySourceWriteGrantRequest{
 		RepoID:          repoID,
 		ScopeID:         scopeID,
 		Actor:           actor,
 		SubjectUsername: username,
+		NotBeforeUnix:   notBefore,
+		ExpiresUnix:     expires,
 		Surface:         branchroom_model.SurfaceWeb,
 	})
 	return err
@@ -376,15 +449,183 @@ func branchroomDirectUserGrantPost(ctx *context.Context, getForm func(ctx *conte
 		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 		return
 	}
+	notBefore, expires, ok := parseBranchroomGrantWindow(form.NotBefore, form.Expires)
+	if !ok {
+		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
 
-	err := createGrant(ctx, ctx.Repo.Repository.ID, form.ScopeID, branchroom_service.ActorFromUser(ctx.Doer), form.Username)
+	err := createGrant(ctx, ctx.Repo.Repository.ID, form.ScopeID, branchroom_service.ActorFromUser(ctx.Doer), form.Username, notBefore, expires)
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
 			ctx.NotFound(nil)
 			return
 		}
-		if errors.Is(err, existsError) {
+		switch {
+		case errors.Is(err, existsError):
 			ctx.Flash.Error(ctx.Tr(existsMessage))
+		case errors.Is(err, util.ErrInvalidArgument):
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
+		default:
+			ctx.Flash.Error(ctx.Tr(failedMessage))
+		}
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr(successMessage))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+// BranchroomTeamGrantPost grants discover or source read to one organization team of the repository owner.
+func BranchroomTeamGrantPost(ctx *context.Context) {
+	if !requireBranchroomScopeOwner(ctx) {
+		return
+	}
+	form := web.GetForm[*forms.BranchroomTeamGrantForm](ctx)
+	if ctx.HasError() {
+		ctx.Flash.Error(ctx.GetErrMsg())
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+	notBefore, expires, ok := parseBranchroomGrantWindow(form.NotBefore, form.Expires)
+	if !ok {
+		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	team, err := organization_model.GetTeam(ctx, ctx.Repo.Owner.ID, strings.TrimSpace(form.Team))
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_not_found"))
+			ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+			return
+		}
+		ctx.ServerError("GetBranchroomGrantTeam", err)
+		return
+	}
+	_, err = branchroom_service.CreateRepositoryTeamGrant(ctx, branchroom_service.CreateRepositoryTeamGrantRequest{
+		RepoID:        ctx.Repo.Repository.ID,
+		ScopeID:       form.ScopeID,
+		Actor:         branchroom_service.ActorFromUser(ctx.Doer),
+		TeamID:        team.ID,
+		Action:        branchroom_model.Action(form.Action),
+		NotBeforeUnix: notBefore,
+		ExpiresUnix:   expires,
+		Surface:       branchroom_model.SurfaceWeb,
+	})
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound(nil)
+			return
+		}
+		switch {
+		case errors.Is(err, branchroom_service.ErrTeamGrantAlreadyExists):
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_grant_exists"))
+		case errors.Is(err, branchroom_service.ErrInvalidTeamGrantTarget):
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_not_found"))
+		case errors.Is(err, util.ErrInvalidArgument):
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
+		default:
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_grant_create_failed"))
+		}
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.team_grant_created"))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+// BranchroomTeamGrantRevokePost revokes one organization-team grant.
+func BranchroomTeamGrantRevokePost(ctx *context.Context) {
+	if !requireBranchroomScopeOwner(ctx) {
+		return
+	}
+	scopeID := ctx.PathParamInt64("scopeID")
+	grantID := ctx.PathParamInt64("grantID")
+	if scopeID <= 0 || grantID <= 0 {
+		ctx.NotFound(nil)
+		return
+	}
+	grant, err := branchroom_model.GetGrantByID(ctx, grantID)
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound(nil)
+			return
+		}
+		ctx.ServerError("GetBranchroomTeamGrant", err)
+		return
+	}
+	err = branchroom_service.RevokeRepositoryTeamGrant(ctx, branchroom_service.RevokeRepositoryTeamGrantRequest{
+		RepoID:  ctx.Repo.Repository.ID,
+		ScopeID: scopeID,
+		GrantID: grantID,
+		Actor:   branchroom_service.ActorFromUser(ctx.Doer),
+		Action:  grant.Action,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+	if err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound(nil)
+			return
+		}
+		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_grant_revoke_failed"))
+		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.team_grant_revoked"))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+type branchroomWorkspaceLifecycleFunc func(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor) (*branchroom_model.Workspace, error)
+
+func retryBranchroomWorkspace(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor) (*branchroom_model.Workspace, error) {
+	return branchroom_service.RetryWorkspaceProvisioning(ctx, branchroom_service.RetryWorkspaceProvisioningRequest{
+		RepoID:  repoID,
+		ScopeID: scopeID,
+		Actor:   actor,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+}
+
+func retireBranchroomWorkspace(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor) (*branchroom_model.Workspace, error) {
+	return branchroom_service.RetireWorkspace(ctx, branchroom_service.RetireWorkspaceRequest{
+		RepoID:  repoID,
+		ScopeID: scopeID,
+		Actor:   actor,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+}
+
+func purgeBranchroomWorkspace(ctx *context.Context, repoID, scopeID int64, actor branchroom_service.Actor) (*branchroom_model.Workspace, error) {
+	return branchroom_service.PurgeWorkspace(ctx, branchroom_service.PurgeWorkspaceRequest{
+		RepoID:  repoID,
+		ScopeID: scopeID,
+		Actor:   actor,
+		Surface: branchroom_model.SurfaceWeb,
+	})
+}
+
+func branchroomWorkspaceLifecyclePost(ctx *context.Context, run branchroomWorkspaceLifecycleFunc, successMessage, failedMessage string) {
+	if !requireBranchroomScopeOwner(ctx) {
+		return
+	}
+	scopeID := ctx.PathParamInt64("scopeID")
+	if scopeID <= 0 {
+		ctx.NotFound(nil)
+		return
+	}
+	if _, err := run(ctx, ctx.Repo.Repository.ID, scopeID, branchroom_service.ActorFromUser(ctx.Doer)); err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound(nil)
+			return
+		}
+		if errors.Is(err, branchroom_service.ErrWorkspaceStateChanged) {
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.workspace_state_changed"))
 		} else {
 			ctx.Flash.Error(ctx.Tr(failedMessage))
 		}
@@ -394,6 +635,24 @@ func branchroomDirectUserGrantPost(ctx *context.Context, getForm func(ctx *conte
 
 	ctx.Flash.Success(ctx.Tr(successMessage))
 	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+// BranchroomWorkspaceRetryPost moves a failed workspace back to provisioning.
+func BranchroomWorkspaceRetryPost(ctx *context.Context) {
+	branchroomWorkspaceLifecyclePost(ctx, retryBranchroomWorkspace,
+		"repo.settings.branchroom.workspace_retry_started", "repo.settings.branchroom.workspace_retry_failed")
+}
+
+// BranchroomWorkspaceRetirePost marks a ready or failed workspace retired.
+func BranchroomWorkspaceRetirePost(ctx *context.Context) {
+	branchroomWorkspaceLifecyclePost(ctx, retireBranchroomWorkspace,
+		"repo.settings.branchroom.workspace_retired", "repo.settings.branchroom.workspace_retire_failed")
+}
+
+// BranchroomWorkspacePurgePost deletes the isolated store and marks the workspace purged.
+func BranchroomWorkspacePurgePost(ctx *context.Context) {
+	branchroomWorkspaceLifecyclePost(ctx, purgeBranchroomWorkspace,
+		"repo.settings.branchroom.workspace_purged", "repo.settings.branchroom.workspace_purge_failed")
 }
 
 type branchroomGrantRevokeFunc func(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error
