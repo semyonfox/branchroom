@@ -15,6 +15,7 @@ import (
 type BranchroomConfig struct {
 	Enabled                bool
 	RestrictedRepoRootPath string
+	MaxWorkspacesPerOwner  int
 }
 
 // Branchroom stores the static Branchroom configuration.
@@ -23,10 +24,14 @@ var Branchroom BranchroomConfig
 func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	sec := rootCfg.Section("branchroom")
 	Branchroom = BranchroomConfig{
-		Enabled: sec.Key("ENABLED").MustBool(false),
+		Enabled:               sec.Key("ENABLED").MustBool(false),
+		MaxWorkspacesPerOwner: sec.Key("MAX_WORKSPACES_PER_OWNER").MustInt(10),
 	}
 	if !Branchroom.Enabled {
 		return nil
+	}
+	if Branchroom.MaxWorkspacesPerOwner < 0 {
+		return errors.New("[branchroom].MAX_WORKSPACES_PER_OWNER must not be negative")
 	}
 
 	restrictedRoot := strings.TrimSpace(sec.Key("RESTRICTED_ROOT").String())
