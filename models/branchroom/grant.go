@@ -59,8 +59,8 @@ func (grant *Grant) Validate() error {
 	if grant.Action == ActionMaterialize && grant.SubjectType != SubjectTypeUser {
 		return util.NewInvalidArgumentErrorf("Branchroom environment materialization grants require a direct user")
 	}
-	if grant.Action == ActionReadSource && grant.SubjectType != SubjectTypeUser {
-		return util.NewInvalidArgumentErrorf("Branchroom source-read grants require a direct user")
+	if grant.Action == ActionReadSource && grant.SubjectType != SubjectTypeUser && grant.SubjectType != SubjectTypeTeam {
+		return util.NewInvalidArgumentErrorf("Branchroom source-read grants require a direct user or organization team")
 	}
 	if grant.Action == ActionWriteSource && grant.SubjectType != SubjectTypeUser {
 		return util.NewInvalidArgumentErrorf("Branchroom source-write grants require a direct user")
@@ -124,6 +124,19 @@ func FindActiveGrantsAt(ctx context.Context, scopeID int64, action Action, now t
 		Asc("id").
 		Find(&grants)
 	return grants, err
+}
+
+// HasUnexpiredSubjectGrant reports whether the subject holds a non-revoked,
+// not-yet-expired grant for the scope and action, including one whose window
+// has not started yet.
+func HasUnexpiredSubjectGrant(ctx context.Context, scopeID int64, action Action, subjectType SubjectType, subjectID int64, now timeutil.TimeStamp) (bool, error) {
+	if scopeID <= 0 || !IsActionValid(action) || !IsSubjectTypeValid(subjectType) || subjectID <= 0 || now <= 0 {
+		return false, util.NewInvalidArgumentErrorf("invalid Branchroom grant query")
+	}
+	has, err := db.GetEngine(ctx).
+		Where("scope_id = ? AND action = ? AND subject_type = ? AND subject_id = ? AND revoked_unix = 0 AND (expires_unix = 0 OR expires_unix > ?)", scopeID, action, subjectType, subjectID, now).
+		Get(new(Grant))
+	return has, err
 }
 
 // GetActiveDirectUserGrantAt returns one active direct-user grant for the exact

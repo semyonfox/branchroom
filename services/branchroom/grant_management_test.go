@@ -6,6 +6,7 @@ package branchroom
 import (
 	"strings"
 	"testing"
+	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -698,4 +699,316 @@ func insertReadyWorkspaceForGrant(t *testing.T, scope *branchroom_model.Scope, o
 	}
 	require.NoError(t, branchroom_model.InsertWorkspace(t.Context(), workspace))
 	return workspace
+}
+
+func TestRepositoryTeamGrantManagement(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	admin := Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+
+	scope, err := CreateRepositoryScope(ctx, CreateRepositoryScopeRequest{
+		RepoID:  3,
+		Actor:   admin,
+		Name:    "team-grants",
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+
+	windowStart := timeutil.TimeStampNow().AddDuration(time.Minute)
+	windowEnd := timeutil.TimeStampNow().AddDuration(2 * time.Minute)
+	grant, err := CreateRepositoryTeamGrant(ctx, CreateRepositoryTeamGrantRequest{
+		RepoID:        3,
+		ScopeID:       scope.ID,
+		Actor:         admin,
+		TeamID:        2,
+		Action:        branchroom_model.ActionDiscover,
+		NotBeforeUnix: windowStart,
+		ExpiresUnix:   windowEnd,
+		Surface:       branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.SubjectTypeTeam, grant.SubjectType)
+	assert.EqualValues(t, 2, grant.SubjectID)
+	assert.Equal(t, branchroom_model.ActionDiscover, grant.Action)
+	assert.Equal(t, windowStart, grant.NotBeforeUnix)
+	assert.Equal(t, windowEnd, grant.ExpiresUnix)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		GrantID:    grant.ID,
+		ReasonCode: reasonTeamGrantCreated,
+	})
+
+	_, err = CreateRepositoryTeamGrant(ctx, CreateRepositoryTeamGrantRequest{
+		RepoID:  3,
+		ScopeID: scope.ID,
+		Actor:   admin,
+		TeamID:  2,
+		Action:  branchroom_model.ActionDiscover,
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, ErrTeamGrantAlreadyExists)
+
+	decision, err := fixedEvaluator(windowStart).Evaluate(ctx, testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 4}, true))
+	require.NoError(t, err)
+	assert.True(t, decision.Allowed)
+	decision, err = fixedEvaluator(windowEnd).Evaluate(ctx, testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 4}, true))
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	decision, err = fixedEvaluator(windowStart).Evaluate(ctx, testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 5}, true))
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+
+	err = RevokeRepositoryTeamGrant(ctx, RevokeRepositoryTeamGrantRequest{
+		RepoID:  3,
+		ScopeID: scope.ID,
+		GrantID: grant.ID,
+		Actor:   admin,
+		Action:  branchroom_model.ActionReadSource,
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	stored, err := branchroom_model.GetGrantByID(ctx, grant.ID)
+	require.NoError(t, err)
+	assert.Zero(t, stored.RevokedUnix)
+
+	require.NoError(t, RevokeRepositoryTeamGrant(ctx, RevokeRepositoryTeamGrantRequest{
+		RepoID:  3,
+		ScopeID: scope.ID,
+		GrantID: grant.ID,
+		Actor:   admin,
+		Action:  branchroom_model.ActionDiscover,
+		Surface: branchroom_model.SurfaceSystem,
+	}))
+	stored, err = branchroom_model.GetGrantByID(ctx, grant.ID)
+	require.NoError(t, err)
+	assert.NotZero(t, stored.RevokedUnix)
+	assert.Equal(t, admin.ID, stored.RevokedByID)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
+		ScopeID:    scope.ID,
+		GrantID:    grant.ID,
+		ReasonCode: reasonTeamGrantRevoked,
+	})
+	decision, err = fixedEvaluator(windowStart).Evaluate(ctx, testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 4}, true))
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+
+	insertReadyWorkspaceForGrant(t, scope, admin.ID)
+	readSourceGrant, err := CreateRepositoryTeamGrant(ctx, CreateRepositoryTeamGrantRequest{
+		RepoID:  3,
+		ScopeID: scope.ID,
+		Actor:   admin,
+		TeamID:  1,
+		Action:  branchroom_model.ActionReadSource,
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, readSourceGrant.SubjectID)
+}
+
+func TestRepositoryDirectUserGrantsAcceptOptionalTimeWindow(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	owner := Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+	scope, err := CreateRepositoryScope(ctx, CreateRepositoryScopeRequest{
+		RepoID:  1,
+		Actor:   owner,
+		Name:    "windowed-direct-grants",
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	insertReadyWorkspaceForGrant(t, scope, owner.ID)
+
+	windowStart := timeutil.TimeStampNow().AddDuration(time.Minute)
+	windowEnd := timeutil.TimeStampNow().AddDuration(2 * time.Minute)
+	discoveryGrant, err := CreateRepositoryDiscoveryGrant(ctx, CreateRepositoryDiscoveryGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "user4",
+		NotBeforeUnix:   windowStart,
+		ExpiresUnix:     windowEnd,
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, windowStart, discoveryGrant.NotBeforeUnix)
+	assert.Equal(t, windowEnd, discoveryGrant.ExpiresUnix)
+
+	sourceReadGrant, err := CreateRepositorySourceReadGrant(ctx, CreateRepositorySourceReadGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "user4",
+		NotBeforeUnix:   windowStart,
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, windowStart, sourceReadGrant.NotBeforeUnix)
+	assert.Zero(t, sourceReadGrant.ExpiresUnix)
+
+	sourceWriteGrant, err := CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
+		RepoID:          1,
+		ScopeID:         scope.ID,
+		Actor:           owner,
+		SubjectUsername: "user4",
+		ExpiresUnix:     windowEnd,
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	assert.Zero(t, sourceWriteGrant.NotBeforeUnix)
+	assert.Equal(t, windowEnd, sourceWriteGrant.ExpiresUnix)
+
+	expired := timeutil.TimeStampNow().AddDuration(-10 * time.Minute)
+	for _, request := range []struct {
+		create func() error
+	}{
+		{func() error {
+			_, err := CreateRepositoryDiscoveryGrant(ctx, CreateRepositoryDiscoveryGrantRequest{
+				RepoID:          1,
+				ScopeID:         scope.ID,
+				Actor:           owner,
+				SubjectUsername: "user5",
+				NotBeforeUnix:   expired,
+				Surface:         branchroom_model.SurfaceSystem,
+			})
+			return err
+		}},
+		{func() error {
+			_, err := CreateRepositorySourceReadGrant(ctx, CreateRepositorySourceReadGrantRequest{
+				RepoID:          1,
+				ScopeID:         scope.ID,
+				Actor:           owner,
+				SubjectUsername: "user5",
+				NotBeforeUnix:   windowEnd,
+				ExpiresUnix:     windowStart,
+				Surface:         branchroom_model.SurfaceSystem,
+			})
+			return err
+		}},
+		{func() error {
+			_, err := CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
+				RepoID:          1,
+				ScopeID:         scope.ID,
+				Actor:           owner,
+				SubjectUsername: "user5",
+				ExpiresUnix:     expired,
+				Surface:         branchroom_model.SurfaceSystem,
+			})
+			return err
+		}},
+	} {
+		err := request.create()
+		assert.ErrorIs(t, err, util.ErrInvalidArgument)
+		grants, err := db.GetEngine(ctx).Where("subject_id = ?", 5).Count(new(branchroom_model.Grant))
+		require.NoError(t, err)
+		assert.Zero(t, grants)
+	}
+}
+
+func TestRepositoryTeamGrantRejectsInvalidRequests(t *testing.T) {
+	enableBranchroom(t)
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	admin := Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+	scope, err := CreateRepositoryScope(ctx, CreateRepositoryScopeRequest{
+		RepoID:  3,
+		Actor:   admin,
+		Name:    "team-grant-rejections",
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	userScope, err := CreateRepositoryScope(ctx, CreateRepositoryScopeRequest{
+		RepoID:  1,
+		Actor:   admin,
+		Name:    "user-owned-team-grant-rejections",
+		Surface: branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+
+	countGrantsAndAudits := func() (int64, int64) {
+		grants, err := db.GetEngine(ctx).Count(new(branchroom_model.Grant))
+		require.NoError(t, err)
+		audits, err := db.GetEngine(ctx).Count(new(branchroom_model.AuditEvent))
+		require.NoError(t, err)
+		return grants, audits
+	}
+	initialGrants, initialAudits := countGrantsAndAudits()
+	request := func(mutate func(*CreateRepositoryTeamGrantRequest)) CreateRepositoryTeamGrantRequest {
+		request := CreateRepositoryTeamGrantRequest{
+			RepoID:  3,
+			ScopeID: scope.ID,
+			Actor:   admin,
+			TeamID:  2,
+			Action:  branchroom_model.ActionDiscover,
+			Surface: branchroom_model.SurfaceSystem,
+		}
+		if mutate != nil {
+			mutate(&request)
+		}
+		return request
+	}
+
+	setting.Branchroom.Enabled = false
+	_, err = CreateRepositoryTeamGrant(ctx, request(nil))
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	setting.Branchroom.Enabled = true
+
+	expectRejection := func(request CreateRepositoryTeamGrantRequest, expected error) {
+		t.Helper()
+		_, err := CreateRepositoryTeamGrant(ctx, request)
+		assert.ErrorIs(t, err, expected)
+		grants, audits := countGrantsAndAudits()
+		assert.Equal(t, initialGrants, grants)
+		assert.Equal(t, initialAudits, audits)
+	}
+
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.TeamID = 0 }), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) {
+		r.Actor = Actor{Type: branchroom_model.ActorTypeDeployKey, ID: 5}
+	}), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.Action = branchroom_model.ActionWriteSource }), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.Action = branchroom_model.ActionManagePolicy }), util.ErrInvalidArgument)
+
+	now := timeutil.TimeStampNow()
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.NotBeforeUnix, r.ExpiresUnix = -1, 0 }), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.NotBeforeUnix, r.ExpiresUnix = 0, -1 }), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) {
+		r.NotBeforeUnix, r.ExpiresUnix = now.AddDuration(2*time.Minute), now.AddDuration(time.Minute)
+	}), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.ExpiresUnix = now.AddDuration(-10 * time.Minute) }), util.ErrInvalidArgument)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.NotBeforeUnix = now.AddDuration(-10 * time.Minute) }), util.ErrInvalidArgument)
+
+	skewedPast := now.AddDuration(-30 * time.Second)
+	withinSkew, err := CreateRepositoryTeamGrant(ctx, request(func(r *CreateRepositoryTeamGrantRequest) { r.NotBeforeUnix = skewedPast }))
+	require.NoError(t, err)
+	assert.Equal(t, skewedPast, withinSkew.NotBeforeUnix)
+	initialGrants, initialAudits = countGrantsAndAudits()
+
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.TeamID = 9999 }), ErrInvalidTeamGrantTarget)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.TeamID = 3 }), ErrInvalidTeamGrantTarget)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.ScopeID, r.RepoID = userScope.ID, userScope.RepoID }), ErrInvalidTeamGrantTarget)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) {
+		r.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: 1}
+	}), util.ErrNotExist)
+	expectRejection(request(func(r *CreateRepositoryTeamGrantRequest) { r.Action = branchroom_model.ActionReadSource }), util.ErrNotExist)
+
+	err = RevokeRepositoryTeamGrant(ctx, RevokeRepositoryTeamGrantRequest{RepoID: 3, ScopeID: scope.ID, GrantID: 9999, Actor: admin, Action: branchroom_model.ActionDiscover, Surface: branchroom_model.SurfaceSystem})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	err = RevokeRepositoryTeamGrant(ctx, RevokeRepositoryTeamGrantRequest{RepoID: 3, ScopeID: scope.ID, GrantID: withinSkew.ID, Actor: admin, Action: branchroom_model.ActionWriteSource, Surface: branchroom_model.SurfaceSystem})
+	assert.ErrorIs(t, err, util.ErrInvalidArgument)
+
+	directUserGrant, err := CreateRepositoryDiscoveryGrant(ctx, CreateRepositoryDiscoveryGrantRequest{
+		RepoID:          3,
+		ScopeID:         scope.ID,
+		Actor:           admin,
+		SubjectUsername: "user4",
+		Surface:         branchroom_model.SurfaceSystem,
+	})
+	require.NoError(t, err)
+	err = RevokeRepositoryTeamGrant(ctx, RevokeRepositoryTeamGrantRequest{RepoID: 3, ScopeID: scope.ID, GrantID: directUserGrant.ID, Actor: admin, Action: branchroom_model.ActionDiscover, Surface: branchroom_model.SurfaceSystem})
+	assert.ErrorIs(t, err, util.ErrNotExist)
+	storedDirectUserGrant, err := branchroom_model.GetGrantByID(ctx, directUserGrant.ID)
+	require.NoError(t, err)
+	assert.Zero(t, storedDirectUserGrant.RevokedUnix)
 }

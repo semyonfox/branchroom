@@ -87,7 +87,7 @@ func TestGrantValidationAndRevocation(t *testing.T) {
 		Action:      ActionMaterialize,
 		CreatedByID: 1,
 	}).Validate())
-	assert.Error(t, (&Grant{
+	assert.NoError(t, (&Grant{
 		ScopeID:     scope.ID,
 		SubjectType: SubjectTypeTeam,
 		SubjectID:   3,

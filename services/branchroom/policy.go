@@ -47,6 +47,8 @@ const (
 	reasonWorkspaceRouteKeyRotated     = "workspace_route_key_rotated"
 	reasonDiscoveryGrantCreated        = "discovery_grant_created"
 	reasonSourceReadGrantCreated       = "source_read_grant_created"
+	reasonTeamGrantCreated             = "team_grant_created"
+	reasonTeamGrantRevoked             = "team_grant_revoked"
 	reasonEnvironmentRevisionCreated   = "environment_revision_created"
 	reasonEnvironmentLeaseIssued       = "environment_lease_issued"
 	reasonEnvironmentLeaseExpired      = "environment_lease_expired"
@@ -318,8 +320,15 @@ func findMatchingGrant(ctx context.Context, scope *branchroom_model.Scope, reque
 	}
 	conditionMismatch := false
 	for _, grant := range grants {
-		if (request.Action == branchroom_model.ActionReadSource || request.Action == branchroom_model.ActionWriteSource) && grant.SubjectType != branchroom_model.SubjectTypeUser {
-			continue
+		switch request.Action {
+		case branchroom_model.ActionReadSource:
+			if grant.SubjectType != branchroom_model.SubjectTypeUser && grant.SubjectType != branchroom_model.SubjectTypeTeam {
+				continue
+			}
+		case branchroom_model.ActionWriteSource:
+			if grant.SubjectType != branchroom_model.SubjectTypeUser {
+				continue
+			}
 		}
 		matched, conditionsMatch, err := grantMatches(ctx, scope, grant, request)
 		if err != nil {

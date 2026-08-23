@@ -319,14 +319,15 @@ func TestDBEvaluatorMatchesTeamAndTaskConditions(t *testing.T) {
 	decision, err = evaluator.Evaluate(ctx, testRequest(teamScope, Actor{Type: branchroom_model.ActorTypeUser, ID: 5}, true))
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
-	require.NoError(t, db.Insert(ctx, &branchroom_model.Grant{
+	teamReadSourceGrant := &branchroom_model.Grant{
 		ScopeID:     teamScope.ID,
 		SubjectType: branchroom_model.SubjectTypeTeam,
 		SubjectID:   2,
 		Action:      branchroom_model.ActionReadSource,
 		CreatedByID: 2,
-	}))
-	decision, err = evaluator.Evaluate(ctx, Request{
+	}
+	require.NoError(t, db.Insert(ctx, teamReadSourceGrant))
+	readSourceRequest := Request{
 		ScopeID:      teamScope.ID,
 		RepoID:       teamScope.RepoID,
 		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
@@ -335,7 +336,13 @@ func TestDBEvaluatorMatchesTeamAndTaskConditions(t *testing.T) {
 		ResourceType: branchroom_model.ResourceTypeWorkspace,
 		ResourceID:   workspaceResourceID(uuid.NewString()),
 		Surface:      branchroom_model.SurfaceSystem,
-	})
+	}
+	decision, err = evaluator.Evaluate(ctx, readSourceRequest)
+	require.NoError(t, err)
+	assert.True(t, decision.Allowed)
+	assert.Equal(t, teamReadSourceGrant.ID, decision.GrantID)
+	readSourceRequest.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: 5}
+	decision, err = evaluator.Evaluate(ctx, readSourceRequest)
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
 	assert.Equal(t, ReasonNoActiveGrant, decision.ReasonCode)
