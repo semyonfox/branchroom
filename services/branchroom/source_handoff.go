@@ -9,6 +9,8 @@ import (
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	organization_model "gitea.dev/models/organization"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -59,23 +61,22 @@ func ListRepositorySourceHandoffs(ctx context.Context, request ListRepositorySou
 		if err != nil {
 			return nil, err
 		}
+		repository, err := repo_model.GetRepositoryByID(txCtx, request.RepoID)
+		if err != nil {
+			return nil, err
+		}
 		now := timeutil.TimeStampNow()
 		handoffs := make([]RepositorySourceHandoff, 0)
 		for _, scope := range scopes {
 			if scope.Validate() != nil || scope.RepoID != request.RepoID || scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
 				continue
 			}
-			if _, err := branchroom_model.GetActiveDirectUserGrantAt(txCtx, scope.ID, request.UserID, branchroom_model.ActionDiscover, now); err != nil {
-				if errors.Is(err, util.ErrNotExist) {
-					continue
-				}
+			authorized, err := userHasSourceHandoffAuthorization(txCtx, repository.OwnerID, scope.ID, request.UserID, now)
+			if err != nil {
 				return nil, err
 			}
-			if _, err := branchroom_model.GetActiveDirectUserGrantAt(txCtx, scope.ID, request.UserID, branchroom_model.ActionReadSource, now); err != nil {
-				if errors.Is(err, util.ErrNotExist) {
-					continue
-				}
-				return nil, err
+			if !authorized {
+				continue
 			}
 
 			workspace, err := branchroom_model.GetWorkspaceByScopeIDForUpdate(txCtx, scope.ID)
@@ -109,4 +110,40 @@ func ListRepositorySourceHandoffs(ctx context.Context, request ListRepositorySou
 
 func sourceHandoffNotFound() error {
 	return util.NewNotExistErrorf("Branchroom source handoff does not exist")
+}
+
+// userHasSourceHandoffAuthorization keeps the two-step direct-user opt-in and,
+// matching the Git HTTP gateway, also honors an active covering team read-source
+// grant: team membership is already an explicit owner decision.
+func userHasSourceHandoffAuthorization(ctx context.Context, orgID, scopeID, userID int64, now timeutil.TimeStamp) (bool, error) {
+	_, err := branchroom_model.GetActiveDirectUserGrantAt(ctx, scopeID, userID, branchroom_model.ActionDiscover, now)
+	hasDirectDiscovery := err == nil
+	if err != nil && !errors.Is(err, util.ErrNotExist) {
+		return false, err
+	}
+	_, err = branchroom_model.GetActiveDirectUserGrantAt(ctx, scopeID, userID, branchroom_model.ActionReadSource, now)
+	hasDirectRead := err == nil
+	if err != nil && !errors.Is(err, util.ErrNotExist) {
+		return false, err
+	}
+	if hasDirectDiscovery && hasDirectRead {
+		return true, nil
+	}
+	grants, err := branchroom_model.FindActiveGrantsAt(ctx, scopeID, branchroom_model.ActionReadSource, now)
+	if err != nil {
+		return false, err
+	}
+	for _, grant := range grants {
+		if grant.SubjectType != branchroom_model.SubjectTypeTeam {
+			continue
+		}
+		member, err := organization_model.IsTeamMember(ctx, orgID, grant.SubjectID, userID)
+		if err != nil {
+			return false, err
+		}
+		if member {
+			return true, nil
+		}
+	}
+	return false, nil
 }
