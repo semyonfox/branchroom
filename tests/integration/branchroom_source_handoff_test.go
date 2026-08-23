@@ -38,7 +38,7 @@ func TestBranchroomSourceHandoffs(t *testing.T) {
 		setting.AppURL = u.String()
 		setting.Branchroom = setting.BranchroomConfig{
 			Enabled:                true,
-			RestrictedRepoRootPath: t.TempDir(),
+			RestrictedRepoRootPath: branchroomTestRoot(t),
 		}
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
@@ -236,7 +236,7 @@ func TestBranchroomSourceHandoffsStayOpaqueWithStrictSignIn(t *testing.T) {
 	defer test.MockVariableValue(&setting.Service.RequireSignInViewStrict, true)()
 	defer test.MockVariableValue(&testWebRoutes, routers.NormalRoutes())()
 
-	setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: t.TempDir()}
+	setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t)}
 	response := MakeRequest(t, NewRequest(t, http.MethodGet, "/user2/repo1/-/branchroom"), http.StatusNotFound)
 	assertBranchroomSourceHandoffPrivacy(t, response)
 }

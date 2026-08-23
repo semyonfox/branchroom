@@ -5,6 +5,7 @@ package integration
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 	"testing"
 
@@ -23,6 +24,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// branchroomTestRoot prepares a restricted root with the permissions the
+// production path requires, regardless of the developer's umask.
+func branchroomTestRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0o700))
+	return root
+}
 
 func TestBranchroomSettings(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
@@ -55,7 +65,7 @@ func TestBranchroomSettings(t *testing.T) {
 	})
 
 	t.Run("real owner creates a scope without a site-admin bypass", func(t *testing.T) {
-		setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: t.TempDir()}
+		setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t)}
 
 		resp := owner.MakeRequest(t, NewRequest(t, http.MethodGet, settingsURL), http.StatusOK)
 		AssertHTMLElement(t, NewHTMLParser(t, resp.Body), `a[href="/user2/repo1/settings/branchroom"]`, true)

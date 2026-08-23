@@ -792,9 +792,11 @@ security fixes.
   opaque workspace UUID, and direct user ID. It never accepts a scope ID, store ID,
   caller-supplied policy actor, permission ceiling, or protocol surface.
 - It locks the repository lifecycle, scope, and workspace in that order, reloads the
-  direct active individual user and ordinary Gitea code-read ceiling, then evaluates
-  an explicit direct-user `read_source` grant for `workspace/<opaque-key>` on the
-  internal system surface. A non-ready workspace produces an audited safe denial;
+  active individual user and ordinary Gitea code-read ceiling, then evaluates an
+  explicit `read_source` grant (direct-user, or org-team subject whose team belongs
+  to the repo-owner organization) for `workspace/<opaque-key>` on the internal
+  system surface. Team grants may also carry `discover`; `write_source` stays
+  user-subject only and remains hard-denied at evaluation. A non-ready workspace produces an audited safe denial;
   unknown, malformed, disabled-feature, and pre-policy mapping denials stay opaque.
 - The returned facade is not a cacheable capability. M4e adds one narrowly bounded
   Git HTTP caller; there is still no generic web, API, SSH, LFS, Actions, or CLI
@@ -834,7 +836,8 @@ security fixes.
   generic not-found response before policy evaluation.
 - A valid operation requires Basic authentication from an active individual, ordinary
   Gitea code-read permission, a ready repository workspace bound to that exact
-  repository and route key, and an active direct-user `read_source` grant. PATs need
+  repository and route key, and an active `read_source` grant held by that user
+  directly or through an eligible org team. PATs need
   `read:repository`; public-only PATs, browser sessions, bearer/OAuth credentials,
   Actions identities, bots, deploy keys, and unsupported token scopes fail closed.
   Authorization repeats separately for advertisement and RPC.

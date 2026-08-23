@@ -39,7 +39,7 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 		defer test.MockVariableValue(&setting.LocalURL)()
 		setting.Branchroom = setting.BranchroomConfig{
 			Enabled:                true,
-			RestrictedRepoRootPath: t.TempDir(),
+			RestrictedRepoRootPath: branchroomTestRoot(t),
 		}
 		setting.LocalURL = u.String()
 
@@ -119,7 +119,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 		defer test.MockVariableValue(&setting.Repository.DisableHTTPGit)()
 		setting.Branchroom = setting.BranchroomConfig{
 			Enabled:                true,
-			RestrictedRepoRootPath: t.TempDir(),
+			RestrictedRepoRootPath: branchroomTestRoot(t),
 		}
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
