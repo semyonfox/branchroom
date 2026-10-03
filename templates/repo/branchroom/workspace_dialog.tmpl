@@ -1,0 +1,14 @@
+{{$title := ctx.Locale.Tr (printf "repo.settings.branchroom.%s" .action)}}
+<div class="tw-mt-2">
+	<button id="{{.prefix}}" type="button" class="ui {{.style}} button branchroom-show-dialog" data-dialog="{{.prefix}}-dialog" aria-haspopup="dialog" aria-label="{{ctx.Locale.Tr "repo.settings.branchroom.action_scope" $title .scopeName}}">{{$title}}</button>
+</div>
+<dialog class="ui g-modal-confirm modal branchroom-dialog" id="{{.prefix}}-dialog" aria-labelledby="{{.prefix}}-title" aria-describedby="{{.prefix}}-warning">
+	<h2 class="header" id="{{.prefix}}-title">{{ctx.Locale.Tr "repo.settings.branchroom.action_scope" $title .scopeName}}</h2>
+	<div class="content"><p id="{{.prefix}}-warning">{{ctx.Locale.Tr (printf "repo.settings.branchroom.%s" .warning)}}</p></div>
+	<form action="{{.url}}" method="post">
+		<div class="actions flex-text-block tw-flex-wrap tw-justify-end">
+			<button type="button" class="ui cancel button branchroom-dialog-cancel" autofocus>{{ctx.Locale.Tr "modal.cancel"}}</button>
+			<button type="submit" class="ui primary button">{{$title}}</button>
+		</div>
+	</form>
+</dialog>

@@ -1,0 +1,114 @@
+.branchroom h1.ui.header,
+.branchroom h2.ui.header,
+.branchroom-source-handoffs h1.ui.header {
+  font-size: 1.07142857rem;
+}
+
+.branchroom .item-title,
+.branchroom-group-heading {
+  margin: 0;
+}
+
+.branchroom-group-heading {
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold);
+}
+
+.branchroom-source-handoffs .item-title {
+  font-size: 1.14285714rem;
+  overflow-wrap: anywhere;
+}
+
+.branchroom .ui.button,
+.branchroom-source-handoffs .ui.button,
+.branchroom-dialog .ui.button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.branchroom .ui.primary.button,
+.branchroom-dialog .ui.primary.button {
+  background-color: var(--color-primary-hover);
+}
+
+.branchroom .ui.primary.button:hover,
+.branchroom-dialog .ui.primary.button:hover {
+  background-color: var(--color-primary-active);
+}
+
+.branchroom .ui.form input:not([type="hidden"]),
+.branchroom .ui.form select,
+.branchroom-source-handoffs input {
+  min-height: 44px;
+  min-width: 0;
+}
+
+.branchroom-privacy summary,
+.branchroom-privacy label {
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.branchroom-privacy input {
+  width: 20px;
+  height: 20px;
+}
+
+.branchroom-copy-status,
+.branchroom-time-error {
+  margin: 0;
+}
+
+.branchroom-time-error:not(:empty) {
+  margin-top: 8px;
+  color: var(--color-red);
+}
+
+.branchroom :focus,
+.branchroom .ui.form input:focus,
+.branchroom .ui.form select:focus,
+.branchroom .ui.button:focus,
+.branchroom-source-handoffs :focus,
+.branchroom-source-handoffs .ui.input input:focus,
+.branchroom-source-handoffs .ui.button:focus,
+.branchroom-dialog .ui.button:focus,
+.branchroom-dialog :focus {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+.ui.modal.branchroom-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  padding: 0;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.ui.modal.branchroom-dialog[open] {
+  display: block;
+}
+
+.branchroom-dialog::backdrop {
+  background: var(--color-overlay-backdrop);
+}
+
+@media (max-width: 767.98px) {
+  .branchroom .ui.form input,
+  .branchroom .ui.form select,
+  .branchroom-source-handoffs input {
+    font-size: 16px;
+  }
+
+  .branchroom-source-handoffs .ui.action.input {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .branchroom-source-handoffs .ui.action.input > input {
+    width: 100%;
+    flex-basis: 100%;
+    border-radius: var(--border-radius);
+  }
+}
