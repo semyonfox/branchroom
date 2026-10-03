@@ -3,24 +3,29 @@
 	{{template "repo/header" .}}
 	<div class="ui container">
 		{{template "base/alert" .}}
-		<h4 class="ui top attached header">{{ctx.Locale.Tr "repo.branchroom.source_handoffs"}}</h4>
+		<h1 class="ui top attached header">{{ctx.Locale.Tr "repo.branchroom.source_handoffs"}}</h1>
 		<div class="ui attached segment">
 			<p>{{ctx.Locale.Tr "repo.branchroom.source_handoffs_desc"}}</p>
 			<div class="ui warning message">{{ctx.Locale.Tr "repo.branchroom.source_handoffs_auth"}}</div>
+			<p>{{ctx.Locale.Tr "repo.branchroom.recovery"}}</p>
 			<div class="ui list">
 				{{range $index, $handoff := .BranchroomSourceHandoffs}}
 					<div class="item">
-						<div class="item-title">{{$handoff.ScopeName}}</div>
+						<h2 class="item-title">{{$handoff.ScopeName}}</h2>
+						<label for="branchroom-source-clone-{{$index}}">{{ctx.Locale.Tr "repo.branchroom.clone_url" $handoff.ScopeName}}</label>
 						<div class="ui small action input tw-mt-2 tw-w-full">
 							<input id="branchroom-source-clone-{{$index}}" value="{{$handoff.CloneURL}}" readonly>
-							<button class="ui icon button" data-clipboard-target="#branchroom-source-clone-{{$index}}" data-tooltip-content="{{ctx.Locale.Tr "copy_url"}}">
+							<button type="button" class="ui button branchroom-copy" data-copy-target="branchroom-source-clone-{{$index}}" aria-label="{{ctx.Locale.Tr "repo.branchroom.copy_url" $handoff.ScopeName}}">
 								{{svg "octicon-copy" 14}}
+								{{ctx.Locale.Tr "copy_url"}}
 							</button>
 						</div>
+						<p class="branchroom-copy-status" role="status" aria-atomic="true" data-success="{{ctx.Locale.Tr "copy_success"}}" data-failure="{{ctx.Locale.Tr "repo.branchroom.copy_failed"}}"></p>
 					</div>
 				{{end}}
 			</div>
 		</div>
+		{{template "repo/branchroom/privacy" .}}
 	</div>
 </div>
 {{template "base/footer" .}}

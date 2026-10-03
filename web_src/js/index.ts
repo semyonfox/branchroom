@@ -1,5 +1,6 @@
 import '../fomantic/build/fomantic.js';
 import '../css/index.css';
+import {initBranchroom} from './features/branchroom.ts';
 
 import {initDashboardRepoList} from './features/dashboard.ts';
 import {initGlobalCopyToClipboardListener} from './modules/clipboard.ts';
@@ -70,6 +71,7 @@ import {initPackagesView} from './features/packages.ts';
 
 const initStartTime = performance.now();
 const initPerformanceTracer = callInitFunctions([
+  initBranchroom,
   initGiteaFomantic,
 
   initGlobalComponent,
