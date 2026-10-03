@@ -27,9 +27,13 @@ export function setBranchroomTelemetryDisabled(disabled: boolean) {
 }
 
 export function branchroomTelemetryOptedOut(): boolean {
-  return navigator.doNotTrack === '1' || navigator.doNotTrack === 'yes' ||
-    ('globalPrivacyControl' in navigator && navigator.globalPrivacyControl === true) ||
-    branchroomTelemetryDisabled();
+  try {
+    return navigator.doNotTrack === '1' || navigator.doNotTrack === 'yes' ||
+      ('globalPrivacyControl' in navigator && navigator.globalPrivacyControl === true) ||
+      branchroomTelemetryDisabled();
+  } catch {
+    return true;
+  }
 }
 
 function validEndpoint(endpoint: string): boolean {

@@ -198,3 +198,73 @@ test('native range validation retains values and records only the fixed invalid 
   expect(end.hasAttribute('aria-invalid')).toBe(false);
   expect(form.querySelector('.branchroom-time-error')!.textContent).toBe('');
 });
+
+function unreadableSignal(signal: 'doNotTrack' | 'globalPrivacyControl') {
+  const getter = vi.fn(() => { throw new Error(privateFixture) });
+  if (signal === 'doNotTrack') {
+    vi.spyOn(navigator, 'doNotTrack', 'get').mockImplementation(getter);
+  } else {
+    Object.defineProperty(navigator, 'globalPrivacyControl', {configurable: true, get: getter});
+  }
+  return getter;
+}
+
+test.each(['doNotTrack', 'globalPrivacyControl'] as const)('unreadable %s disables configured collection without rejected calls', async (signal) => {
+  unreadableSignal(signal);
+  const client = createBranchroomTelemetry('settings', true, endpoint);
+  expect(() => client.active()).not.toThrow();
+  expect(client.active()).toBe(false);
+  await expect(client.record('screen_view')).resolves.toBeUndefined();
+  await expect(client.record('storage_failed')).resolves.toBeUndefined();
+  expect(transport).not.toHaveBeenCalled();
+});
+
+test.each(['doNotTrack', 'globalPrivacyControl'] as const)('default-off and page-disabled clients do not read %s', async (signal) => {
+  const getter = unreadableSignal(signal);
+  const unconfigured = createBranchroomTelemetry('settings');
+  const pageDisabled = createBranchroomTelemetry('workspace', true, endpoint);
+  pageDisabled.setDisabled(true);
+  for (const client of [unconfigured, pageDisabled]) {
+    expect(client.active()).toBe(false);
+    await expect(client.record('screen_view')).resolves.toBeUndefined();
+    await expect(client.record('storage_failed')).resolves.toBeUndefined();
+  }
+  expect(getter).not.toHaveBeenCalled();
+  expect(transport).not.toHaveBeenCalled();
+});
+
+test.each(['doNotTrack', 'globalPrivacyControl'] as const)('unreadable %s leaves privacy status, dialog, shortcut and copy recovery working', async (signal) => {
+  for (const [name, content] of [['enabled', 'true'], ['endpoint', endpoint]]) {
+    const meta = document.createElement('meta');
+    meta.name = `branchroom-telemetry-${name}`;
+    meta.content = content;
+    document.head.append(meta);
+  }
+  unreadableSignal(signal);
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error(privateFixture));
+  const consoleError = vi.spyOn(console, 'error');
+  const root = mountHandoff();
+  root.className = 'page-content branchroom';
+  root.insertAdjacentHTML('beforeend', '<a class="branchroom-create-link" href="#branchroom-scope-name">Create scope</a><input id="branchroom-scope-name"><button type="button" class="branchroom-show-dialog" data-dialog="confirm">Purge</button><dialog id="confirm"><button type="button" class="branchroom-dialog-cancel" autofocus>Cancel</button><button type="button">Confirm</button></dialog>');
+  expect(() => initBranchroom()).not.toThrow();
+  expect(root.querySelector('#branchroom-telemetry-status')!.textContent).toBe('Off');
+  root.querySelector<HTMLAnchorElement>('.branchroom-create-link')!.click();
+  expect(document.activeElement).toBe(root.querySelector('#branchroom-scope-name'));
+  const trigger = root.querySelector<HTMLButtonElement>('.branchroom-show-dialog')!;
+  const dialog = root.querySelector<HTMLDialogElement>('dialog')!;
+  trigger.click();
+  expect(dialog.open).toBe(true);
+  const cancel = dialog.querySelector<HTMLButtonElement>('.branchroom-dialog-cancel')!;
+  expect(document.activeElement).toBe(cancel);
+  dialog.querySelector<HTMLButtonElement>('button:last-child')!.focus();
+  dialog.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true}));
+  expect(document.activeElement).toBe(cancel);
+  cancel.click();
+  await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+  root.querySelector<HTMLButtonElement>('.branchroom-copy')!.click();
+  await vi.waitFor(() => expect(root.querySelector('.branchroom-copy-status')!.textContent).toBe('Select and copy manually'));
+  expect(copy).toHaveBeenCalledWith(privateFixture);
+  expect(document.activeElement).toBe(root.querySelector('#clone'));
+  expect(transport).not.toHaveBeenCalled();
+  expect(consoleError).not.toHaveBeenCalled();
+});
