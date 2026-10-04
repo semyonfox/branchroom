@@ -38,6 +38,7 @@ func TestValidateReceiveQuarantineOrdinary(t *testing.T) {
 	root, values := prepareQuarantineFixture(t)
 
 	repoPath := filepath.Join(root, testRestrictedStoreID+".git")
+	objectsDir := filepath.Join(repoPath, "objects")
 	paths := []string{
 		root,
 		repoPath,
@@ -47,9 +48,23 @@ func TestValidateReceiveQuarantineOrdinary(t *testing.T) {
 
 	before := snapshotVerifiedStore(t, paths...)
 	for range 2 {
-		assert.NoError(t, ValidateReceiveQuarantine(root, testRestrictedStoreID, values))
+		canonical, err := ValidateReceiveQuarantine(root, testRestrictedStoreID, values)
+		assert.NoError(t, err)
+		assert.Equal(t, values, canonical)
 	}
 	assert.Equal(t, before, snapshotVerifiedStore(t, paths...), "validation must not mutate any state")
+
+	t.Run("accepts Git lexical path components and returns canonical values", func(t *testing.T) {
+		separator := string(filepath.Separator)
+		unclean := ReceiveQuarantineValues{
+			ObjectDirectory:            objectsDir + separator + "." + separator + testQuarantineEntry,
+			AlternateObjectDirectories: repoPath + separator + "." + separator + "objects",
+			QuarantinePath:             objectsDir + separator + "." + separator + testQuarantineEntry,
+		}
+		canonical, err := ValidateReceiveQuarantine(root, testRestrictedStoreID, unclean)
+		require.NoError(t, err)
+		assert.Equal(t, values, canonical)
+	})
 }
 
 func TestValidateReceiveQuarantineInvalidRootAndStore(t *testing.T) {
@@ -57,7 +72,7 @@ func TestValidateReceiveQuarantineInvalidRootAndStore(t *testing.T) {
 
 	t.Run("root", func(t *testing.T) {
 		for _, restrictedRoot := range []string{"", "relative/root", root + "/", root + "//deeper"} {
-			err := ValidateReceiveQuarantine(restrictedRoot, testRestrictedStoreID, values)
+			_, err := ValidateReceiveQuarantine(restrictedRoot, testRestrictedStoreID, values)
 			assert.ErrorIs(t, err, ErrInvalidRestrictedRoot, "root %q", restrictedRoot)
 			if restrictedRoot != "" {
 				assert.NotContains(t, err.Error(), restrictedRoot)
@@ -67,7 +82,7 @@ func TestValidateReceiveQuarantineInvalidRootAndStore(t *testing.T) {
 
 	t.Run("store-id", func(t *testing.T) {
 		for _, storeID := range []string{"", "not-a-uuid", "../escape", strings.ToUpper(testRestrictedStoreID)} {
-			err := ValidateReceiveQuarantine(root, storeID, values)
+			_, err := ValidateReceiveQuarantine(root, storeID, values)
 			assert.ErrorIs(t, err, ErrInvalidRestrictedStoreID, "storeID %q", storeID)
 			if storeID != "" {
 				assert.NotContains(t, err.Error(), storeID)
@@ -95,7 +110,6 @@ func TestValidateReceiveQuarantineRawValues(t *testing.T) {
 			v.ObjectDirectory = quarantineDir + "\x00"
 			return quarantineDir
 		}},
-		{"unclean-object-directory", func(v *ReceiveQuarantineValues) string { v.ObjectDirectory += "/"; return v.ObjectDirectory }},
 		{"missing-quarantine-path", func(v *ReceiveQuarantineValues) string { v.QuarantinePath = ""; return "" }},
 		{"object-quarantine-mismatch", func(v *ReceiveQuarantineValues) string {
 			v.QuarantinePath = filepath.Join(objectsDir, "other-entry")
@@ -149,7 +163,7 @@ func TestValidateReceiveQuarantineRawValues(t *testing.T) {
 			values := baseline
 			raw := tc.mutate(&values)
 
-			err := ValidateReceiveQuarantine(root, testRestrictedStoreID, values)
+			_, err := ValidateReceiveQuarantine(root, testRestrictedStoreID, values)
 			assert.ErrorIs(t, err, ErrInvalidReceiveQuarantine)
 			if raw != "" {
 				assert.NotContains(t, err.Error(), raw)
@@ -220,7 +234,7 @@ func TestValidateReceiveQuarantineFilesystemState(t *testing.T) {
 					AlternateObjectDirectories: objectsDir,
 					QuarantinePath:             filepath.Join(objectsDir, testQuarantineEntry),
 				}
-				err := ValidateReceiveQuarantine(symlinkedRoot, testRestrictedStoreID, values)
+				_, err := ValidateReceiveQuarantine(symlinkedRoot, testRestrictedStoreID, values)
 				assert.ErrorIs(t, err, tc.wantErr)
 				assert.NotContains(t, err.Error(), "marker")
 				return
@@ -232,7 +246,7 @@ func TestValidateReceiveQuarantineFilesystemState(t *testing.T) {
 
 			tc.mutate(t, root, repoPath, objectsDir, filepath.Join(objectsDir, testQuarantineEntry))
 
-			err := ValidateReceiveQuarantine(root, testRestrictedStoreID, values)
+			_, err := ValidateReceiveQuarantine(root, testRestrictedStoreID, values)
 			assert.ErrorIs(t, err, tc.wantErr)
 			assert.NotContains(t, err.Error(), root)
 			assert.NotContains(t, err.Error(), testRestrictedStoreID)
@@ -249,7 +263,7 @@ func TestValidateReceiveQuarantineUnavailableRoot(t *testing.T) {
 		QuarantinePath:             filepath.Join(objectsDir, testQuarantineEntry),
 	}
 
-	err := ValidateReceiveQuarantine(missingRoot, testRestrictedStoreID, values)
+	_, err := ValidateReceiveQuarantine(missingRoot, testRestrictedStoreID, values)
 	assert.ErrorIs(t, err, ErrRestrictedRootUnavailable)
 	assert.NotContains(t, err.Error(), "marker")
 }

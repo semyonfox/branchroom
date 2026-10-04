@@ -29,7 +29,12 @@ import (
 // production path requires, regardless of the developer's umask.
 func branchroomTestRoot(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	parent, err := os.UserHomeDir()
+	require.NoError(t, err)
+	//nolint:usetesting // t.TempDir does not guarantee the private ancestor this test requires.
+	root, err := os.MkdirTemp(parent, ".gitea-branchroom-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	require.NoError(t, os.Chmod(root, 0o700))
 	return root
 }
@@ -117,6 +122,7 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		body := resp.Body.String()
 		assert.Contains(t, body, string(branchroom_model.WorkspaceStateReady))
+		assert.Contains(t, body, "This direct grant allows restricted HTTPS pushes")
 		assert.NotContains(t, body, workspace.WorkspaceKey)
 		assert.NotContains(t, body, oldRouteKey)
 		assert.NotContains(t, body, workspace.RouteKey)

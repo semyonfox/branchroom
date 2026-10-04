@@ -17,10 +17,20 @@ import (
 
 const testRestrictedStoreID = "3d2f9c8e-4a1b-4c6d-8e2f-9a0b1c2d3e4f"
 
-// newSafeTestRoot forces owner-only bits because Go 1.26 testing.TempDir honours the umask and can yield group-writable dirs.
+// newSafeTestRoot keeps the whole parent chain private so tests exercise the same
+// local-integrity requirement as a configured restricted root.
 func newSafeTestRoot(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	parent, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	//nolint:usetesting // t.TempDir does not guarantee the private ancestor this test requires.
+	root, err := os.MkdirTemp(parent, ".gitea-branchroom-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	assert.NoError(t, os.Chmod(root, safeHookDirPerm))
 	return root
 }
@@ -165,6 +175,30 @@ func TestInstallRestrictedStoreHookUnsafeRoot(t *testing.T) {
 		assert.Empty(t, hookDir)
 		assert.NotContains(t, err.Error(), root)
 	})
+
+	if runtime.GOOS != "windows" {
+		t.Run("non-sticky-writable-parent", func(t *testing.T) {
+			parent := filepath.Join(newSafeTestRoot(t), "writable-parent")
+			root := filepath.Join(parent, "restricted-root")
+			assert.NoError(t, os.MkdirAll(root, 0o700))
+			assert.NoError(t, os.Chmod(parent, 0o777))
+
+			hookDir, err := InstallRestrictedStoreHook(root, testRestrictedStoreID)
+			assert.ErrorIs(t, err, ErrUnsafeRestrictedRoot)
+			assert.Empty(t, hookDir)
+		})
+
+		t.Run("sticky-writable-parent-owned-root", func(t *testing.T) {
+			parent := filepath.Join(newSafeTestRoot(t), "sticky-parent")
+			root := filepath.Join(parent, "restricted-root")
+			assert.NoError(t, os.MkdirAll(root, 0o700))
+			assert.NoError(t, os.Chmod(parent, 0o777|os.ModeSticky))
+
+			hookDir, err := InstallRestrictedStoreHook(root, testRestrictedStoreID)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, hookDir)
+		})
+	}
 
 	t.Run("nonexistent", func(t *testing.T) {
 		missingRoot := filepath.Join(t.TempDir(), "missing-marker-root")

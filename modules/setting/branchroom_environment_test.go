@@ -37,6 +37,12 @@ func TestLoadBranchroomEnvironment(t *testing.T) {
 		assert.Equal(t, BranchroomEnvironmentConfig{}, BranchroomEnvironment)
 	})
 
+	t.Run("DoesNotInheritEnabledFromBranchroom", func(t *testing.T) {
+		IsProd = true
+		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = true\n"))
+		assert.Equal(t, BranchroomEnvironmentConfig{}, BranchroomEnvironment)
+	})
+
 	t.Run("DisabledWithParentDisabled", func(t *testing.T) {
 		IsProd = true
 		Branchroom.Enabled = false

@@ -192,6 +192,62 @@ func TestReceiveSessionCompleteAdmitted(t *testing.T) {
 	assert.False(t, completed)
 }
 
+func TestFailStaleClaimedReceiveSessions(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+
+	stale := newTestReceiveSession()
+	stale.ExpiresUnix = 400
+	require.NoError(t, InsertReceiveSession(ctx, stale))
+	claimed, err := ClaimReceiveSession(ctx, stale.ID, 150)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	fresh := newTestReceiveSession()
+	fresh.SessionKey = "66666666-6666-6666-6666-666666666666"
+	fresh.BearerSecretHash = strings.Repeat("e", 64)
+	fresh.ExpiresUnix = 400
+	require.NoError(t, InsertReceiveSession(ctx, fresh))
+	claimed, err = ClaimReceiveSession(ctx, fresh.ID, 151)
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	completed := newTestReceiveSession()
+	completed.SessionKey = "77777777-7777-7777-7777-777777777777"
+	completed.BearerSecretHash = strings.Repeat("f", 64)
+	completed.ExpiresUnix = 400
+	require.NoError(t, InsertReceiveSession(ctx, completed))
+	claimed, err = ClaimReceiveSession(ctx, completed.ID, 150)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	finished, err := CompleteReceiveSession(ctx, completed.ID, ReceiveSessionOutcomeAdmitted)
+	require.NoError(t, err)
+	require.True(t, finished)
+
+	failed, err := FailStaleClaimedReceiveSessions(ctx, 150)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, failed)
+
+	stored, err := GetReceiveSessionByID(ctx, stale.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ReceiveSessionStateCompleted, stored.State)
+	assert.Equal(t, ReceiveSessionOutcomeFailed, stored.Outcome)
+	stored, err = GetReceiveSessionByID(ctx, fresh.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ReceiveSessionStateClaimed, stored.State)
+	assert.Equal(t, ReceiveSessionOutcomePending, stored.Outcome)
+	stored, err = GetReceiveSessionByID(ctx, completed.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ReceiveSessionStateCompleted, stored.State)
+	assert.Equal(t, ReceiveSessionOutcomeAdmitted, stored.Outcome)
+
+	failed, err = FailStaleClaimedReceiveSessions(ctx, 150)
+	require.NoError(t, err)
+	assert.Zero(t, failed)
+	_, err = FailStaleClaimedReceiveSessions(ctx, 0)
+	assert.ErrorIs(t, err, util.ErrInvalidArgument)
+}
+
 // A claimed session stays completable after its nominal expiry because claim already enforced
 // the expiry bound and claim is irreversible.
 func TestReceiveSessionClaimedAfterExpiryCompletes(t *testing.T) {

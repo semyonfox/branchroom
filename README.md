@@ -13,8 +13,8 @@ reference only.
 
 Branchroom has completed M0a, the M0b.1 storage proof, M0b.2 public-route regression,
 the first M1 policy foundation, the M4a–M4h.2a isolated-workspace storage,
-source-policy, read-only Git HTTP, authorized clone-handoff, clone-locator
-rotation, inert receive-session foundations, and
+source-policy, restricted Git HTTP read/write, authorized clone-handoff, clone-locator
+rotation, sealed receive sessions, and
 the M2a–M2c development-only environment foundations. It adds a disabled-by-default
 restricted-store root, a path-safe repository facade, and a public-base import that
 forbids local cloning and hard links. The regression checks that ordinary public Git
@@ -22,7 +22,7 @@ HTTP and SSH resolution do not select an unregistered restricted store.
 
 When `[branchroom] ENABLED = true`, real repository owners can create policy scopes
 and manage direct-user discovery grants at repository settings → Branchroom. Once an
-isolated workspace is ready, they can also prepare direct-user `read_source` grants.
+isolated workspace is ready, they can also grant source-read access.
 That page stores safe scope, grant, decision, and hash-linked audit metadata; it is
 hidden and returns 404 while the feature is disabled. It accepts active individual
 accounts only—never a team, bot, deploy key, Actions task, write grant, or caller-
@@ -44,8 +44,7 @@ Provisioning creates and verifies the server-owned static pre-receive hook befor
 workspace becomes ready; older ready workspaces were not retrofitted. A hook
 installation failure leaves the workspace failed safely. It
 does not render a store ID, filesystem path, workspace UUID, or clone URL. A
-provisioned store stays non-routable until a direct user receives a `read_source`
-grant.
+provisioned store stays non-routable until a user has source-read access.
 
 For a ready workspace, the repository owner can rotate its opaque clone locator from
 the same settings page. Rotation is a hard cutover. Once it commits, the old clone URL
@@ -56,35 +55,31 @@ not bypass ordinary Gitea code-read permission or direct grants: Git still requi
 The audit record names the rotation without either route key, a URL, a filesystem path,
 or a store ID.
 
-M4h.2a deny-only receive-boundary groundwork exists. For a ready workspace, the
-owner can store and revoke audited direct-active-user `write_source` grants from the
-same settings page. These grants are stored-only and inert: the policy check
-evaluates ordinary Gitea code-read and code-write permission and then always returns
-`write_source_unavailable` before a stored grant can match, so a stored grant never
-enables a push. The migration-354 receive-session model exists, along with a bounded
-internal verifier, a hidden pre-receive command, and a static server-owned
-`core.hooksPath` hook, all of which deny. There is no production issuer, claimant
-route, user-facing session API, Git receive-pack route, SSH route, or allow path.
-Migration 355 lets the internal verifier complete a fully bound, correctly
-bearer-authenticated claimed session as `completed/denied`, in the same transaction
-as the unchanged `write_source_unavailable` denial; a replay adds no second audit.
-Nominal expiry after a valid claim does not block that denied completion. This still
-does not enable a push.
+M4h.2a provides a restricted HTTPS receive path for a ready workspace. The owner can
+create and revoke audited direct-user `write_source` grants from the settings page. A
+push also needs ordinary Gitea code-read and code-write permission plus active
+source-read access, which may come from a direct grant or an eligible organization
+team. The server issues a one-use, hash-only receive session and passes its bearer
+only to the receive-pack child. The server-owned pre-receive hook verifies the trusted
+quarantine and the proposed object graph before Git accepts a ref.
 
-There is now a deliberately narrow, read-only smart Git HTTP gateway for a ready
-workspace. It accepts only upload-pack advertisement and upload-pack RPC at a route
-key URL. An authorized direct user can retrieve that URL from the stable
-`/{owner}/{repository}/-/branchroom` page. The page requires ordinary Gitea code-read
-permission plus direct `discover` and `read_source` grants, and returns 404 to everyone
-else. It does not write a policy decision or audit event just because someone refreshes
+The restricted Git HTTP gateway accepts upload-pack and receive-pack advertisement
+and RPC at a route-key URL. An authorized direct user can retrieve that URL from the
+stable `/{owner}/{repository}/-/branchroom` page. The page requires ordinary Gitea
+code-read permission plus direct `discover` and source-read access, and returns 404
+to everyone else. It does not write a policy decision or audit event just because someone refreshes
 the page. The Git gateway reauthorizes and audits the actual protocol requests.
 
-Each Git request requires Basic authentication from an active direct user, ordinary
-Gitea code-read permission, and an explicit direct-user `read_source` grant. A personal
-access token must include `read:repository`; public-only tokens, browser sessions,
-bearer/OAuth credentials, Actions, bots, deploy keys, push, archive, dumb HTTP, SSH,
-LFS, API, and CLI paths are not accepted. Authorization is repeated for advertisement
-and RPC, and disabled or denied requests stay non-disclosing.
+Read requests require Basic authentication from an active individual, ordinary Gitea
+code-read permission, and active source-read access. A read PAT needs
+`read:repository`. Receive requests additionally require ordinary code-write
+permission, a direct `write_source` grant, and a `write:repository` scoped PAT when a
+PAT is used. Pushes can only create or fast-forward `refs/heads/branchroom/*`; tags,
+deletes, non-fast-forward updates, SSH, and LFS fail. The receive request limit is
+1 MiB and the process limit is 45 seconds. Authorization is repeated for advertisement
+and RPC. Revocation blocks new receive sessions, while one already claimed by the
+server may finish. Disabling Branchroom rejects a claimed session in the hook.
+Disabled or denied requests stay non-disclosing.
 
 The development-only environment foundation is also disabled by default. It uses a
 separate `[branchroom.environment]` setting, refuses production startup, reads a
@@ -103,13 +98,13 @@ plaintext credential shapes without returning matched bytes. It is not wired int
 pushes, pull requests, imports, or publication yet, and it is not a full secret
 scanner.
 
-This is still not a full restricted Git workspace. The experimental HTTP read path has
-a tightly gated handoff page, but no push, SSH, LFS, public Branchroom API, production
-KMS, tracked-reference integration, materialization CLI, Actions integration, pull
-requests, or retention collector. Environment materialization and production KMS stay
-deferred and disabled, with no production provider selected. The settings page
-explicitly labels scopes as policy metadata so it cannot be mistaken for a
-protected-branch control.
+This is still not a full restricted Git workspace. The experimental HTTPS path has a
+tightly gated handoff page and protected push, but no SSH, LFS, public Branchroom API,
+production KMS, tracked-reference integration, materialization CLI, Actions
+integration, pull requests, or retention collector. Environment materialization and
+production KMS stay deferred and disabled, with no production provider selected. The
+settings page explicitly labels scopes as policy metadata so it cannot be mistaken for
+a protected-branch control.
 
 The fork-local source of truth is the
 [implementation plan](docs/branchroom/implementation-plan.md). It explains the
@@ -123,23 +118,27 @@ This is a policy demo, not a confidential-source or secret-management demo. Run 
 only with synthetic repositories and throwaway accounts.
 
 Enable `[branchroom]` in your local `app.ini` and point `RESTRICTED_ROOT` at an
-existing real directory—not a symlink, and not group or world writable—outside
-`[repository] ROOT`. Leave `[branchroom.environment]` disabled. As a repository
+existing real directory outside `[repository] ROOT`. It must not be a symlink,
+must deny group and other access, normally with mode `0700`, and must sit below
+directories controlled by the Gitea service account or root. Restricted-store
+transport requires Unix ownership checks. Leave
+`[branchroom.environment]` disabled. As a repository
 owner, open repository settings → Branchroom, create a scope, grant discovery to a
 second test account, then revoke it. That shows the current owner, grant, audit, and
 revocation behaviour while ordinary Gitea remains unchanged. After provisioning a
-ready synthetic workspace, you may also add and revoke a direct `read_source` grant.
-Give the same account the direct discovery grant as well—a clone needs both
-`discover` and `read_source`—then have it open `/{owner}/{repository}/-/branchroom`
-while signed in. That page shows only its authorized clone URL. The settings page
-does not reveal or distribute one.
+ready synthetic workspace, give the test account ordinary code-write permission,
+source-read access, and a direct `write_source` grant. Give it a direct discovery
+grant as well so it can retrieve the clone URL from
+`/{owner}/{repository}/-/branchroom` while signed in. Push only a dummy file to
+`refs/heads/branchroom/<name>`. The settings page does not reveal or distribute the
+URL.
 
 Do not put real secrets in Branchroom or create a workspace for real restricted
 source. You may provision an isolated store with synthetic source to demonstrate the
-storage boundary. The only transport feature is a narrow, read-only smart HTTP clone
-path disclosed after both direct grants. It is not a beta or a full collaboration
-workflow. There is no Branchroom push, SSH, LFS, API, CLI, Actions, or materialization
-endpoint. The detailed local walkthrough lives in [the self-hosted demo guide](docs/branchroom/self-hosted-demo.md).
+storage boundary. The only transport feature is restricted smart HTTP clone and push,
+with pushes confined to Branchroom refs. It is not a beta or a full collaboration
+workflow. There is no SSH, LFS, API, CLI, Actions, or materialization endpoint. The
+detailed local walkthrough lives in [the self-hosted demo guide](docs/branchroom/self-hosted-demo.md).
 
 ## Intended boundary
 

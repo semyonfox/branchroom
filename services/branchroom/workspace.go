@@ -94,6 +94,11 @@ func importReservedWorkspace(ctx context.Context, repository *repo_model.Reposit
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceImportFailed)
 		return nil, ErrWorkspaceProvisioning
 	}
+	if err := branchroom_module.NormalizeRestrictedStorePermissions(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID); err != nil {
+		removeFailedRestrictedStore(ctx, restricted)
+		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceStorePermissionsFailed)
+		return nil, ErrWorkspaceProvisioning
+	}
 	if err := verifyImportedBase(ctx, restricted, workspace.PublicBaseSHA, workspace.ObjectFormatName); err != nil {
 		removeFailedRestrictedStore(ctx, restricted)
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceImportVerifyFailed)

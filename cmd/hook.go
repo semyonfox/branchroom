@@ -136,8 +136,8 @@ func runHookBranchroomPreReceive(ctx context.Context, _ *cli.Command) error {
 // branchroomPreReceive exists only as a test seam, never as public configurability
 var branchroomPreReceive = private.BranchroomPreReceive
 
-// hookBranchroomPreReceive is deny-only: it validates the bounded receive payload and
-// forwards it to the internal endpoint, but always reports errBranchroomReceiveDenied.
+// hookBranchroomPreReceive validates the bounded receive payload and forwards it to
+// the internal admission endpoint. A successful response admits this one Git receive.
 func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey string, bearerSecret []byte, quarantine branchroom.ReceiveQuarantineValues) error {
 	defer clear(bearerSecret)
 	updates, err := io.ReadAll(io.LimitReader(stdin, branchroom.MaxReceiveUpdatesBytes+1))
@@ -156,15 +156,17 @@ func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey s
 	if setting.InternalToken == "" {
 		return errBranchroomReceiveDenied
 	}
-	_ = branchroomPreReceive(ctx, private.BranchroomPreReceiveRequest{
+	if err := branchroomPreReceive(ctx, private.BranchroomPreReceiveRequest{
 		SessionKey:                 sessionKey,
 		BearerSecret:               bearerSecret,
 		Updates:                    updates,
 		ObjectDirectory:            quarantine.ObjectDirectory,
 		AlternateObjectDirectories: quarantine.AlternateObjectDirectories,
 		QuarantinePath:             quarantine.QuarantinePath,
-	})
-	return errBranchroomReceiveDenied
+	}); err != nil {
+		return errBranchroomReceiveDenied
+	}
+	return nil
 }
 
 type delayWriter struct {

@@ -144,8 +144,13 @@ make test-migration
 
 ## Continuous integration
 
-CI runs the unit tests, runs the integration tests against every supported database,
-and tests migration from several recent Gitea versions. Please submit your pull
-request with additional unit and integration tests as appropriate. Prefer unit tests
-when the logic can be tested in isolation, and keep local integration and e2e tests
-fast (aim for sub-2s runtime).
+For pull requests, `.github/workflows/files-changed.yml` selects test jobs by
+changed path. Backend changes and changes to the database test workflow or
+its Go setup, cache, disk space, and PostgreSQL shard actions run the database
+test matrix. Documentation-only changes do not run it. The matrix runs unit
+tests,
+integration tests against every supported database, and migrations from several
+recent Gitea versions. Please submit your pull request with additional unit and
+integration tests as appropriate. Prefer unit tests when the logic can be tested
+in isolation. Keep local integration and e2e tests fast (aim for sub-2s
+runtime).

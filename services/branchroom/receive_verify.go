@@ -37,7 +37,7 @@ type verifyClaimedReceiveRequest struct {
 }
 
 type receiveVerification struct {
-	denied bool
+	admitted bool
 }
 
 // completeReceiveSessionDenied closes an authenticated claim so it can never dangle.
@@ -47,7 +47,15 @@ func completeReceiveSessionDenied(txCtx context.Context, sessionID int64) (recei
 	if err != nil || !finalized {
 		return receiveVerification{}, errReceiveDenied
 	}
-	return receiveVerification{denied: true}, nil
+	return receiveVerification{}, nil
+}
+
+func completeReceiveSessionAdmitted(txCtx context.Context, sessionID int64) (receiveVerification, error) {
+	finalized, err := branchroom_model.CompleteReceiveSession(txCtx, sessionID, branchroom_model.ReceiveSessionOutcomeAdmitted)
+	if err != nil || !finalized {
+		return receiveVerification{}, errReceiveDenied
+	}
+	return receiveVerification{admitted: true}, nil
 }
 
 func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveRequest) error {
@@ -97,7 +105,9 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 			subtle.ConstantTimeCompare([]byte(session.BearerSecretHash), bearerHashHex) != 1 {
 			return receiveVerification{}, errReceiveDenied
 		}
-		// claim time already enforced expiry, so a later clock never blocks finalizing a claimed session
+		// Claim is the authorization boundary. A valid pre-receive request completes
+		// the one receive already admitted there even if a later grant revocation,
+		// workspace retirement, or repository transfer races after the Git child started.
 		if session.State != branchroom_model.ReceiveSessionStateClaimed {
 			return receiveVerification{}, errReceiveDenied
 		}
@@ -114,49 +124,59 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 			scope.ID != session.ScopeID ||
 			scope.RepoID != session.RepoID ||
 			scope.Kind != branchroom_model.ScopeKindRepository ||
-			scope.State != branchroom_model.ScopeStateActive ||
 			workspace.ID != session.WorkspaceID ||
 			workspace.ScopeID != scope.ID ||
-			workspace.RepoID != session.RepoID ||
-			workspace.State != branchroom_model.WorkspaceStateReady {
+			workspace.RepoID != session.RepoID {
 			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
 		// quarantine facts are judged only once the session is fully authenticated and bound,
 		// so an invalid or missing quarantine terminates the claim without any evaluator trace
-		if err := branchroom_module.ValidateReceiveQuarantine(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID, request.Quarantine); err != nil {
+		quarantine, err := branchroom_module.ValidateReceiveQuarantine(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID, request.Quarantine)
+		if err != nil {
 			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
-
-		actor := Actor{Type: session.ActorType, ID: session.ActorID}
-		ceiling, _, err := resolveDirectUserRepositoryCeiling(txCtx, session.RepoID, actor)
-		if err != nil {
-			return receiveVerification{}, errReceiveDenied
+		if err := branchroom_module.VerifyRestrictedStoreHook(txCtx, setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID); err != nil {
+			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
-		decision, err := NewDBEvaluator().Evaluate(txCtx, Request{
-			ScopeID:      scope.ID,
-			RepoID:       session.RepoID,
-			Actor:        actor,
-			Ceiling:      ceiling,
-			Action:       branchroom_model.ActionWriteSource,
-			ResourceType: branchroom_model.ResourceTypeWorkspace,
-			ResourceID:   workspaceResourceID(workspace.WorkspaceKey),
-			Surface:      branchroom_model.SurfaceGitHTTP,
-		})
-		if err != nil {
-			return receiveVerification{}, errReceiveDenied
+		if !verifyReceiveCommitUpdates(txCtx, workspace, updates, quarantine) {
+			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
-		if decision.Allowed {
-			return receiveVerification{}, errReceiveDenied
-		}
-		// the decision and the session completion share this transaction so a replay can
-		// neither re-audit nor mutate state
-		return completeReceiveSessionDenied(txCtx, session.ID)
+		return completeReceiveSessionAdmitted(txCtx, session.ID)
 	})
 	if err != nil {
 		return errReceiveDenied
 	}
-	if verified.denied {
-		return errReceiveDenied
+	if verified.admitted {
+		return nil
 	}
 	return errReceiveDenied
+}
+
+// FinalizeReceiveAdmission records a claimed session as failed when receive-pack
+// exits without passing through pre-receive. It accepts only the server-generated
+// credential and cannot overwrite a completed admission or denial.
+func FinalizeReceiveAdmission(ctx context.Context, credential *ReceiveAdmissionCredential) {
+	if credential == nil || credential.SessionKey == "" || len(credential.BearerSecret) == 0 || db.InTransaction(ctx) {
+		return
+	}
+	initial, err := branchroom_model.GetReceiveSessionByKey(ctx, credential.SessionKey)
+	if err != nil {
+		return
+	}
+
+	bearerHash := sha256.Sum256(credential.BearerSecret)
+	defer clear(bearerHash[:])
+	bearerHashHex := make([]byte, hex.EncodedLen(len(bearerHash)))
+	hex.Encode(bearerHashHex, bearerHash[:])
+	defer clear(bearerHashHex)
+
+	_ = db.WithTx(ctx, func(txCtx context.Context) error {
+		session, err := branchroom_model.GetReceiveSessionByIDForUpdate(txCtx, initial.ID)
+		if err != nil || session.Validate() != nil || session.SessionKey != credential.SessionKey ||
+			subtle.ConstantTimeCompare([]byte(session.BearerSecretHash), bearerHashHex) != 1 {
+			return nil
+		}
+		_, _ = branchroom_model.CompleteReceiveSession(txCtx, session.ID, branchroom_model.ReceiveSessionOutcomeFailed)
+		return nil
+	})
 }

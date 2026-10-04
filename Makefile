@@ -116,7 +116,7 @@ RELEASE_ENV = GO="$(GO)" TAGS="$(TAGS)" LDFLAGS="$(LDFLAGS)" DIST="$(DIST)" VERS
 GO_TEST_PACKAGES ?= $(filter-out $(shell $(GO) list gitea.dev/modelmigration/...) gitea.dev/tests/integration/migration-test gitea.dev/tests gitea.dev/tests/integration,$(shell $(GO) list ./... | grep -v /vendor/))
 MIGRATE_TEST_PACKAGES ?= $(shell $(GO) list gitea.dev/modelmigration/...)
 
-FRONTEND_SOURCES := $(shell find web_src/js web_src/css -type f)
+FRONTEND_SOURCES := $(shell find web_src/js web_src/css templates -type f)
 FRONTEND_CONFIGS := vite.config.ts tailwind.config.ts
 FRONTEND_DEST := public/assets/.vite/manifest.json
 FRONTEND_DEST_ENTRIES := public/assets/js public/assets/css public/assets/fonts public/assets/.vite

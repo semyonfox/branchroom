@@ -14,6 +14,7 @@ import (
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/setting"
 	"gitea.dev/services/auth"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/migrations"
 	mirror_service "gitea.dev/services/mirror"
 	packages_cleanup_service "gitea.dev/services/packages/cleanup"
@@ -149,6 +150,20 @@ func registerCleanupPackages() {
 	})
 }
 
+func registerCleanupBranchroomReceiveSessions() {
+	RegisterTaskFatal("cleanup_branchroom_receive_sessions", &OlderThanConfig{
+		BaseConfig: BaseConfig{
+			Enabled:    true,
+			RunAtStart: true,
+			Schedule:   "@every 10m",
+		},
+		OlderThan: 5 * time.Minute,
+	}, func(ctx context.Context, _ *user_model.User, config *OlderThanConfig) error {
+		_, err := branchroom_service.ReconcileStaleReceiveSessions(ctx, config.OlderThan)
+		return err
+	})
+}
+
 func registerSyncRepoLicenses() {
 	RegisterTaskFatal("sync_repo_licenses", &BaseConfig{
 		Enabled:    false,
@@ -174,6 +189,9 @@ func initBasicTasks() {
 	registerCleanupHookTaskTable()
 	if setting.Packages.Enabled {
 		registerCleanupPackages()
+	}
+	if setting.Branchroom.Enabled {
+		registerCleanupBranchroomReceiveSessions()
 	}
 	registerSyncRepoLicenses()
 }

@@ -19,6 +19,11 @@ func RestrictedRepository(storeID string) (gitrepo.RepositoryFacade, error) {
 	if strings.TrimSpace(storeID) == "" {
 		return nil, errors.New("restricted store ID must not be empty")
 	}
+	// A private root prevents local users from traversing into stores. Receive-only
+	// ownership checks stay in the hook path so read access remains portable.
+	if _, err := ensureIntegritySafeRoot(setting.Branchroom.RestrictedRepoRootPath); err != nil {
+		return nil, err
+	}
 
 	return gitrepo.RepositoryManagedInRoot(
 		"branchroom-store-"+storeID,

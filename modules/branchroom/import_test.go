@@ -24,11 +24,12 @@ import (
 func TestImportPublicBaseIsolated(t *testing.T) {
 	defer test.MockVariableValue(&setting.Branchroom)()
 
-	testRoot := t.TempDir()
+	testRoot := newSafeTestRoot(t)
 	publicRoot := filepath.Join(testRoot, "public-repositories")
 	restrictedRoot := filepath.Join(testRoot, "restricted-repositories")
 	require.NoError(t, os.MkdirAll(publicRoot, 0o755))
-	require.NoError(t, os.MkdirAll(restrictedRoot, 0o755))
+	require.NoError(t, os.MkdirAll(restrictedRoot, 0o700))
+	require.NoError(t, os.Chmod(restrictedRoot, 0o700))
 	setting.Branchroom = setting.BranchroomConfig{
 		Enabled:                true,
 		RestrictedRepoRootPath: restrictedRoot,

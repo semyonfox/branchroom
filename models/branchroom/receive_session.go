@@ -272,6 +272,19 @@ func CompleteReceiveSession(ctx context.Context, sessionID int64, outcome Receiv
 	return affected == 1, err
 }
 
+// FailStaleClaimedReceiveSessions closes claimed sessions whose receive process did
+// not finish before staleBefore. The predicate makes this safe to race with normal
+// completion: a completed session can never be overwritten.
+func FailStaleClaimedReceiveSessions(ctx context.Context, staleBefore timeutil.TimeStamp) (int64, error) {
+	if staleBefore <= 0 {
+		return 0, util.NewInvalidArgumentErrorf("invalid Branchroom receive session stale cutoff")
+	}
+	return db.GetEngine(ctx).
+		Where("state = ? AND outcome = ? AND claimed_unix > 0 AND claimed_unix <= ?", ReceiveSessionStateClaimed, ReceiveSessionOutcomePending, staleBefore).
+		Cols("state", "outcome").
+		Update(&ReceiveSession{State: ReceiveSessionStateCompleted, Outcome: ReceiveSessionOutcomeFailed})
+}
+
 // ExpireReceiveSession atomically records that an unclaimed issued session can no longer be used.
 func ExpireReceiveSession(ctx context.Context, sessionID int64, now timeutil.TimeStamp) (bool, error) {
 	if sessionID <= 0 || now <= 0 {

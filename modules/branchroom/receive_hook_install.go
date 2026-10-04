@@ -25,7 +25,7 @@ const (
 var (
 	// ErrInvalidRestrictedRoot rejects a supplied restricted root without echoing it.
 	ErrInvalidRestrictedRoot = errors.New("invalid Branchroom restricted repository root")
-	// ErrUnsafeRestrictedRoot rejects a symlinked, non-directory or group/world writable root without echoing it.
+	// ErrUnsafeRestrictedRoot rejects a symlinked, non-directory or non-private root without echoing it.
 	ErrUnsafeRestrictedRoot = errors.New("unsafe Branchroom restricted repository root")
 	// ErrRestrictedRootUnavailable collapses root lookup and open failures so no supplied path is echoed.
 	ErrRestrictedRootUnavailable = errors.New("Branchroom restricted repository root unavailable")
@@ -61,7 +61,7 @@ func InstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) 
 
 	// OpenRoot must have landed on the exact directory that was validated, not a swapped-in lookalike
 	enteredInfo, lstatErr := root.Lstat(".")
-	if lstatErr != nil || !os.SameFile(initialRootInfo, enteredInfo) {
+	if lstatErr != nil || !os.SameFile(initialRootInfo, enteredInfo) || !isPrivateRestrictedRoot(enteredInfo) {
 		return "", ErrUnsafeRestrictedRoot
 	}
 
@@ -104,15 +104,19 @@ func isCanonicalUUID(value string) bool {
 }
 
 // ensureIntegritySafeRoot verifies the supplied root before os.OpenRoot enters it: a real,
-// non-symlink directory at the exact given path, not writable by group or others. It returns the
-// initial FileInfo so the caller can confirm with os.SameFile that OpenRoot entered the same file.
+// non-symlink, service-controlled directory at the exact given path with no group or other
+// access. It returns the initial FileInfo so the caller can confirm with os.SameFile that
+// OpenRoot entered the same file.
 func ensureIntegritySafeRoot(restrictedRoot string) (fs.FileInfo, error) {
+	if !restrictedStoreIntegritySupported() {
+		return nil, ErrUnsafeRestrictedRoot
+	}
 	info, err := os.Lstat(restrictedRoot)
 	if err != nil {
 		return nil, ErrRestrictedRootUnavailable
 	}
 	// Lstat sees the link itself, so a symlinked root is rejected here rather than followed by OpenRoot.
-	if !isSafeDirectory(info) {
+	if !isPrivateRestrictedRoot(info) || !isTrustedBranchroomPathOwner(info) {
 		return nil, ErrUnsafeRestrictedRoot
 	}
 	// Lstat cannot see symlinked ancestors below the final component, so require full canonical resolution.
@@ -121,6 +125,20 @@ func ensureIntegritySafeRoot(restrictedRoot string) (fs.FileInfo, error) {
 		return nil, ErrRestrictedRootUnavailable
 	}
 	if resolved != restrictedRoot {
+		return nil, ErrUnsafeRestrictedRoot
+	}
+	if !hasSafeRestrictedRootAncestors(restrictedRoot, info) {
+		return nil, ErrUnsafeRestrictedRoot
+	}
+	return info, nil
+}
+
+func ensurePrivateRestrictedRoot(restrictedRoot string) (fs.FileInfo, error) {
+	info, err := ensureIntegritySafeRoot(restrictedRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !isOwnedByGiteaProcess(info) {
 		return nil, ErrUnsafeRestrictedRoot
 	}
 	return info, nil
@@ -147,6 +165,31 @@ func ensureSafeHookDirectory(root *os.Root, name string) error {
 // isSafeDirectory reports whether info from Lstat is a real non-symlink directory that group or others cannot write.
 func isSafeDirectory(info fs.FileInfo) bool {
 	return info.Mode()&fs.ModeSymlink == 0 && info.IsDir() && info.Mode().Perm()&0o022 == 0
+}
+
+func isPrivateRestrictedRoot(info fs.FileInfo) bool {
+	return isSafeDirectory(info) && info.Mode().Perm()&0o077 == 0
+}
+
+func hasSafeRestrictedRootAncestors(restrictedRoot string, childInfo fs.FileInfo) bool {
+	for parent := filepath.Dir(restrictedRoot); ; parent = filepath.Dir(parent) {
+		info, err := os.Lstat(parent)
+		if err != nil || info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() {
+			return false
+		}
+		// An account that owns an ancestor can relax its mode after this check, so
+		// every ancestor must be controlled by the service account or root.
+		if !isTrustedBranchroomPathOwner(info) {
+			return false
+		}
+		if info.Mode().Perm()&0o022 != 0 && (info.Mode()&fs.ModeSticky == 0 || !isOwnedByGiteaProcess(childInfo)) {
+			return false
+		}
+		if parent == filepath.Dir(parent) {
+			return true
+		}
+		childInfo = info
+	}
 }
 
 // syncHookDirectoryEntry fsyncs a directory below root so its entries survive a crash; var only so tests can inject sync failures.

@@ -100,7 +100,7 @@ func TestCreateRepositoryWorkspaceImportsPublicBase(t *testing.T) {
 	assert.ErrorIs(t, err, ErrWorkspaceAlreadyExists)
 }
 
-func TestCreateRepositoryWorkspaceFailedImportStaysNonRoutable(t *testing.T) {
+func TestCreateRepositoryWorkspaceUnavailableStoreStaysNonRoutable(t *testing.T) {
 	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
 	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-failed-import")
 
@@ -121,7 +121,7 @@ func TestCreateRepositoryWorkspaceFailedImportStaysNonRoutable(t *testing.T) {
 	stored, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
 	require.NoError(t, err)
 	assert.Equal(t, branchroom_model.WorkspaceStateFailed, stored.State)
-	assert.Equal(t, "import_failed", stored.FailureCode)
+	assert.Equal(t, "store_unavailable", stored.FailureCode)
 	assert.NotEqual(t, branchroom_model.WorkspaceStateReady, stored.State)
 	_, err = branchroom_model.TransitionWorkspace(t.Context(), stored.ID, branchroom_model.WorkspaceStateFailed, branchroom_model.WorkspaceStateReady, "", 0)
 	assert.ErrorIs(t, err, util.ErrInvalidArgument)
@@ -131,7 +131,9 @@ func TestCreateRepositoryWorkspaceHookInstallFailureStaysNonRoutable(t *testing.
 	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
 	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-hook-install-failed")
 
-	require.NoError(t, os.Chmod(setting.Branchroom.RestrictedRepoRootPath, 0o770))
+	hooksRoot := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, ".branchroom-hooks")
+	require.NoError(t, os.Mkdir(hooksRoot, 0o700))
+	require.NoError(t, os.Chmod(hooksRoot, 0o770))
 
 	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
 		RepoID:        repository.ID,
@@ -556,11 +558,11 @@ func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *
 	restoreBranchroom := test.MockVariableValue(&setting.Branchroom)
 	t.Cleanup(restoreBranchroom)
 
-	root := t.TempDir()
+	root := newPrivateRestrictedTestRoot(t)
 	publicRoot := filepath.Join(root, "public-repositories")
-	restrictedRoot := filepath.Join(root, "restricted-repositories")
+	restrictedRoot := newPrivateRestrictedTestRoot(t)
 	require.NoError(t, os.MkdirAll(publicRoot, 0o755))
-	require.NoError(t, os.MkdirAll(restrictedRoot, 0o755))
+	require.NoError(t, os.Chmod(restrictedRoot, 0o700))
 	setting.RepoRootPath = publicRoot
 	setting.Branchroom = setting.BranchroomConfig{
 		Enabled:                true,
@@ -579,6 +581,18 @@ func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *
 	baseSHA, _, err := gitcmd.NewCommand("rev-parse", "refs/heads/main").WithRepo(public).RunStdString(t.Context())
 	require.NoError(t, err)
 	return public, repository, strings.TrimSpace(baseSHA)
+}
+
+func newPrivateRestrictedTestRoot(t *testing.T) string {
+	t.Helper()
+	parent, err := os.UserHomeDir()
+	require.NoError(t, err)
+	//nolint:usetesting // t.TempDir does not guarantee the private ancestor this test requires.
+	root, err := os.MkdirTemp(parent, ".gitea-branchroom-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	require.NoError(t, os.Chmod(root, 0o700))
+	return root
 }
 
 func insertWorkspaceScope(t *testing.T, repoID, ownerID int64, name string) *branchroom_model.Scope {
