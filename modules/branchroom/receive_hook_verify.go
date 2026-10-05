@@ -21,10 +21,11 @@ import (
 var ErrRestrictedStoreIntegrityUnavailable = errors.New("Branchroom restricted store integrity unavailable")
 
 // VerifyRestrictedStoreHook is a strictly read-only check that one canonical-UUID restricted store
-// below restrictedRoot is a healthy ready-store: it verifies the store's own directory entry, its
-// config file, its exact static hook tree, and a local core.hooksPath pointing byte-for-byte at the
-// derived hook directory; the rest of the bare repository interior is not examined. It repairs
-// nothing and returns no path or repository facade; it exists for a future write-admission service.
+// below restrictedRoot is a healthy ready-store: it verifies that the root, store, config and hook
+// paths are owned by the Gitea process account, then checks the store's own directory entry, config
+// file, exact static hook tree, and a local core.hooksPath pointing byte-for-byte at the derived hook
+// directory. The rest of the bare repository interior is not examined. It repairs nothing and
+// returns no path or repository facade; it exists for a future write-admission service.
 func VerifyRestrictedStoreHook(ctx context.Context, restrictedRoot, storeID string) error {
 	if !filepath.IsAbs(restrictedRoot) || filepath.Clean(restrictedRoot) != restrictedRoot {
 		return ErrInvalidRestrictedRoot
@@ -32,7 +33,7 @@ func VerifyRestrictedStoreHook(ctx context.Context, restrictedRoot, storeID stri
 	if !isCanonicalUUID(storeID) {
 		return ErrInvalidRestrictedStoreID
 	}
-	initialRootInfo, err := ensureIntegritySafeRoot(restrictedRoot)
+	initialRootInfo, err := ensurePrivateRestrictedRoot(restrictedRoot)
 	if err != nil {
 		return err
 	}
@@ -45,7 +46,7 @@ func VerifyRestrictedStoreHook(ctx context.Context, restrictedRoot, storeID stri
 
 	// OpenRoot must have landed on the exact directory that was validated, not a swapped-in lookalike
 	enteredInfo, lstatErr := root.Lstat(".")
-	if lstatErr != nil || !os.SameFile(initialRootInfo, enteredInfo) {
+	if lstatErr != nil || !os.SameFile(initialRootInfo, enteredInfo) || !isPrivateRestrictedRoot(enteredInfo) || !isOwnedByGiteaProcess(enteredInfo) {
 		return ErrUnsafeRestrictedRoot
 	}
 
@@ -53,7 +54,7 @@ func VerifyRestrictedStoreHook(ctx context.Context, restrictedRoot, storeID stri
 	storeHooksDirRel := path.Join(branchroomHooksDirName, storeID)
 	for _, name := range []string{storeID + ".git", branchroomHooksDirName, storeHooksDirRel} {
 		info, lstatErr := root.Lstat(name)
-		if lstatErr != nil || !isSafeDirectory(info) {
+		if lstatErr != nil || !isSafeProcessOwnedDirectory(info) {
 			return ErrRestrictedStoreIntegrityUnavailable
 		}
 	}
@@ -68,10 +69,11 @@ func VerifyRestrictedStoreHook(ctx context.Context, restrictedRoot, storeID stri
 	return verifyStoreHooksPath(ctx, repoDirAbs, hookDirAbs)
 }
 
-// requireSafeStoreConfigFile requires a real regular non-symlink config file that group or others cannot write.
+// requireSafeStoreConfigFile requires a real regular non-symlink config file owned by the Gitea
+// process account that group or others cannot write.
 func requireSafeStoreConfigFile(root *os.Root, name string) error {
 	info, err := root.Lstat(name)
-	if err != nil || info.Mode()&fs.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+	if err != nil || !isSafeProcessOwnedRegularFile(info) {
 		return ErrRestrictedStoreIntegrityUnavailable
 	}
 	return nil
@@ -94,13 +96,25 @@ func requireExactPreReceiveTree(root *os.Root, storeHooksDirRel string) error {
 		return ErrRestrictedStoreIntegrityUnavailable
 	}
 	info, lstatErr := root.Lstat(targetRel)
-	if lstatErr != nil {
+	if lstatErr != nil || !isSafeProcessOwnedHookFile(info) {
 		return ErrRestrictedStoreIntegrityUnavailable
 	}
 	if err := validateHookTarget(root, targetRel, info, ReceivePreReceiveHookTemplate()); err != nil {
 		return ErrRestrictedStoreIntegrityUnavailable
 	}
 	return nil
+}
+
+func isSafeProcessOwnedDirectory(info fs.FileInfo) bool {
+	return isSafeDirectory(info) && isOwnedByGiteaProcess(info)
+}
+
+func isSafeProcessOwnedRegularFile(info fs.FileInfo) bool {
+	return info.Mode()&fs.ModeSymlink == 0 && info.Mode().IsRegular() && info.Mode().Perm()&0o022 == 0 && isOwnedByGiteaProcess(info)
+}
+
+func isSafeProcessOwnedHookFile(info fs.FileInfo) bool {
+	return info.Mode()&fs.ModeSymlink == 0 && info.Mode().IsRegular() && isSafeHookFileMode(info.Mode()) && isOwnedByGiteaProcess(info)
 }
 
 // verifyStoreHooksPath reads only the local git config with a sanitized environment and explicit
@@ -125,7 +139,7 @@ func verifyStoreHooksPath(ctx context.Context, repoDirAbs, hookDirAbs string) er
 	if err != nil {
 		return ErrRestrictedStoreIntegrityUnavailable
 	}
-	for _, key := range strings.Split(string(keys), "\x00") {
+	for key := range strings.SplitSeq(string(keys), "\x00") {
 		lower := strings.ToLower(key)
 		// include directives could be honoured by a future receive process, so their mere presence rejects
 		if lower == "include.path" || (strings.HasPrefix(lower, "includeif.") && strings.HasSuffix(lower, ".path")) {

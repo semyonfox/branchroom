@@ -1773,8 +1773,8 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	// pattern: "/{username}/{reponame}/{lfs-paths}": git-lfs support, see also addOwnerRepoGitHTTPRouters
 	common.AddOwnerRepoGitLFSRoutes(m, lfsServerEnabled, webAuth.AllowBasic, repo.CorsHandler(), optSignInFromAnyOrigin)
 
-	// Restricted workspaces expose only authenticated smart upload-pack through a
-	// separate route and never reuse normal repository storage routing.
+	// Restricted workspaces expose only authenticated smart upload-pack and receive-pack
+	// through a separate route and never reuse normal repository storage routing.
 	addBranchroomGitHTTPRouters(m, skipGoGet, repo.BranchroomGitHTTPHeaders, webAuth.AllowBasic)
 
 	// Some users want to use "web-based git client" to access Gitea's repositories,

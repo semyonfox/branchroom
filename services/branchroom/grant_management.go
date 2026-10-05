@@ -82,7 +82,7 @@ func CreateRepositoryDiscoveryGrant(ctx context.Context, request CreateRepositor
 }
 
 // CreateRepositorySourceReadGrantRequest contains an owner-authorized direct-user source-read grant.
-// It is one required check for a verified ready workspace's narrow read-only Git HTTP path.
+// It is one required check for a verified ready workspace's restricted Git HTTP transport.
 type CreateRepositorySourceReadGrantRequest struct {
 	RepoID          int64
 	ScopeID         int64
@@ -114,7 +114,7 @@ func CreateRepositorySourceReadGrant(ctx context.Context, request CreateReposito
 }
 
 // CreateRepositorySourceWriteGrantRequest contains an owner-authorized direct-user source-write grant.
-// It is stored policy groundwork for a future receive boundary; no source-write path exists today.
+// The restricted HTTPS receive boundary also requires active source-read and ordinary code-write access.
 type CreateRepositorySourceWriteGrantRequest struct {
 	RepoID          int64
 	ScopeID         int64
@@ -126,8 +126,8 @@ type CreateRepositorySourceWriteGrantRequest struct {
 	RequestID       string
 }
 
-// CreateRepositorySourceWriteGrant records a direct-user source-write policy grant for a ready isolated workspace.
-// Stored groundwork only: Branchroom still denies every source write until a future receive boundary exists.
+// CreateRepositorySourceWriteGrant records a direct-user source-write grant for a ready isolated workspace.
+// It is consumed only by the restricted HTTPS receive boundary.
 func CreateRepositorySourceWriteGrant(ctx context.Context, request CreateRepositorySourceWriteGrantRequest) (*branchroom_model.Grant, error) {
 	return createRepositorySourceGrant(ctx, createRepositorySourceGrantRequest{
 		RepoID:                request.RepoID,

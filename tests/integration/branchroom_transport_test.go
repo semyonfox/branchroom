@@ -7,15 +7,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git"
@@ -25,6 +29,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
+	repository_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,7 +250,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 			setting.Repository.DisableHTTPGit = false
 		})
 
-		t.Run("every unsupported transport surface is indistinguishable", func(t *testing.T) {
+		t.Run("every unsupported read transport surface is indistinguishable", func(t *testing.T) {
 			decisionsBefore, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Count(new(branchroom_model.Decision))
 			require.NoError(t, err)
 			auditsBefore, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Count(new(branchroom_model.AuditEvent))
@@ -259,9 +264,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 				body        string
 				configure   func(*http.Request)
 			}{
-				{method: http.MethodGet, url: gatewayURL.JoinPath("info/refs").String() + "?service=git-receive-pack"},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("info/refs").String() + "?service=git-upload-pack&go-get=1"},
-				{method: http.MethodPost, url: gatewayURL.JoinPath("git-receive-pack").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-archive").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "gzip") }},
@@ -310,6 +313,193 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 			assert.Equal(t, "Repository not found\n", rpc.Body)
 		})
 	})
+}
+
+func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
+	defer test.MockVariableValue(&setting.AppURL)()
+	setting.AppURL = "http://127.0.0.1:0/"
+
+	onGiteaRun(t, func(t *testing.T, u *url.URL) {
+		defer test.MockVariableValue(&setting.Branchroom)()
+		defer test.MockVariableValue(&setting.CustomConf)()
+		restrictedRoot := branchroomTestRoot(t)
+		setting.CustomConf = branchroomReceiveHookTestConfig(t, u, restrictedRoot)
+		setting.Branchroom = setting.BranchroomConfig{
+			Enabled:                true,
+			RestrictedRepoRootPath: restrictedRoot,
+		}
+
+		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
+		require.NoError(t, err)
+		baseSHA, err := git.GetBranchCommitID(t.Context(), repository.CodeStorageRepo(), repository.DefaultBranch)
+		require.NoError(t, err)
+		scope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{
+			RepoID:  repository.ID,
+			Actor:   branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+			Name:    "smart-http-write",
+			Surface: branchroom_model.SurfaceSystem,
+		})
+		require.NoError(t, err)
+		workspace, err := branchroom_service.CreateRepositoryWorkspace(t.Context(), branchroom_service.CreateRepositoryWorkspaceRequest{
+			RepoID:        repository.ID,
+			ScopeID:       scope.ID,
+			Actor:         branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID},
+			PublicBaseSHA: baseSHA,
+			Surface:       branchroom_model.SurfaceSystem,
+		})
+		require.NoError(t, err)
+		restricted, err := branchroom.RestrictedRepository(workspace.StoreID)
+		require.NoError(t, err)
+
+		gatewayURL := u.JoinPath("_branchroom", "user2", "repo1", workspace.RouteKey+".git")
+		receiveInfoRefsURL := gatewayURL.JoinPath("info/refs").String() + "?service=git-receive-pack"
+		receivePackURL := gatewayURL.JoinPath("git-receive-pack").String()
+		owner := branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}
+
+		ordinaryWriter, err := user_model.GetUserByName(t.Context(), "user4")
+		require.NoError(t, err)
+		require.NoError(t, repository_service.AddOrUpdateCollaborator(t.Context(), repository, ordinaryWriter, perm.AccessModeWrite))
+		ordinaryPermission, err := access_model.GetIndividualUserRepoPermission(t.Context(), repository, ordinaryWriter)
+		require.NoError(t, err)
+		require.True(t, ordinaryPermission.CanWrite(unit.TypeCode))
+
+		t.Run("ordinary writers without a direct grant cannot advertise or write", func(t *testing.T) {
+			assert.Equal(t, http.StatusNotFound, makeBranchroomGitHTTPRequest(t, http.MethodGet, receiveInfoRefsURL, ordinaryWriter.Name, userPassword).StatusCode)
+			assert.Equal(t, http.StatusNotFound, makeBranchroomGitHTTPRequestWithBody(t, http.MethodPost, receivePackURL, ordinaryWriter.Name, userPassword, "application/x-git-receive-pack-request", "").StatusCode)
+		})
+
+		writeGrant, err := branchroom_service.CreateRepositorySourceWriteGrant(t.Context(), branchroom_service.CreateRepositorySourceWriteGrantRequest{
+			RepoID:          repository.ID,
+			ScopeID:         scope.ID,
+			Actor:           owner,
+			SubjectUsername: ordinaryWriter.Name,
+			Surface:         branchroom_model.SurfaceSystem,
+		})
+		require.NoError(t, err)
+
+		t.Run("a write grant alone cannot disclose private refs", func(t *testing.T) {
+			assert.Equal(t, http.StatusNotFound, makeBranchroomGitHTTPRequest(t, http.MethodGet, receiveInfoRefsURL, ordinaryWriter.Name, userPassword).StatusCode)
+		})
+
+		_, err = branchroom_service.CreateRepositorySourceReadGrant(t.Context(), branchroom_service.CreateRepositorySourceReadGrantRequest{
+			RepoID:          repository.ID,
+			ScopeID:         scope.ID,
+			Actor:           owner,
+			SubjectUsername: ordinaryWriter.Name,
+			Surface:         branchroom_model.SurfaceSystem,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, makeBranchroomGitHTTPRequest(t, http.MethodGet, receiveInfoRefsURL, ordinaryWriter.Name, userPassword).StatusCode)
+
+		writerURL := *gatewayURL
+		writerURL.User = url.UserPassword(ordinaryWriter.Name, userPassword)
+		cloneDir := t.TempDir()
+		require.NoError(t, git.Clone(t.Context(), writerURL.String(), cloneDir, git.CloneRepoOptions{}))
+		firstCommit := commitBranchroomFakeEnvironment(t, cloneDir, "BRANCHROOM_FAKE_TOKEN=not-a-real-token\n", "add fake environment")
+		const restrictedRef = "refs/heads/branchroom/fake-environment"
+		t.Run("a direct writer cannot push outside the branchroom namespace", func(t *testing.T) {
+			_, _, err := gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:refs/heads/"+repository.DefaultBranch).WithDir(cloneDir).RunStdString(t.Context())
+			require.Error(t, err)
+			assert.Equal(t, baseSHA, branchroomObjectID(t, restricted, "refs/heads/"+repository.DefaultBranch))
+		})
+		_, _, err = gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
+		require.NoError(t, err)
+		secondAllowedCommit := commitBranchroomFakeEnvironment(t, cloneDir, "BRANCHROOM_FAKE_TOKEN=still-not-real\n", "update fake environment")
+		_, _, err = gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
+		require.NoError(t, err)
+
+		t.Run("a direct writer pushes only to the isolated branchroom namespace", func(t *testing.T) {
+			assert.Equal(t, secondAllowedCommit, branchroomObjectID(t, restricted, restrictedRef))
+			contents, _, err := gitcmd.NewCommand("show").AddDynamicArguments(restrictedRef + ":.env").WithRepo(restricted).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, "BRANCHROOM_FAKE_TOKEN=still-not-real\n", contents)
+
+			_, _, err = gitcmd.NewCommand("show-ref", "--verify", "--quiet").AddDynamicArguments(restrictedRef).WithRepo(repository.CodeStorageRepo()).RunStdString(t.Context())
+			assert.Error(t, err)
+
+			publicInfoRefsURL := u.JoinPath("user2", "repo1.git", "info/refs").String() + "?service=git-upload-pack"
+			publicAdvertisement := makeBranchroomGitHTTPRequest(t, http.MethodGet, publicInfoRefsURL, "", "")
+			assert.Equal(t, http.StatusOK, publicAdvertisement.StatusCode)
+			assert.NotContains(t, publicAdvertisement.Body, firstCommit)
+			assert.NotContains(t, publicAdvertisement.Body, secondAllowedCommit)
+
+			publicClone := t.TempDir()
+			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name()))
+			_, _, err = gitcmd.NewCommand("fetch").AddDynamicArguments(u.JoinPath("user2", "repo1.git").String(), secondAllowedCommit).WithDir(publicClone).RunStdString(t.Context())
+			assert.Error(t, err)
+		})
+
+		t.Run("an unsafe restricted root hides private refs", func(t *testing.T) {
+			require.NoError(t, os.Chmod(restrictedRoot, 0o755))
+			t.Cleanup(func() {
+				require.NoError(t, os.Chmod(restrictedRoot, 0o700))
+			})
+
+			response := makeBranchroomGitHTTPRequest(t, http.MethodGet, receiveInfoRefsURL, ordinaryWriter.Name, userPassword)
+			assert.Equal(t, http.StatusNotFound, response.StatusCode)
+			assert.NotContains(t, response.Body, restrictedRef)
+			assert.NotContains(t, response.Body, secondAllowedCommit)
+		})
+
+		require.NoError(t, branchroom_service.RevokeRepositorySourceWriteGrant(t.Context(), branchroom_service.RevokeRepositorySourceWriteGrantRequest{
+			RepoID:  repository.ID,
+			ScopeID: scope.ID,
+			GrantID: writeGrant.ID,
+			Actor:   owner,
+			Surface: branchroom_model.SurfaceSystem,
+		}))
+
+		t.Run("revoking write access blocks the next push", func(t *testing.T) {
+			assert.Equal(t, http.StatusNotFound, makeBranchroomGitHTTPRequest(t, http.MethodGet, receiveInfoRefsURL, ordinaryWriter.Name, userPassword).StatusCode)
+			thirdCommit := commitBranchroomFakeEnvironment(t, cloneDir, "BRANCHROOM_FAKE_TOKEN=revoked-access\n", "change fake environment after revocation")
+			assert.NotEqual(t, secondAllowedCommit, thirdCommit)
+			_, _, err := gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
+			assert.Error(t, err)
+			assert.Equal(t, secondAllowedCommit, branchroomObjectID(t, restricted, restrictedRef))
+		})
+	})
+}
+
+func commitBranchroomFakeEnvironment(t *testing.T, repositoryPath, contents, message string) string {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(repositoryPath, ".env"), []byte(contents), 0o600))
+	require.NoError(t, gitAddChangesDeprecated(t.Context(), repositoryPath, false, ".env"))
+	signature := &git.Signature{Email: "user4@example.com", Name: "User Four", When: time.Now()}
+	require.NoError(t, gitCommitChangesDeprecated(t.Context(), repositoryPath, gitCommitChangesOptions{
+		Committer: signature,
+		Author:    signature,
+		Message:   message,
+	}))
+	commit, _, err := gitcmd.NewCommand("rev-parse", "HEAD").WithDir(repositoryPath).RunStdString(t.Context())
+	require.NoError(t, err)
+	return strings.TrimSpace(commit)
+}
+
+func branchroomReceiveHookTestConfig(t *testing.T, serverURL *url.URL, restrictedRoot string) string {
+	t.Helper()
+
+	config, err := os.ReadFile(setting.CustomConf)
+	require.NoError(t, err)
+	lines := strings.Split(string(config), "\n")
+	for index, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "LOCAL_ROOT_URL") {
+			lines[index] = "LOCAL_ROOT_URL   = " + strings.TrimSuffix(serverURL.String(), "/") + "/"
+			lines = append(lines,
+				"",
+				"[branchroom]",
+				"ENABLED = true",
+				"RESTRICTED_ROOT = "+restrictedRoot,
+				"",
+				"[security]",
+				"INTERNAL_TOKEN = "+setting.InternalToken,
+			)
+			path := filepath.Join(t.TempDir(), "branchroom-hook.ini")
+			require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600))
+			return path
+		}
+	}
+	t.Fatal("integration configuration has no LOCAL_ROOT_URL")
+	return ""
 }
 
 type branchroomGitHTTPResponse struct {

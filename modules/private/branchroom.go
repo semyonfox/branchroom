@@ -4,12 +4,23 @@
 package private
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"time"
 
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/setting"
 )
+
+var errBranchroomPreReceiveDenied = errors.New("Branchroom receive denied")
+
+var branchroomInterfaceAddrs = net.InterfaceAddrs
 
 type BranchroomPreReceiveRequest struct {
 	SessionKey   string `json:"session_key"`
@@ -22,21 +33,96 @@ type BranchroomPreReceiveRequest struct {
 	QuarantinePath             string `json:"quarantine_path"`
 }
 
-// BranchroomPreReceive posts the receive session payload to the internal deny-only
-// branchroom endpoint and reports only the transport/protocol error. It returns an
-// error for any non-2xx reply (the current endpoint always denies), without exposing
-// the response's user-facing message. The caller keeps ownership of the request buffers.
+// BranchroomPreReceive posts the receive session payload to the internal admission
+// endpoint and accepts exactly a bodyless 204 response. It does not follow redirects,
+// because the session bearer must only reach the configured internal endpoint. Every
+// other transport or protocol result maps to one static error without exposing server
+// messages. The caller keeps ownership of the request buffers.
 func BranchroomPreReceive(ctx context.Context, request BranchroomPreReceiveRequest) error {
 	payload, err := json.Marshal(request)
 	if err != nil {
-		return err
+		return errBranchroomPreReceiveDenied
 	}
 	defer clear(payload)
 
-	req := NewInternalRequest(ctx, setting.LocalURL+"api/internal/branchroom/pre-receive", "POST")
-	req.Header("Content-Type", "application/json")
-	req.Body(payload)
-	req.SetReadWriteTimeout(60 * time.Second)
-	_, extra := requestJSONResp(req, &ResponseText{})
-	return extra.Error
+	client, ok := newBranchroomPreReceiveHTTPClient()
+	if !ok {
+		return errBranchroomPreReceiveDenied
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, setting.LocalURL+"api/internal/branchroom/pre-receive", bytes.NewReader(payload))
+	if err != nil {
+		return errBranchroomPreReceiveDenied
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", getClientIP())
+	req.Header.Set("X-Gitea-Internal-Auth", "Bearer "+setting.InternalToken)
+
+	response, err := client.Do(req)
+	if err != nil {
+		return errBranchroomPreReceiveDenied
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1))
+	if err != nil || response.StatusCode != http.StatusNoContent || len(body) != 0 {
+		return errBranchroomPreReceiveDenied
+	}
+	return nil
+}
+
+// branchroomPreReceiveInternalEndpointIsTrusted permits a unix socket, loopback,
+// or an IP assigned to this host over HTTP, or an HTTPS hop whose certificate
+// will be verified.
+func branchroomPreReceiveInternalEndpointIsTrusted(protocol setting.Scheme, localURL string) bool {
+	u, err := url.Parse(localURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	return internalAPIConnectionIsLocal(protocol, localURL) || u.Scheme == "https" || branchroomPreReceiveHostIsLocalInterface(u.Hostname())
+}
+
+func branchroomPreReceiveHostIsLocalInterface(host string) bool {
+	hostIP := net.ParseIP(host)
+	if hostIP == nil || !hostIP.IsGlobalUnicast() {
+		return false
+	}
+	addrs, err := branchroomInterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		var addrIP net.IP
+		switch addr := addr.(type) {
+		case *net.IPNet:
+			addrIP = addr.IP
+		case *net.IPAddr:
+			addrIP = addr.IP
+		}
+		if addrIP.Equal(hostIP) {
+			return true
+		}
+	}
+	return false
+}
+
+func newBranchroomPreReceiveHTTPClient() (*http.Client, bool) {
+	if setting.InternalToken == "" || !branchroomPreReceiveInternalEndpointIsTrusted(setting.Protocol, setting.LocalURL) {
+		return nil, false
+	}
+
+	local := internalAPIConnectionIsLocal(setting.Protocol, setting.LocalURL)
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: dialContextInternalAPI,
+			TLSClientConfig: &tls.Config{
+				// Loopback and unix-socket HTTPS may use Gitea's unverified local
+				// certificate. HTTPS over a local-interface or remote address uses
+				// Go's normal certificate verification.
+				InsecureSkipVerify: local,
+			},
+		},
+		Timeout: 60 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}, true
 }

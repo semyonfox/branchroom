@@ -39,23 +39,24 @@ const (
 
 // audit reason codes recorded alongside manage-policy and lifecycle decisions.
 const (
-	reasonScopeCreated                 = "scope_created"
-	reasonWorkspaceCreated             = "workspace_created"
-	reasonWorkspaceStoreUnavailable    = "store_unavailable"
-	reasonWorkspaceImportFailed        = "import_failed"
-	reasonWorkspaceImportVerifyFailed  = "import_verification_failed"
-	reasonWorkspaceRouteKeyRotated     = "workspace_route_key_rotated"
-	reasonDiscoveryGrantCreated        = "discovery_grant_created"
-	reasonSourceReadGrantCreated       = "source_read_grant_created"
-	reasonTeamGrantCreated             = "team_grant_created"
-	reasonTeamGrantRevoked             = "team_grant_revoked"
-	reasonEnvironmentRevisionCreated   = "environment_revision_created"
-	reasonEnvironmentLeaseIssued       = "environment_lease_issued"
-	reasonEnvironmentLeaseExpired      = "environment_lease_expired"
-	reasonEnvironmentLeaseClaimed      = "environment_lease_claimed"
-	reasonEnvironmentLeaseDenied       = "environment_lease_denied"
-	reasonEnvironmentLeaseMaterialized = "environment_lease_materialized"
-	reasonEnvironmentLeaseFailed       = "environment_lease_failed"
+	reasonScopeCreated                    = "scope_created"
+	reasonWorkspaceCreated                = "workspace_created"
+	reasonWorkspaceStoreUnavailable       = "store_unavailable"
+	reasonWorkspaceImportFailed           = "import_failed"
+	reasonWorkspaceStorePermissionsFailed = "store_permissions_failed"
+	reasonWorkspaceImportVerifyFailed     = "import_verification_failed"
+	reasonWorkspaceRouteKeyRotated        = "workspace_route_key_rotated"
+	reasonDiscoveryGrantCreated           = "discovery_grant_created"
+	reasonSourceReadGrantCreated          = "source_read_grant_created"
+	reasonTeamGrantCreated                = "team_grant_created"
+	reasonTeamGrantRevoked                = "team_grant_revoked"
+	reasonEnvironmentRevisionCreated      = "environment_revision_created"
+	reasonEnvironmentLeaseIssued          = "environment_lease_issued"
+	reasonEnvironmentLeaseExpired         = "environment_lease_expired"
+	reasonEnvironmentLeaseClaimed         = "environment_lease_claimed"
+	reasonEnvironmentLeaseDenied          = "environment_lease_denied"
+	reasonEnvironmentLeaseMaterialized    = "environment_lease_materialized"
+	reasonEnvironmentLeaseFailed          = "environment_lease_failed"
 )
 
 // Actor is the concrete authenticated identity considered by policy.
@@ -239,6 +240,8 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 			if !request.Ceiling.CodeRead || !request.Ceiling.CodeWrite {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonOrdinaryPermissionDeny, 0)
 			}
+			// Source writes are admitted only by the sealed receive-session issuer.
+			// A generic policy request has no proof that it is bound to that transport.
 			return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonWriteSourceUnavailable, 0)
 		}
 		if !request.Ceiling.CodeRead {

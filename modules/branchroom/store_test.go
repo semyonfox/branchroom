@@ -4,6 +4,7 @@
 package branchroom
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestRestrictedRepository(t *testing.T) {
 	_, err := RestrictedRepository("security-fix-2026-14")
 	assert.ErrorContains(t, err, "branchroom is disabled")
 
-	root := t.TempDir()
+	root := newSafeTestRoot(t)
 	setting.Branchroom = setting.BranchroomConfig{
 		Enabled:                true,
 		RestrictedRepoRootPath: root,
@@ -36,4 +37,8 @@ func TestRestrictedRepository(t *testing.T) {
 
 	_, err = RestrictedRepository("../public")
 	assert.ErrorContains(t, err, "repository path must be relative")
+
+	require.NoError(t, os.Chmod(root, 0o755))
+	_, err = RestrictedRepository("security-fix-2026-14")
+	assert.ErrorIs(t, err, ErrUnsafeRestrictedRoot)
 }

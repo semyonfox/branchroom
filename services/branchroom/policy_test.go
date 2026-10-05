@@ -34,6 +34,7 @@ func TestDBEvaluatorDirectGrantRevocationAndMetadata(t *testing.T) {
 		CreatedByID: 1,
 	}
 	require.NoError(t, branchroom_model.InsertGrant(ctx, grant))
+	assert.NotZero(t, grant.ID)
 
 	decision, err := evaluator.Evaluate(ctx, testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 2}, true))
 	require.NoError(t, err)

@@ -49,3 +49,31 @@ PROPORTION_TO_CHECK_PER_REPO = 0.1
 	assert.Equal(t, int64(10), config.NumberToCheckPerRepo)
 	assert.InDelta(t, 0.1, config.ProportionToCheckPerRepo, 0.001)
 }
+
+func TestCleanupBranchroomReceiveSessionsConfig(t *testing.T) {
+	cfg, err := setting.NewConfigProviderFromData(`
+[cron.cleanup_branchroom_receive_sessions]
+ENABLED = false
+RUN_AT_START = false
+SCHEDULE = "@every 30m"
+OLDER_THAN = "15m"
+`)
+	assert.NoError(t, err)
+	defer test.MockVariableValue(&setting.CfgProvider, cfg)()
+
+	config := &OlderThanConfig{
+		BaseConfig: BaseConfig{
+			Enabled:    true,
+			RunAtStart: true,
+			Schedule:   "@every 10m",
+		},
+		OlderThan: 5 * time.Minute,
+	}
+
+	_, err = setting.GetCronSettings("cleanup_branchroom_receive_sessions", config)
+	assert.NoError(t, err)
+	assert.False(t, config.Enabled)
+	assert.False(t, config.RunAtStart)
+	assert.Equal(t, "@every 30m", config.Schedule)
+	assert.Equal(t, 15*time.Minute, config.OlderThan)
+}

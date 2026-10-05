@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +16,9 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	branchroom_module "gitea.dev/modules/branchroom"
+	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
-	"gitea.dev/modules/test"
 	"gitea.dev/modules/timeutil"
 
 	"github.com/google/uuid"
@@ -24,148 +26,126 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestVerifyClaimedReceiveUsesWriteSourceDeny(t *testing.T) {
+func TestVerifyClaimedReceiveAdmitsAuthorizedPush(t *testing.T) {
 	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
-	insertWorkspaceActionGrant(t, scope.ID, session.ActorID, branchroom_model.ActionWriteSource, 0, 0)
+	updates := receiveVerifierAdmissibleUpdates(t, workspace, quarantine)
 
 	suppliedSecret := bytes.Clone(bearerSecret)
 	err := VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
 		SessionKey:   session.SessionKey,
 		BearerSecret: suppliedSecret,
-		Updates:      receiveVerifierUpdates("refs/heads/branchroom/main"),
+		Updates:      updates,
 		Quarantine:   quarantine,
 	})
-	assert.ErrorIs(t, err, errReceiveDenied)
+	require.NoError(t, err)
 	assert.Equal(t, make([]byte, len(suppliedSecret)), suppliedSecret)
 
-	decision := new(branchroom_model.Decision)
-	has, err := db.GetEngine(t.Context()).Where("scope_id = ? AND action = ?", scope.ID, branchroom_model.ActionWriteSource).Get(decision)
-	require.NoError(t, err)
-	require.True(t, has)
-	assert.Equal(t, scope.ID, decision.ScopeID)
-	assert.Equal(t, session.RepoID, decision.RepoID)
-	assert.Equal(t, int64(0), decision.GrantID)
-	assert.Equal(t, branchroom_model.ActorTypeUser, decision.ActorType)
-	assert.Equal(t, session.ActorID, decision.ActorID)
-	assert.Equal(t, branchroom_model.ActionWriteSource, decision.Action)
-	assert.Equal(t, branchroom_model.ResourceTypeWorkspace, decision.ResourceType)
-	assert.Equal(t, workspaceResourceID(workspace.WorkspaceKey), decision.ResourceID)
-	assert.Equal(t, branchroom_model.SurfaceGitHTTP, decision.Surface)
-	assert.Equal(t, branchroom_model.DecisionResultDeny, decision.Result)
-	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
-	assert.True(t, decision.OrdinaryAllowed)
-
-	audit := new(branchroom_model.AuditEvent)
-	has, err = db.GetEngine(t.Context()).Where("decision_key = ?", decision.DecisionKey).Get(audit)
-	require.NoError(t, err)
-	require.True(t, has)
-	assert.Equal(t, decision.DecisionKey, audit.DecisionKey)
-	assert.Equal(t, decision.Action, audit.Action)
-	assert.Equal(t, decision.ResourceID, audit.ResourceID)
-	assert.Equal(t, decision.Surface, audit.Surface)
-	assert.Equal(t, decision.ReasonCode, audit.ReasonCode)
-	assert.Equal(t, decision.GrantID, audit.GrantID)
+	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
+	assert.Zero(t, decisions)
+	assert.Zero(t, audits)
 
 	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
 	require.NoError(t, err)
 	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
 	assert.Equal(t, session.ClaimedUnix, stored.ClaimedUnix)
 	assert.Equal(t, receiveVerifierBearerHash(bearerSecret), stored.BearerSecretHash)
 }
 
-func TestVerifyClaimedReceiveFinalizesDeniedOnce(t *testing.T) {
-	scope, _, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
-	insertWorkspaceActionGrant(t, scope.ID, session.ActorID, branchroom_model.ActionWriteSource, 0, 0)
+func TestVerifyClaimedReceiveAdmitsAfterPostClaimRevocation(t *testing.T) {
+	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
+	grant := insertWorkspaceActionGrant(t, scope.ID, session.ActorID, branchroom_model.ActionWriteSource, 0, 0)
+	require.NoError(t, branchroom_model.RevokeGrant(t.Context(), grant.ID, session.ActorID, timeutil.TimeStampNow()))
+	updates := receiveVerifierAdmissibleUpdates(t, workspace, quarantine)
 
-	for i := range 2 {
-		err := VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
-			SessionKey:   session.SessionKey,
-			BearerSecret: bytes.Clone(bearerSecret),
-			Updates:      receiveVerifierUpdates("refs/heads/branchroom/main"),
-			Quarantine:   quarantine,
-		})
-		assert.ErrorIs(t, err, errReceiveDenied)
+	err := VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
+		SessionKey:   session.SessionKey,
+		BearerSecret: bytes.Clone(bearerSecret),
+		Updates:      updates,
+		Quarantine:   quarantine,
+	})
+	require.NoError(t, err)
 
-		stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
-		require.NoError(t, err)
-		assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
-		assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
-		decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
-		assert.Equal(t, int64(1), decisions, "verification %d must not add a second decision", i)
-		assert.Equal(t, int64(1), audits, "verification %d must not add a second audit", i)
-	}
+	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
+	assert.ErrorIs(t, VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
+		SessionKey:   session.SessionKey,
+		BearerSecret: bytes.Clone(bearerSecret),
+		Updates:      updates,
+		Quarantine:   quarantine,
+	}), errReceiveDenied)
+	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
+	assert.Zero(t, decisions)
+	assert.Zero(t, audits)
 }
 
-// A claimed session whose nominal expiry passed while claimed still finalizes denied because
-// claim time already enforced the expiry bound. It never authorizes a push.
-func TestVerifyClaimedReceiveFinalizesDeniedAfterExpiry(t *testing.T) {
+// Claim time enforces the expiry bound. A receive already claimed before expiry
+// can finish admission after the nominal expiry time.
+func TestVerifyClaimedReceiveAdmitsAfterExpiry(t *testing.T) {
 	now := timeutil.TimeStampNow()
-	scope, _, session, bearerSecret, quarantine := prepareReceiveVerifierFixtureAt(t, now-1200, now-600, now-700)
+	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixtureAt(t, now-1200, now-600, now-700)
 	require.Less(t, int64(session.ClaimedUnix), int64(session.ExpiresUnix))
 	insertWorkspaceActionGrant(t, scope.ID, session.ActorID, branchroom_model.ActionWriteSource, 0, 0)
 
 	err := VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
 		SessionKey:   session.SessionKey,
 		BearerSecret: bytes.Clone(bearerSecret),
-		Updates:      receiveVerifierUpdates("refs/heads/branchroom/main"),
+		Updates:      receiveVerifierAdmissibleUpdates(t, workspace, quarantine),
 		Quarantine:   quarantine,
 	})
-	assert.ErrorIs(t, err, errReceiveDenied)
+	require.NoError(t, err)
 
 	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
 	require.NoError(t, err)
 	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
 }
 
-func TestVerifyClaimedReceiveCompletesDeniedOnDisabledScopeWithoutAudit(t *testing.T) {
-	scope, _, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
-	insertWorkspaceActionGrant(t, scope.ID, session.ActorID, branchroom_model.ActionWriteSource, 0, 0)
+func TestVerifyClaimedReceiveAdmitsAfterScopeDisabled(t *testing.T) {
+	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
 	_, err := db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateDisabled})
 	require.NoError(t, err)
-	decisionsBefore, auditsBefore := receiveVerifierPolicyCounts(t, scope.ID)
 
 	err = VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
 		SessionKey:   session.SessionKey,
 		BearerSecret: bytes.Clone(bearerSecret),
-		Updates:      receiveVerifierUpdates("refs/heads/branchroom/main"),
+		Updates:      receiveVerifierAdmissibleUpdates(t, workspace, quarantine),
 		Quarantine:   quarantine,
 	})
-	assert.ErrorIs(t, err, errReceiveDenied)
+	require.NoError(t, err)
 
 	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
 	require.NoError(t, err)
 	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
-	decisionsAfter, auditsAfter := receiveVerifierPolicyCounts(t, scope.ID)
-	assert.Equal(t, decisionsBefore, decisionsAfter)
-	assert.Equal(t, auditsBefore, auditsAfter)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
+	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
+	assert.Zero(t, decisions)
+	assert.Zero(t, audits)
 }
 
-func TestVerifyClaimedReceiveCompletesDeniedOnRetiredWorkspaceWithoutAudit(t *testing.T) {
+func TestVerifyClaimedReceiveAdmitsAfterWorkspaceRetired(t *testing.T) {
 	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
-	insertWorkspaceActionGrant(t, scope.ID, session.ActorID, branchroom_model.ActionWriteSource, 0, 0)
 	retired, err := branchroom_model.TransitionWorkspace(t.Context(), workspace.ID, branchroom_model.WorkspaceStateReady, branchroom_model.WorkspaceStateRetired, "", timeutil.TimeStampNow())
 	require.NoError(t, err)
 	require.True(t, retired)
-	decisionsBefore, auditsBefore := receiveVerifierPolicyCounts(t, scope.ID)
 
 	err = VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
 		SessionKey:   session.SessionKey,
 		BearerSecret: bytes.Clone(bearerSecret),
-		Updates:      receiveVerifierUpdates("refs/heads/branchroom/main"),
+		Updates:      receiveVerifierAdmissibleUpdates(t, workspace, quarantine),
 		Quarantine:   quarantine,
 	})
-	assert.ErrorIs(t, err, errReceiveDenied)
+	require.NoError(t, err)
 
 	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
 	require.NoError(t, err)
 	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
-	decisionsAfter, auditsAfter := receiveVerifierPolicyCounts(t, scope.ID)
-	assert.Equal(t, decisionsBefore, decisionsAfter)
-	assert.Equal(t, auditsAfter, auditsBefore)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
+	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
+	assert.Zero(t, decisions)
+	assert.Zero(t, audits)
 }
 
 func TestVerifyClaimedReceiveRejectsMalformedUpdatesWithoutMutation(t *testing.T) {
@@ -242,7 +222,6 @@ func TestVerifyClaimedReceiveCompletesDeniedOnInvalidQuarantineWithoutAudit(t *t
 		},
 		"missing on disk": func(t *testing.T, v *branchroom_module.ReceiveQuarantineValues) {
 			require.NoError(t, os.Remove(v.QuarantinePath))
-			require.NoError(t, os.Remove(filepath.Dir(v.QuarantinePath)))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -269,6 +248,62 @@ func TestVerifyClaimedReceiveCompletesDeniedOnInvalidQuarantineWithoutAudit(t *t
 			assert.Zero(t, audits)
 		})
 	}
+}
+
+func TestVerifyClaimedReceiveRejectsMissingReachableTree(t *testing.T) {
+	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
+
+	err := VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
+		SessionKey:   session.SessionKey,
+		BearerSecret: bytes.Clone(bearerSecret),
+		Updates:      receiveVerifierMissingTreeUpdates(t, workspace, quarantine),
+		Quarantine:   quarantine,
+	})
+	assert.ErrorIs(t, err, errReceiveDenied)
+
+	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
+	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
+	assert.Zero(t, decisions)
+	assert.Zero(t, audits)
+}
+
+func TestFinalizeReceiveAdmissionFailsOnlyPendingClaim(t *testing.T) {
+	_, _, session, bearerSecret, _ := prepareReceiveVerifierFixture(t)
+	credential := &ReceiveAdmissionCredential{SessionKey: session.SessionKey, BearerSecret: bytes.Clone(bearerSecret)}
+
+	FinalizeReceiveAdmission(t.Context(), credential)
+	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeFailed, stored.Outcome)
+
+	FinalizeReceiveAdmission(t.Context(), credential)
+	stored, err = branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeFailed, stored.Outcome)
+
+	_, _, pendingSession, _, _ := prepareReceiveVerifierFixture(t)
+	FinalizeReceiveAdmission(t.Context(), &ReceiveAdmissionCredential{SessionKey: pendingSession.SessionKey, BearerSecret: []byte("wrong-receive-admission-secret")})
+	stored, err = branchroom_model.GetReceiveSessionByID(t.Context(), pendingSession.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.ReceiveSessionStateClaimed, stored.State)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomePending, stored.Outcome)
+
+	_, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
+	err = VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
+		SessionKey:   session.SessionKey,
+		BearerSecret: bytes.Clone(bearerSecret),
+		Updates:      receiveVerifierAdmissibleUpdates(t, workspace, quarantine),
+		Quarantine:   quarantine,
+	})
+	require.NoError(t, err)
+	FinalizeReceiveAdmission(t.Context(), &ReceiveAdmissionCredential{SessionKey: session.SessionKey, BearerSecret: bytes.Clone(bearerSecret)})
+	stored, err = branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
 }
 
 // An unknown session key denies before any row read, so the real fixture session stays
@@ -324,6 +359,10 @@ func prepareReceiveVerifierFixtureAt(t *testing.T, issuedUnix, expiresUnix, clai
 		Surface:       branchroom_model.SurfaceSystem,
 	})
 	require.NoError(t, err)
+	storePath := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git")
+	require.NoError(t, os.Chmod(setting.Branchroom.RestrictedRepoRootPath, 0o700))
+	require.NoError(t, os.Chmod(storePath, 0o755))
+	require.NoError(t, os.Chmod(filepath.Join(storePath, "config"), 0o644))
 
 	bearerSecret := []byte("receive-verifier-claimed-secret")
 	session := &branchroom_model.ReceiveSession{
@@ -344,30 +383,79 @@ func prepareReceiveVerifierFixtureAt(t *testing.T, issuedUnix, expiresUnix, clai
 	return scope, workspace, session, bearerSecret, prepareReceiveVerifierQuarantine(t, workspace.StoreID)
 }
 
-// prepareReceiveVerifierQuarantine builds a real safe quarantine layout for one restricted
-// store and pins it as the configured restricted root; 0755 keeps every level integrity-safe.
+// prepareReceiveVerifierQuarantine builds a real safe quarantine layout below the
+// provisioned restricted store. 0755 keeps every level integrity-safe.
 func prepareReceiveVerifierQuarantine(t *testing.T, storeID string) branchroom_module.ReceiveQuarantineValues {
 	t.Helper()
 
-	root := t.TempDir()
+	root := setting.Branchroom.RestrictedRepoRootPath
 	storePath := filepath.Join(root, storeID+".git")
 	objectsPath := filepath.Join(storePath, "objects")
 	quarantinePath := filepath.Join(objectsPath, receiveVerifierQuarantineEntry)
+	require.NoError(t, os.Mkdir(quarantinePath, 0o755))
+	// Pin the private root and its child directories after creation so integrity does
+	// not depend on the process umask.
+	require.NoError(t, os.Chmod(root, 0o700))
 	for _, dir := range []string{storePath, objectsPath, quarantinePath} {
-		require.NoError(t, os.Mkdir(dir, 0o755))
-	}
-	// pin every level to 0755 after creation so integrity does not depend on the process umask
-	for _, dir := range []string{root, storePath, objectsPath, quarantinePath} {
 		require.NoError(t, os.Chmod(dir, 0o755))
 	}
-	reset := test.MockVariableValue(&setting.Branchroom.RestrictedRepoRootPath, root)
-	t.Cleanup(reset)
 
 	return branchroom_module.ReceiveQuarantineValues{
 		ObjectDirectory:            quarantinePath,
 		AlternateObjectDirectories: objectsPath,
 		QuarantinePath:             quarantinePath,
 	}
+}
+
+func receiveVerifierAdmissibleUpdates(t *testing.T, workspace *branchroom_model.Workspace, quarantine branchroom_module.ReceiveQuarantineValues) []byte {
+	t.Helper()
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	require.NoError(t, err)
+	environ := append(gitcmd.CommonGitCmdEnvs(),
+		private.GitObjectDirectory+"="+quarantine.ObjectDirectory,
+		private.GitAlternativeObjectDirectories+"="+quarantine.AlternateObjectDirectories,
+		private.GitQuarantinePath+"="+quarantine.QuarantinePath,
+	)
+	treeOID, _, err := gitcmd.NewCommand("rev-parse").
+		AddDynamicArguments(workspace.PublicBaseSHA + "^{tree}").
+		WithEnv(environ).
+		WithRepo(restricted).
+		RunStdString(t.Context())
+	require.NoError(t, err)
+	commitOID, _, err := gitcmd.NewCommand("commit-tree").
+		AddConfig("user.name", "Branchroom Test").
+		AddConfig("user.email", "branchroom-test@example.invalid").
+		AddDynamicArguments(strings.TrimSpace(treeOID)).
+		AddArguments("-p").
+		AddDynamicArguments(workspace.PublicBaseSHA).
+		WithEnv(environ).
+		WithRepo(restricted).
+		WithStdinBytes([]byte("Branchroom test commit\n")).
+		RunStdString(t.Context())
+	require.NoError(t, err)
+	commitOID = strings.TrimSpace(commitOID)
+	return []byte(strings.Repeat("0", len(commitOID)) + " " + commitOID + " refs/heads/branchroom/main\n")
+}
+
+func receiveVerifierMissingTreeUpdates(t *testing.T, workspace *branchroom_model.Workspace, quarantine branchroom_module.ReceiveQuarantineValues) []byte {
+	t.Helper()
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	require.NoError(t, err)
+	environ := append(gitcmd.CommonGitCmdEnvs(),
+		private.GitObjectDirectory+"="+quarantine.ObjectDirectory,
+		private.GitAlternativeObjectDirectories+"="+quarantine.AlternateObjectDirectories,
+		private.GitQuarantinePath+"="+quarantine.QuarantinePath,
+	)
+	missingTree := strings.Repeat("0", len(workspace.PublicBaseSHA))
+	commit := fmt.Sprintf("tree %s\nparent %s\nauthor Branchroom Test <branchroom-test@example.invalid> 1 +0000\ncommitter Branchroom Test <branchroom-test@example.invalid> 1 +0000\n\nmissing tree\n", missingTree, workspace.PublicBaseSHA)
+	commitOID, _, err := gitcmd.NewCommand("hash-object", "-w", "-t", "commit", "--stdin").
+		WithEnv(environ).
+		WithRepo(restricted).
+		WithStdinBytes([]byte(commit)).
+		RunStdString(t.Context())
+	require.NoError(t, err)
+	commitOID = strings.TrimSpace(commitOID)
+	return []byte(strings.Repeat("0", len(commitOID)) + " " + commitOID + " refs/heads/branchroom/missing-tree\n")
 }
 
 func receiveVerifierUpdates(ref string) []byte {

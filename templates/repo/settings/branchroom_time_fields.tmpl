@@ -2,12 +2,11 @@
 	<div class="fields">
 		<div class="field">
 			<label for="{{$prefix}}-not-before">{{ctx.Locale.Tr "repo.settings.branchroom.grant_not_before"}}</label>
-			<input type="datetime-local" id="{{$prefix}}-not-before" name="not_before" aria-describedby="{{$prefix}}-time-help {{$prefix}}-time-error">
+			<input type="datetime-local" id="{{$prefix}}-not-before" name="not_before">
 		</div>
 		<div class="field">
 			<label for="{{$prefix}}-expires">{{ctx.Locale.Tr "repo.settings.branchroom.grant_expires"}}</label>
-			<input type="datetime-local" id="{{$prefix}}-expires" name="expires" aria-describedby="{{$prefix}}-time-help {{$prefix}}-time-error">
+			<input type="datetime-local" id="{{$prefix}}-expires" name="expires">
 		</div>
 	</div>
-	<div id="{{$prefix}}-time-help" class="help tw-block">{{ctx.Locale.Tr "repo.settings.branchroom.grant_time_help"}}</div>
-	<p id="{{$prefix}}-time-error" class="branchroom-time-error" role="alert" aria-atomic="true" data-error-message="{{ctx.Locale.Tr "repo.settings.branchroom.grant_time_order_error"}}"></p>
+	<div class="help tw-block">{{ctx.Locale.Tr "repo.settings.branchroom.grant_time_help"}}</div>

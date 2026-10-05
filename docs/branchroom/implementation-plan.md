@@ -1,10 +1,10 @@
 # Branchroom implementation plan
 
-- Status: M0–M1 foundations; M4a–M4h.2a isolated-workspace storage, source policy, narrow read-only Git HTTP, clone handoff/locator rotation, and deny-only source-write/receive groundwork; M2a–M2c development-only encrypted-environment plumbing; v1 restricted workspaces not complete
+- Status: M0–M1 foundations; M4a–M4h.2a isolated-workspace storage, source policy, restricted Git HTTP read/write, clone handoff/locator rotation, and sealed source-write receive sessions; M2a–M2c development-only encrypted-environment plumbing; v1 restricted workspaces not complete
 - Working name: Branchroom
 - Fork status: maintained on this fork only; no Branchroom upstream submission or architecture discussion is planned; a read-only Gitea remote is maintenance reference only
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
-- Last updated: 22 August 2026
+- Last updated: 8 September 2026
 
 This is the versioned implementation plan for this fork. A separately maintained
 HTML copy is not built or published by this repository. Until a milestone lands, the
@@ -47,7 +47,7 @@ create a repository scope; a Gitea site administrator is not a Branchroom bypass
 Creating a scope writes the creator's explicit discovery grant and a safe audit event.
 The page can also create and revoke a direct, active individual user's `discover`
 grant for an active scope. Once M4d has verified a ready isolated workspace, it can
-also create and revoke that user's `read_source` grant; this is policy preparation,
+also grant that user source-read access; this is policy preparation,
 not source exposure. It does not create team, bot, deploy-key, Actions-task, write,
 or expiring grants. Retired scopes are hidden from a new repository owner after
 transfer. The page deliberately says that it creates policy metadata, not a restricted
@@ -77,12 +77,12 @@ M4c adds a package-internal source-read resolver for a ready repository workspac
 It accepts only a repository ID, opaque workspace key, and direct user ID; it reloads
 the user and their ordinary code-read permission, serializes with transfer and
 deletion, rechecks the repository scope and workspace lifecycle under row locks, and
-requires an explicit direct-user `read_source` grant. The only currently accepted
-policy surfaces are `system` and the dedicated M4e Git HTTP adapter; team, deploy-key,
-and Actions-task source grants do not match. It returns a restricted repository facade
-only after the allow audit commits, and every denial returns the same no-such-workspace
-result. M4d adds the narrowly scoped owner route to manage direct-user source-read
-grants for a ready workspace; it does not render a clone URL. The resolver is a
+requires explicit `read_source` access. The accepted policy surfaces are `system` and
+the dedicated M4e Git HTTP adapter. The Git HTTP adapter can match an eligible team
+grant; deploy-key and Actions-task source grants do not match. It returns a restricted
+repository facade only after the allow audit commits, and every denial returns the same
+no-such-workspace result. M4d adds the narrowly scoped owner route to manage
+source-read access for a ready workspace; it does not render a clone URL. The resolver is a
 non-cacheable internal seam, not a general source-access feature.
 
 M2a adds ordered migration 351 and encrypted-environment revision and lease records.
@@ -143,26 +143,21 @@ environment revision exists, deletion fails closed until a retention collector c
 remove the restricted store or encrypted record outside the database transaction. This
 avoids silently orphaning or erasing restricted data.
 
-M4e, M4f, and M4g provide one narrow restricted Git HTTP read boundary: an authorized
+M4e, M4f, and M4g provide a narrow restricted Git HTTP read boundary: an authorized
 direct user can retrieve a clone locator from a stable signed-in page, then Git
 independently reauthorizes the actual protocol requests. A repository owner can hard
 cut over the locator for a ready workspace without revealing either key in settings.
-M4h.2a adds deny-only source-write and receive-boundary groundwork. Ready-workspace
-owners can create and revoke audited direct, active-user `write_source` grants on the
-existing grant-management path, but evaluation still checks only ordinary code
-read/write permission and always returns `write_source_unavailable` before any grant
-can match. Migration 354 adds the one-use hash-only receive-session model; a bounded
-server-internal session verifier, a hidden pre-receive delegate command, and a static
-server-owned `core.hooksPath` pre-receive hook are installed and verified during
-provisioning, before a new workspace becomes ready, and all of them deny. Migration
-355 adds session outcomes: the internal verifier can complete only a fully bound,
-correctly bearer-authenticated claimed session with a valid private ref request as
-`completed/denied`, atomically with the unchanged `write_source_unavailable` denial;
-a replay adds no second audit. Nominal expiry after a valid claim does not block that
-denied completion. There is no session issuer, claimant route, user-facing API, Git
-receive-pack route, SSH route, or allow path. Older ready workspaces are not
-retrofitted.
-There is still no SSH, LFS, write/push, public Branchroom API, production KMS,
+M4h.2a adds the matching restricted HTTPS source-write boundary. A ready-workspace
+owner can create and revoke audited direct-user `write_source` grants. A push also
+requires active source-read access and ordinary Gitea code-read and
+code-write permission. The server issues a one-use, hash-only receive session and
+passes its short-lived bearer only to the receive-pack child. It verifies the
+server-owned hook, trusted quarantine objects, and fast-forward updates before Git
+accepts a ref. The transport accepts only `refs/heads/branchroom/*`, rejects tags,
+deletes, and non-fast-forward updates, limits each request to 1 MiB and 45 seconds,
+and has no SSH or LFS equivalent. Revocation blocks a new receive session. A session
+already claimed by the server may finish.
+There is still no SSH, LFS, public Branchroom API, production KMS,
 environment-reference integration, materialization CLI, Actions integration, cache
 isolation, or backup enforcement. This is not an end-to-end collaboration boundary.
 
@@ -796,7 +791,7 @@ security fixes.
   explicit `read_source` grant (direct-user, or org-team subject whose team belongs
   to the repo-owner organization) for `workspace/<opaque-key>` on the internal
   system surface. Team grants may also carry `discover`; `write_source` stays
-  user-subject only and remains hard-denied at evaluation. A non-ready workspace produces an audited safe denial;
+  user-subject only and can succeed only through the sealed receive admission. A non-ready workspace produces an audited safe denial;
   unknown, malformed, disabled-feature, and pre-policy mapping denials stay opaque.
 - The returned facade is not a cacheable capability. M4e adds one narrowly bounded
   Git HTTP caller; there is still no generic web, API, SSH, LFS, Actions, or CLI
@@ -823,7 +818,7 @@ security fixes.
   check for a narrow Git HTTP read route; SSH, LFS, API, CLI, Actions, and other public
   source routes still do not call the resolver.
 
-#### Implemented M4e: narrow read-only smart Git HTTP
+#### Implemented M4e: narrow smart Git HTTP read path
 
 - Migration 352 gives every workspace an independent, cryptographically random,
   lowercase base32 route key. It is a non-correlating locator rather than an
@@ -831,35 +826,37 @@ security fixes.
   preserves existing values on retry.
 - The only registered restricted route is
   `/_branchroom/{owner}/{repository}/{route-key}.git`. It accepts only GET/HEAD
-  `info/refs?service=git-upload-pack` and POST `git-upload-pack`; every other method,
-  query shape, service, object, archive, LFS, and wildcard path returns the same
-  generic not-found response before policy evaluation.
+  `info/refs?service=git-upload-pack` or `git-receive-pack`, plus POST `git-upload-pack`
+  or `git-receive-pack`; every other method, query shape, service, object, archive,
+  LFS, and wildcard path returns the same generic not-found response before policy
+  evaluation.
 - A valid operation requires Basic authentication from an active individual, ordinary
   Gitea code-read permission, a ready repository workspace bound to that exact
-  repository and route key, and an active `read_source` grant held by that user
-  directly or through an eligible org team. PATs need
+  repository and route key, and active source-read access from an individual or an
+  eligible org team. PATs need
   `read:repository`; public-only PATs, browser sessions, bearer/OAuth credentials,
   Actions identities, bots, deploy keys, and unsupported token scopes fail closed.
   Authorization repeats separately for advertisement and RPC.
-- The gateway runs only `git upload-pack --stateless-rpc` against the isolated facade.
-  It does not call normal Git HTTP repository resolution, and it exposes no physical
-  path, store ID, workspace UUID, ref, or object through denial responses. Responses
-  are `private, no-store`, vary by `Authorization`, and skip the normal `go-get`
-  metadata interceptor.
+- The read gateway runs `git upload-pack --stateless-rpc` against the isolated facade.
+  M4h.2a adds a separate `git receive-pack --stateless-rpc` path with its own
+  authorization and one-use server-issued admission. Neither path calls normal Git
+  HTTP repository resolution, and neither exposes a physical path, store ID, workspace
+  UUID, ref, or object through denial responses. Responses are `private, no-store`,
+  vary by `Authorization`, and skip the normal `go-get` metadata interceptor.
 - Integration coverage proves a granted user clones a restricted-only commit from the
   isolated store while normal public Git HTTP cannot advertise it. It also covers
   anonymous/session/bearer indistinguishability, token scope restrictions, feature
   gates, wrong-repository route-key replay, malformed/unsupported request auditing,
   revocation between advertisement and RPC, and all deliberately absent HTTP surfaces.
 - This is an experimental transport proof, not a full workspace: the settings page
-  reveals no route key or clone URL, and there is no write, SSH, LFS, API, Actions, PR,
+  reveals no route key or clone URL, and there is no SSH, LFS, API, Actions, PR,
   search, retention, or recovery flow.
 
 #### Implemented M4f: authorized clone handoff
 
 - The stable signed-in page `/{owner}/{repository}/-/branchroom` returns source
   handoffs only for an active direct individual with ordinary Gitea code-read
-  permission and both active direct `discover` and `read_source` grants for a ready
+  permission, a direct `discover` grant, and active source-read access for a ready
   repository workspace. It returns the same not-found response to everyone else,
   including an owner or site administrator without those direct grants.
 - The page URL itself has no workspace, scope, route key, store ID, or source object.
@@ -886,77 +883,61 @@ security fixes.
   non-disclosing result as an unknown locator. A Git protocol phase authorized before
   the commit may finish.
 - Rotation changes only the locator. The Git gateway still checks ordinary Gitea
-  code-read permission and a direct `read_source` grant. A refreshed handoff still
-  requires direct `discover` and `read_source` grants as well.
+  code-read permission and active source-read access. A refreshed handoff still
+  requires a direct `discover` grant and active source-read access as well.
 - The safe audit event records that a route key was rotated, but no audit record
   contains the old or new key, a clone URL, a filesystem path, or a store ID.
 - Focused model, service, settings, handoff, and Git HTTP checks cover hard cutover,
   stale-key failure, fresh authorized handoff, grant preservation, and rejection of
   retired or non-ready state.
 
-#### Implemented M4h.2a: deny-only source-write and receive-boundary groundwork
+#### Implemented M4h.2a: restricted HTTPS source-write receive path
 
-- Owners of a ready workspace can store and revoke audited direct `write_source`
-  grants for active users. The evaluator still checks ordinary Gitea code read and
-  write permission, then unconditionally records the safe `write_source_unavailable`
-  denial before it ever matches a grant. Every stored grant is inert.
-- Migration 354 adds the one-use receive-session record. It stores only the session
-  UUID key, a SHA-256 hash of the bearer token, its scope, workspace, repository,
-  and direct-user binding, and expiry plus state. It stores no raw bearer token,
-  filesystem path, ref, locator, or store ID. Migration 355 adds terminal outcomes.
-  The internal verifier can only complete a fully bound, correctly
-  bearer-authenticated claimed session as denied alongside the unchanged static
-  policy denial, so replay creates no second audit; a nominally expired claimed
-  session can still finish denied. No issuer, claimant route, or user-facing API
-  exists yet.
-- A bounded internal-token verifier and a hidden pre-receive delegate exist only as
-  internal call targets. The delegate enforces a strict syntactic, non-delete
-  `refs/heads/branchroom/` policy. Provisioning installs a server-owned static hook
-  under `.branchroom-hooks/<store UUID>` and verifies the exact local `core.hooksPath`
-  before a newly provisioned workspace becomes ready; verification failures leave it
-  failed and non-routable. Older ready workspaces are not retrofitted. Every write is
-  denied. There is no receive-pack, SSH, or allow route.
+- Owners of a ready workspace can create and revoke audited direct-user
+  `write_source` grants. A push needs ordinary Gitea code-read and code-write
+  permission, active source-read access, and that direct `write_source` grant.
+  Source-read access may come from a direct grant or an eligible organization team.
+- The route independently authorizes receive-pack advertisement and RPC. It accepts
+  Basic authentication from an active individual and requires a `write:repository`
+  scoped PAT when a PAT is used. Browser sessions, bearer/OAuth credentials, Actions,
+  bots, deploy keys, and unsupported token scopes fail closed.
+- Migration 354 stores a one-use receive session with only its UUID key, a SHA-256
+  bearer hash, scope, workspace, repository, direct-user binding, expiry, state, and
+  terminal outcome. The server issues and claims it after authorization, then passes
+  the raw bearer only to the receive-pack child. It never appears in a browser,
+  database, log, audit event, or error.
+- The pre-receive hook verifies the trusted Git quarantine and the server-owned hook
+  tree. It accepts only valid, reachable commits in the workspace object format. A
+  push can create or fast-forward only `refs/heads/branchroom/*`. Tags, deletes,
+  non-fast-forward updates, malformed objects, and mixed object formats fail.
+- The receive RPC has a 1 MiB request limit and a 45 second process limit. It uses a
+  separate `git receive-pack --stateless-rpc` child, never normal Git HTTP storage
+  lookup or ordinary hook dispatch. SSH and LFS have no write route.
+- Claim is the receive authorization boundary. Revoking a grant, changing ordinary
+  permission, retiring a workspace, or transferring the repository blocks a new
+  receive session. One already claimed session may finish, but disabling Branchroom
+  rejects it in the hook. Interrupted claimed sessions are reconciled as failed.
 
-#### Dependency-order V1 roadmap
+#### Remaining V1 receive work
 
-Each step below depends on the earlier ones and must land in this order:
+- Keep actual Git-push adversarial integration coverage for revocation between
+  advertisement and RPC, replay and concurrency, lifecycle races, hook and
+  configuration tampering, limits, and known-SHA public-store isolation.
+- Exercise self-hosted recovery, restricted backup/restore, and stale-session
+  reconciliation before treating the transport as a broader collaboration workflow.
 
-1. Verify ready-store integrity before any admission: the exact local `core.hooksPath`,
-   the expected hook directory containing a static regular-file script, safe ownership
-   and modes, and no symlinks. Repair nothing silently. This check includes older ready
-   workspaces, not only newly provisioned ones.
-2. Build unreachable server-internal session issue and claim admission. The current
-   denied finalization is complete; the short CSPRNG bearer must exist only in memory
-   and the receive-pack child environment, never in a browser, client, database, log,
-   or error.
-3. Wire hook-integrity verification and trusted quarantine facts into dedicated
-   admission, never as a general `ActionWriteSource` allow. Bind object format,
-   validate quarantine commits, accept only `refs/heads/branchroom/*`, reject tags,
-   deletes, force updates, and mixed formats, and require fast-forward updates only.
-4. Add an isolated HTTPS receive-pack gateway with independent auth on both advertise
-   and RPC. It must inject the bearer server-to-child and never route through normal
-   Git routing, storage lookup, or ordinary hook dispatch. Its terminal admitted
-   outcome means pre-receive admission accepted, not that Git committed refs.
-5. Cover the path with actual Git-push adversarial integration tests: revocation
-   between phases, replay and concurrency, lifecycle races, hook and configuration
-   tamper, limits, and known-SHA public-store isolation.
-6. Close out self-hosted operations: stated limits, stale session cleanup,
-   diagnostics and reconciliation, a recovery guide, and a restricted backup/restore
-   drill.
-
-The narrow Git-only self-hosted V1 may stop after step 5 or step 6 and means
-direct-user clone and push over the isolated HTTPS transport only. Out of V1 stay
-SSH, LFS, normal Git HTTP, API, and CLI, archives and raw paths, pull requests,
-reviews, search, notifications, and webhooks, Actions, runners, artifacts, and
-caches, environment materialization and KMS, promotion and retention, hosted and
-multitenant operation, per-role histories, and partial clones.
+The narrow Git-only self-hosted V1 is direct-user clone and protected push over the
+isolated HTTPS transport only. Out of V1 stay SSH, LFS, normal Git HTTP outside the
+restricted route, API and CLI, archives and raw paths, pull requests, reviews, search,
+notifications and webhooks, Actions, runners, artifacts and caches, environment
+materialization and KMS, promotion and retention, hosted and multitenant operation,
+per-role histories, and partial clones.
 
 Work:
 
-- Extend the read boundary to the remaining required protocols only after separate
-  design and review: SSH and LFS. Finish the staged HTTPS source-write boundary above
-  before considering SSH push. Do not route dumb HTTP, archive, generic repository
-  object lookups, or normal receive-pack to a restricted store by accident.
+- Extend the transport only after separate design and review for SSH and LFS. Do not
+  route dumb HTTP, archive, generic repository object lookups, or normal Git HTTP
+  receive-pack to a restricted store by accident.
 - Decide v1 behaviour for wikis, repository archives, blame, raw-file URLs, badges,
   releases, packages, dependency metadata, imports, exports, mirrors, forks, and
   attachments. Unsupported operations must reject a restricted workspace clearly.
@@ -1054,7 +1035,7 @@ must be added to this inventory before it is enabled.
 
 | Surface                          | Verified starting point                                                            | Required proof                                                                                                                                                                                     |
 | -------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Restricted smart Git HTTP        | `routers/web/repo/branchroom_githttp.go`                                           | An authorized actor can advertise and transfer the restricted workspace through upload-pack only. An unauthorized actor gets the same non-disclosing result for ref advertisement and upload-pack. |
+| Restricted smart Git HTTP        | `routers/web/repo/branchroom_githttp.go`                                           | Authorized users can upload-pack. Receive-pack needs code-write, source-read, and direct write-source access; only fast-forward `refs/heads/branchroom/*` pass. Other cases are non-disclosing.    |
 | Dumb Git HTTP                    | `GetLooseObject`, `GetPackFile`, and `GetIdxFile` in `routers/web/repo/githttp.go` | A known restricted blob, tree, commit, pack, or index cannot be fetched by URL.                                                                                                                    |
 | SSH                              | `routers/private/serv.go`                                                          | An unauthorized user or deploy key cannot receive a restricted storage path, clone, fetch by SHA, or push.                                                                                         |
 | LFS                              | `services/lfs/`                                                                    | Batch, object, lock, and direct-download paths do not reveal restricted object IDs or bytes.                                                                                                       |

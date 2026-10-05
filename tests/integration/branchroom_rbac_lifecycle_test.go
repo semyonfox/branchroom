@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -38,8 +37,7 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		defer test.MockVariableValue(&setting.Branchroom)()
 		setting.AppURL = u.String()
-		restrictedRoot := t.TempDir()
-		require.NoError(t, os.Chmod(restrictedRoot, 0o700)) // hook install refuses group-writable roots regardless of umask
+		restrictedRoot := branchroomTestRoot(t)
 		setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: restrictedRoot}
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 3)

@@ -38,7 +38,9 @@ var BranchroomEnvironment BranchroomEnvironmentConfig
 func loadBranchroomEnvironmentFrom(rootCfg ConfigProvider) error {
 	sec := rootCfg.Section("branchroom.environment")
 	BranchroomEnvironment = BranchroomEnvironmentConfig{}
-	if !Branchroom.Enabled || !sec.Key("ENABLED").MustBool(false) {
+	// Do not inherit ENABLED from [branchroom]. The INI library treats dotted
+	// sections as children, so an unset environment section must remain disabled.
+	if !Branchroom.Enabled || !ConfigSectionKeyBool(sec, "ENABLED", false) {
 		return nil
 	}
 	if IsProd {

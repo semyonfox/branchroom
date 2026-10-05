@@ -16,6 +16,7 @@ import (
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
+	"gitea.dev/modules/util"
 
 	"github.com/google/uuid"
 )
@@ -24,7 +25,7 @@ var errReceiveAdmissionDenied = errors.New("Branchroom receive admission denied"
 
 const receiveAdmissionLifetime = time.Minute
 
-const receiveAdmissionBearerLen = 32
+const receiveAdmissionBearerEntropyLen = 32
 
 type IssueReceiveAdmissionRequest struct {
 	RepoID   int64
@@ -37,13 +38,96 @@ type ReceiveAdmissionCredential struct {
 	BearerSecret []byte
 }
 
-func (credential *ReceiveAdmissionCredential) clear() {
+// Clear clears the caller-owned bearer buffer and removes the credential's references
+// after the receive-pack child has inherited it. Neither value is persisted or logged.
+func (credential *ReceiveAdmissionCredential) Clear() {
 	if credential == nil {
 		return
 	}
 	clearBytes(credential.BearerSecret)
 	credential.SessionKey = ""
 	credential.BearerSecret = nil
+}
+
+type sealedSourceWriteAdmission struct {
+	actor      Actor
+	ceiling    RepositoryCeiling
+	writeGrant *branchroom_model.Grant
+	now        timeutil.TimeStamp
+}
+
+// authorizeSealedSourceWriteAdmission is the only source-write grant check that
+// can succeed. Callers hold the repository lifecycle lock and have already bound
+// a persisted scope and workspace to the request. It requires source-read access
+// because a receive advertisement exposes the restricted ref namespace.
+func authorizeSealedSourceWriteAdmission(ctx context.Context, scope *branchroom_model.Scope, workspace *branchroom_model.Workspace, userID int64) (sealedSourceWriteAdmission, bool, error) {
+	if scope == nil || workspace == nil || userID <= 0 ||
+		scope.Validate() != nil || workspace.Validate() != nil ||
+		scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive ||
+		workspace.ScopeID != scope.ID || workspace.RepoID != scope.RepoID || workspace.State != branchroom_model.WorkspaceStateReady {
+		return sealedSourceWriteAdmission{}, false, nil
+	}
+
+	actor := Actor{Type: branchroom_model.ActorTypeUser, ID: userID}
+	ceiling, active, err := resolveDirectUserRepositoryCeiling(ctx, scope.RepoID, actor)
+	if err != nil {
+		return sealedSourceWriteAdmission{}, false, err
+	}
+	if !active || !ceiling.CodeRead || !ceiling.CodeWrite {
+		return sealedSourceWriteAdmission{}, false, nil
+	}
+
+	readDecision, err := NewDBEvaluator().Evaluate(ctx, Request{
+		ScopeID:      scope.ID,
+		RepoID:       scope.RepoID,
+		Actor:        actor,
+		Ceiling:      ceiling,
+		Action:       branchroom_model.ActionReadSource,
+		ResourceType: branchroom_model.ResourceTypeWorkspace,
+		ResourceID:   workspaceResourceID(workspace.WorkspaceKey),
+		Surface:      branchroom_model.SurfaceGitHTTP,
+	})
+	if err != nil {
+		return sealedSourceWriteAdmission{}, false, err
+	}
+	if !readDecision.Allowed {
+		return sealedSourceWriteAdmission{}, false, nil
+	}
+
+	now := timeutil.TimeStampNow()
+	writeGrant, err := branchroom_model.GetActiveDirectUserGrantAt(ctx, scope.ID, userID, branchroom_model.ActionWriteSource, now)
+	if errors.Is(err, util.ErrNotExist) {
+		return sealedSourceWriteAdmission{}, false, nil
+	}
+	if err != nil || writeGrant.Validate() != nil {
+		return sealedSourceWriteAdmission{}, false, err
+	}
+	return sealedSourceWriteAdmission{actor: actor, ceiling: ceiling, writeGrant: writeGrant, now: now}, true, nil
+}
+
+// recordSealedSourceWriteAdmission records the successful sealed receive decision.
+// Generic DBEvaluator write requests remain deny-only because they cannot prove this binding.
+func recordSealedSourceWriteAdmission(ctx context.Context, scope *branchroom_model.Scope, workspace *branchroom_model.Workspace, admission sealedSourceWriteAdmission) error {
+	if admission.writeGrant == nil {
+		return errReceiveAdmissionDenied
+	}
+	_, err := branchroom_model.RecordDecisionAndAudit(ctx, scope, &branchroom_model.Decision{
+		ScopeID:         scope.ID,
+		RepoID:          scope.RepoID,
+		GrantID:         admission.writeGrant.ID,
+		ActorType:       admission.actor.Type,
+		ActorID:         admission.actor.ID,
+		Action:          branchroom_model.ActionWriteSource,
+		ResourceType:    branchroom_model.ResourceTypeWorkspace,
+		ResourceID:      workspaceResourceID(workspace.WorkspaceKey),
+		Surface:         branchroom_model.SurfaceGitHTTP,
+		Result:          branchroom_model.DecisionResultAllow,
+		ReasonCode:      ReasonGrantMatched,
+		OrdinaryAllowed: admission.ceiling.CodeRead && admission.ceiling.CodeWrite,
+		ExpiresUnix:     admission.now,
+		CreatedUnix:     admission.now,
+	})
+	return err
 }
 
 // IssueReceiveAdmission is the sealed issuer for source-write receive sessions.
@@ -89,18 +173,15 @@ func IssueReceiveAdmission(ctx context.Context, request IssueReceiveAdmissionReq
 			return nil, errReceiveAdmissionDenied
 		}
 
-		actor := Actor{Type: branchroom_model.ActorTypeUser, ID: request.UserID}
-		ceiling, active, err := resolveDirectUserRepositoryCeiling(txCtx, request.RepoID, actor)
-		if err != nil || !active || !ceiling.CodeRead || !ceiling.CodeWrite {
-			return nil, errReceiveAdmissionDenied
-		}
-
-		now := timeutil.TimeStampNow()
-		if _, err := branchroom_model.GetActiveDirectUserGrantAt(txCtx, scope.ID, request.UserID, branchroom_model.ActionWriteSource, now); err != nil {
+		admission, allowed, err := authorizeSealedSourceWriteAdmission(txCtx, scope, workspace, request.UserID)
+		if err != nil || !allowed {
 			return nil, errReceiveAdmissionDenied
 		}
 
 		if err := branchroom_module.VerifyRestrictedStoreHook(txCtx, setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID); err != nil {
+			return nil, errReceiveAdmissionDenied
+		}
+		if err := recordSealedSourceWriteAdmission(txCtx, scope, workspace, admission); err != nil {
 			return nil, errReceiveAdmissionDenied
 		}
 
@@ -108,11 +189,14 @@ func IssueReceiveAdmission(ctx context.Context, request IssueReceiveAdmissionReq
 		if err != nil {
 			return nil, errReceiveAdmissionDenied
 		}
-		bearerSecret := make([]byte, receiveAdmissionBearerLen)
-		if _, err := rand.Read(bearerSecret); err != nil {
-			clearBytes(bearerSecret)
+		bearerEntropy := make([]byte, receiveAdmissionBearerEntropyLen)
+		if _, err := rand.Read(bearerEntropy); err != nil {
+			clearBytes(bearerEntropy)
 			return nil, errReceiveAdmissionDenied
 		}
+		bearerSecret := make([]byte, hex.EncodedLen(len(bearerEntropy)))
+		hex.Encode(bearerSecret, bearerEntropy)
+		clearBytes(bearerEntropy)
 
 		credential := &ReceiveAdmissionCredential{
 			SessionKey:   sessionKeyUUID.String(),
@@ -129,22 +213,22 @@ func IssueReceiveAdmission(ctx context.Context, request IssueReceiveAdmissionReq
 			ActorID:          request.UserID,
 			State:            branchroom_model.ReceiveSessionStateIssued,
 			Outcome:          branchroom_model.ReceiveSessionOutcomePending,
-			IssuedUnix:       now,
-			ExpiresUnix:      now.AddDuration(receiveAdmissionLifetime),
+			IssuedUnix:       admission.now,
+			ExpiresUnix:      admission.now.AddDuration(receiveAdmissionLifetime),
 		}
 		if err := branchroom_model.InsertReceiveSession(txCtx, session); err != nil {
-			credential.clear()
+			credential.Clear()
 			return nil, errReceiveAdmissionDenied
 		}
-		claimed, err := branchroom_model.ClaimReceiveSession(txCtx, session.ID, now)
+		claimed, err := branchroom_model.ClaimReceiveSession(txCtx, session.ID, admission.now)
 		if err != nil || !claimed {
-			credential.clear()
+			credential.Clear()
 			return nil, errReceiveAdmissionDenied
 		}
 		return credential, nil
 	})
 	if err != nil || credential == nil {
-		credential.clear()
+		credential.Clear()
 		return nil, errReceiveAdmissionDenied
 	}
 	return credential, nil

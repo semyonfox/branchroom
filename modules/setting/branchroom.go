@@ -6,6 +6,7 @@ package setting
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,9 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	if !Branchroom.Enabled {
 		return nil
 	}
+	if !branchroomRestrictedStoreIntegritySupported() {
+		return errors.New("[branchroom] requires Unix filesystem ownership checks")
+	}
 	if Branchroom.MaxWorkspacesPerOwner < 0 {
 		return errors.New("[branchroom].MAX_WORKSPACES_PER_OWNER must not be negative")
 	}
@@ -50,8 +54,31 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	if branchroomRootsOverlap(publicRoot, restrictedRoot) {
 		return errors.New("[branchroom].RESTRICTED_ROOT must not overlap [repository].ROOT")
 	}
+	if err := validatePrivateBranchroomRoot(restrictedRoot); err != nil {
+		return err
+	}
 
 	Branchroom.RestrictedRepoRootPath = restrictedRoot
+	return nil
+}
+
+func validatePrivateBranchroomRoot(root string) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("[branchroom].RESTRICTED_ROOT must be an existing directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return errors.New("[branchroom].RESTRICTED_ROOT must deny group and other access")
+	}
+	for parent := filepath.Dir(root); ; parent = filepath.Dir(parent) {
+		parentInfo, err := os.Lstat(parent)
+		if err != nil || parentInfo.Mode()&fs.ModeSymlink != 0 || !parentInfo.IsDir() || (parentInfo.Mode().Perm()&0o022 != 0 && parentInfo.Mode()&fs.ModeSticky == 0) {
+			return errors.New("[branchroom].RESTRICTED_ROOT must not be below a group- or world-writable directory")
+		}
+		if parent == filepath.Dir(parent) {
+			break
+		}
+	}
 	return nil
 }
 

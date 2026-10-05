@@ -186,16 +186,22 @@ func TestBranchroomPreReceive(t *testing.T) {
 				err := hookBranchroomPreReceive(context.WithValue(t.Context(), ctxKey{}, ctxMarker),
 					bytes.NewReader([]byte(testUpdates)), testSession, bearer, sentQuar)
 
-				require.Equal(t, errBranchroomReceiveDenied, err)
+				if tc.clientErr != nil {
+					require.Equal(t, errBranchroomReceiveDenied, err)
+				} else {
+					require.NoError(t, err)
+				}
 				assert.True(t, gotOK)
 				assert.Equal(t, ctxMarker, gotCtxVal)
 				assert.Equal(t, testSession, gotSession)
 				assert.Equal(t, []byte(testBearer), gotBearer)
 				assert.Equal(t, []byte(testUpdates), gotUpdates)
 				assert.Equal(t, sentQuar, gotQuar)
-				assert.NotContains(t, err.Error(), testSession)
-				assert.NotContains(t, err.Error(), testBearer)
-				assert.NotContains(t, err.Error(), testUpdates)
+				if err != nil {
+					assert.NotContains(t, err.Error(), testSession)
+					assert.NotContains(t, err.Error(), testBearer)
+					assert.NotContains(t, err.Error(), testUpdates)
+				}
 				assert.NotEmpty(t, setting.InternalToken)
 				assert.Equal(t, tokenBefore, setting.InternalToken)
 				assert.Equal(t, make([]byte, len(bearer)), gotReq.BearerSecret)
@@ -235,7 +241,7 @@ func TestBranchroomPreReceive(t *testing.T) {
 		defer resetStdin()
 
 		err = runHookBranchroomPreReceive(t.Context(), nil)
-		require.Equal(t, errBranchroomReceiveDenied, err)
+		require.NoError(t, err)
 
 		assert.True(t, called)
 		assert.Equal(t, testSession, gotReq.SessionKey)
@@ -244,9 +250,6 @@ func TestBranchroomPreReceive(t *testing.T) {
 		assert.Equal(t, testObjectDir, gotReq.ObjectDirectory)
 		assert.Equal(t, testAlternates, gotReq.AlternateObjectDirectories)
 		assert.Equal(t, testObjectDir, gotReq.QuarantinePath)
-		assert.NotContains(t, err.Error(), testSession)
-		assert.NotContains(t, err.Error(), testBearer)
-		assert.NotContains(t, err.Error(), testObjectDir)
 	})
 
 	t.Run("missing quarantine env still forwards", func(t *testing.T) {
@@ -277,7 +280,7 @@ func TestBranchroomPreReceive(t *testing.T) {
 		defer resetStdin()
 
 		err = runHookBranchroomPreReceive(t.Context(), nil)
-		require.Equal(t, errBranchroomReceiveDenied, err)
+		require.NoError(t, err)
 		assert.True(t, called)
 	})
 }
