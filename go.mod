@@ -43,7 +43,7 @@ require (
 	github.com/ethantkoenig/rupture v1.0.1
 	github.com/felixge/fgprof v0.9.5
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/getkin/kin-openapi v0.146.0
+	github.com/getkin/kin-openapi v0.149.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-chi/cors v1.2.2
 	github.com/go-co-op/gocron/v2 v2.22.0
@@ -111,7 +111,7 @@ require (
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.41.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/ini.v1 v1.67.3
 	modernc.org/sqlite v1.56.0
