@@ -154,7 +154,7 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	dumper.Verbose = verbose
 	dumper.GlobalExcludeAbsPath(outFileName)
 	if setting.Branchroom.RestrictedRepoRootPath != "" {
-		dumper.GlobalExcludeAbsPath(setting.Branchroom.RestrictedRepoRootPath)
+		dumper.GlobalExcludeAbsPath(branchroomDumpExcludes(setting.Branchroom.RestrictedRepoRootPath, setting.AppDataPath, setting.CustomPath)...)
 		log.Info("Branchroom restricted stores require a separate backup")
 	}
 	defer func() {
@@ -329,4 +329,22 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		log.Info("Finish dumping in file %s", outFileName)
 	}
 	return nil
+}
+
+// branchroomDumpExcludes adds the restricted root as seen through each walked directory, since the dumper
+// matches exact walked paths and a symlinked data path would otherwise slip the canonical root through
+func branchroomDumpExcludes(restricted string, walked ...string) []string {
+	excludes := []string{restricted}
+	for _, base := range walked {
+		resolved, err := filepath.EvalSymlinks(base)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(resolved, restricted)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		excludes = append(excludes, filepath.Join(base, relative))
+	}
+	return excludes
 }
