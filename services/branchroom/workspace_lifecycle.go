@@ -12,6 +12,7 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/log"
@@ -362,6 +363,12 @@ func enforceWorkspaceOwnerQuota(ctx context.Context, ownerID int64) error {
 	limit := setting.Branchroom.MaxWorkspacesPerOwner
 	if limit <= 0 {
 		return nil
+	}
+	// provisioning in different repositories locks different rows, so serialise on the owner
+	if setting.Database.Type.IsMySQL() || setting.Database.Type.IsPostgreSQL() {
+		if _, err := db.GetEngine(ctx).ID(ownerID).ForUpdate().Get(new(user_model.User)); err != nil {
+			return err
+		}
 	}
 	count, err := branchroom_model.CountOwnerActiveWorkspaces(ctx, ownerID)
 	if err != nil {
