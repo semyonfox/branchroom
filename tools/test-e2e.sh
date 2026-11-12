@@ -94,6 +94,7 @@ fi
 
 # Write config file for isolated instance
 mkdir -p "$WORK_DIR/custom/conf"
+mkdir -m 0700 "$WORK_DIR/branchroom"
 cat > "$WORK_DIR/custom/conf/app.ini" <<EOF
 [database]
 DB_TYPE = sqlite3
@@ -116,6 +117,10 @@ EVENT_SOURCE_UPDATE_TIME = 500ms
 [log]
 MODE = console
 LEVEL = Warn
+
+[branchroom]
+ENABLED = true
+RESTRICTED_ROOT = $WORK_DIR/branchroom
 
 [markup.test-external]
 ENABLED = true
