@@ -1,6 +1,6 @@
 # Branchroom implementation plan
 
-- Status: November review implemented in `fb30e24774..04ff150f3b`. M0–M1 foundations, M4a–M4h.2a isolated-workspace storage, source policy, restricted Git HTTP read/write, clone handoff/locator rotation, and sealed source-write receive sessions. M2a–M2c development-only encrypted-environment plumbing. V1 restricted workspaces not complete
+- Status: November 2026 review implemented from `fb30e24774`, see `review-2026-11.md`. M0–M1 foundations, M4a–M4h.2a isolated-workspace storage, source policy, restricted Git HTTP read/write, clone handoff/locator rotation, and sealed source-write receive sessions. The M2a–M2c development-only environment plumbing was removed. V1 restricted workspaces not complete
 - Working name: Branchroom
 - Fork status: maintained on this fork only; no Branchroom upstream submission or architecture discussion is planned; a read-only Gitea remote is maintenance reference only
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
@@ -87,63 +87,21 @@ no-such-workspace result. M4d adds the narrowly scoped owner route to manage
 source-read access for a ready workspace; it does not render a clone URL. The resolver is a
 non-cacheable internal seam, not a general source-access feature.
 
-M2a adds ordered migration 354 and encrypted-environment revision and lease records.
-It is a deliberately sealed development-only backend, not an environment product
-surface. `[branchroom.environment]` is disabled by default, accepts only a local
-development key file, and makes production startup fail when enabled. Each revision
-uses a fresh 32-byte data-encryption key, AES-256-GCM payload encryption, and an
-AES-256-GCM wrapped data key. The database contains ciphertext, nonces, a safe key
-provider/reference, a ciphertext digest, revision metadata, and no plaintext,
-filesystem destination, raw key, or raw bearer secret. A direct active user can
-obtain a short-lived lease after the evaluator derives their actual ordinary Gitea
-code-read permission and matches an explicit `materialize` grant. The raw 32-byte
-bearer secret is returned only in memory and persisted as a SHA-256 hash. The lease
-is claimed before decryption, so replay, expiry, revocation, or a failed write cannot
-make it reusable. Claim is the irrevocable authorization boundary: later revocation
-cannot recall a plaintext release already in progress. Materialization accepts only a
-unexported `os.Root` materialization primitive, a strict relative destination, and
-the internal system surface. It rejects absolute paths,
-traversal, volume names, backslashes, `.git`, control characters, and root-escaping
-symlinks. There is no web, API, CLI, Git, Actions, runner, direct-storage, or tracked-
-reference entry point for this backend.
-
-M2b adds a package-internal identity resolver for an already parsed environment
-reference. It revalidates the typed reference, serializes with repository transfer
-and deletion through the repository lifecycle lock, and makes exact indexed lookups
-by `(repository, lower environment name)` and `(scope, numeric revision)`. It returns
-only the scope ID and opaque revision key. The result is a non-cacheable snapshot,
-not an authorization or materialization capability: a later lease request repeats
-the policy and lifecycle checks. The resolver creates no decision, audit event, or
-lease, and no Git hook, route, runner, or CLI invokes it.
-
-M2c adds a pure, disconnected public-content preflight module. It reserves the
-case-insensitive `.branchroom` root and permits only
-`.branchroom/env/<environment>.toml` files whose parsed environment name matches the
-path. It rejects unsafe, control-containing, invalid UTF-8, oversized, and
-Windows-aliasing paths; it rejects content larger than 1 MiB rather than silently
-skipping it. For ordinary paths it reports at most one line number per rule, in fixed
-rule order, without returning any matched bytes. The initial high-confidence rules
-are PEM private-key headers, AWS `AKIA`/`ASIA` access-key IDs, GitHub classic,
-fine-grained, and stateless token forms, and the default GitLab `glpat-` prefix.
-It deliberately does not flag generic `password` configuration or custom GitLab
-prefixes. There is no inline source bypass: a future exception must be external and
-audited. No push, pull request, import, or publication path calls the preflight yet.
-
-KMS is not part of the self-hosted Git-only V1. `[branchroom.environment]` remains
-disabled; no production provider is selected and there is no supported production
-environment-materialization mode. If environment materialization returns to scope, it
-requires its own key-management design and security review. The development-only
-encryption code is a test seam, not a local secret manager or a beta feature: it
-reads a local development key, is refused in production, and stores no key bytes. It
-is not a supported environment-materialization deployment mode.
+M2a–M2c built a sealed development-only encrypted-environment store, an
+environment-reference resolver and a disconnected public-content preflight scanner.
+Nothing outside their own tests called them, so they were removed in November 2026.
+Migration 354 and its two tables stay because migrations cannot be removed, and
+repository deletion clears any rows left in them. Environment materialization remains
+the M2 roadmap item below and needs its own key-management design and security review
+before any of it returns.
 
 Repository transfer retires every affected scope, revokes its active grants, and
-retires its workspace mappings and active environment revisions in the same
-transaction; it revokes unclaimed environment leases. Repository deletion still
-purges policy rows when no retained data exists. While an unpurged workspace or
-encrypted environment revision exists, deletion fails closed. The current owner must
-purge restricted stores before repository deletion. Encrypted environment retention
-still needs a collector. This avoids silently orphaning or erasing restricted data.
+retires its workspace mappings in the same transaction. Repository deletion fails
+closed while any workspace store is unpurged, so restricted data is never silently
+orphaned or erased. Once the stores are purged, deletion retires the scopes and keeps
+scopes, grants, decisions and the hash-linked audit chain, ending the chain with a
+`repository_deleted` event. Audit history therefore outlives the repository. There is
+no retention period yet. `gitea doctor check --run branchroom` verifies every chain.
 
 M4e, M4f, and M4g provide a narrow restricted Git HTTP read boundary: an authorized
 direct user can retrieve a clone locator from a stable signed-in page, then Git
@@ -436,10 +394,9 @@ Use envelope encryption: each environment revision gets its own data key, and a
 configured key provider encrypts that data key. That discussion is future
 environment work, not current V1 behaviour.
 
-KMS is not part of the self-hosted Git-only V1. `[branchroom.environment]` remains
-disabled; no production provider is selected and there is no supported production
-environment-materialization mode. If environment materialization returns to scope, it
-requires its own key-management design and security review.
+KMS is not part of the self-hosted Git-only V1, and there is no environment store or
+configuration section. If environment materialization returns to scope, it requires
+its own key-management design and security review.
 
 ### First schema checkpoint
 
@@ -467,12 +424,10 @@ tests. The design also needs a downgrade policy. Once a workspace has restricted
 source or encrypted environment revisions, a rollback must not silently move data
 into a shared store or discard the ability to read its audit history.
 
-M1's repository-deletion behavior is deliberately narrower: it purges policy rows
-with the deleted repository after workspace stores have been explicitly purged. Deletion
-blocks on every unpurged mapping because a restricted bare store cannot safely be
-removed inside a database transaction or silently left behind. A future archival or
-legal-retention mode must add an explicit tombstone, retention schedule, and
-post-commit collector before it can preserve or purge a mapping after deletion.
+Repository deletion blocks on every unpurged mapping because a restricted bare store
+cannot safely be removed inside a database transaction or silently left behind. After
+the stores are purged it keeps the retired scopes, grants, decisions and audit chain. A
+future legal-retention mode would add a retention schedule for that history.
 
 ## CI, runners, and agents
 
@@ -581,10 +536,8 @@ API after the server policy API exists.
   per-scope sequence and SHA-256 chain; decisions and events use safe UUID
   correlation keys.
 - `services/branchroom.Evaluator` is the only policy entry point in this slice. It
-  executes `discover` only for the exact `scope/<id>` metadata resource. M2a also
-  recognizes `materialize` for one exact environment-revision resource, but only when
-  the development environment feature is enabled, the caller is a direct user, and
-  the surface is the internal system surface. Denied decisions do not return scope
+  executes `discover` only for the exact `scope/<id>` metadata resource. The
+  `materialize` action is no longer evaluated. Denied decisions do not return scope
   metadata. Every future action remains fail-closed until a handler defines its
   ordinary Gitea permission ceiling.
 - A scope creation transaction checks real repository ownership, persists the scope,
@@ -601,8 +554,8 @@ API after the server policy API exists.
   Actions-task grants have no controls. Retired scopes remain hidden, but the current
   owner can purge their stores.
 - Repository transfer retires scopes, revokes active grants, and appends a safe
-  lifecycle event. Repository deletion removes scope, grant, decision, and audit
-  rows atomically with the normal repository deletion flow.
+  lifecycle event. Repository deletion retires scopes and keeps their grants,
+  decisions and audit chain.
 
 The M1 exit gate remains open: current policy coverage is limited to discovery
 metadata and a deliberately narrow owner grant-management path. There is no public
@@ -643,48 +596,11 @@ materialize command, protected-path checks, and basic plaintext-secret detection
 Keep Gitea Actions secrets for compatibility, but do not make them the product
 model.
 
-#### Implemented M2a development foundation
+#### Removed M2a–M2c development foundation
 
-- Migration 354 creates `branchroom_environment_revision` and
-  `branchroom_environment_lease`. Revisions are immutable, scope-bound, and contain
-  only encrypted payload data, wrapped data-key material, nonces, digest, length,
-  safe key-provider metadata, and retirement state. Leases contain only an opaque
-  UUID, SHA-256 bearer hash, actor, grant/decision binding, expiry, and one-use state.
-- The only configured provider is `development-file`. It reads a base64 32-byte
-  development key from an absolute `file:` URI, is refused in production, and stores
-  no key bytes: configuration retains only the local key-file path, and database rows
-  never hold key bytes or that path as a key reference. It is not a supported
-  environment-materialization deployment mode, and no managed KMS is awaited for this
-  V1.
-- The server-internal revision service clears its input buffer, makes a fresh data key
-  for every revision, uses authenticated encryption with revision metadata as AAD, and
-  records only safe audit metadata. An environment scope gives its creator an explicit
-  direct-user `materialize` grant; there is no UI or public grant-management control
-  for it.
-- The server-internal lease service recomputes the direct user's ordinary Gitea
-  code-read ceiling, evaluates the exact `scope/<id>/environment-revision/<uuid>`
-  resource, persists only a hash of a fresh 32-byte bearer secret, and issues a bounded
-  one-use lease. It repeats policy evaluation before claim and consumes the lease on
-  success, denial, expiry, or local-write failure. Claim is deliberately the
-  irreversible authorization boundary; later revocation cannot recall an in-progress
-  plaintext release.
-- The root writer uses an `os.Root` supplied by a future isolated runner. It accepts
-  only a strict relative destination and writes an fsynced 0600 temporary file before
-  renaming it into that root. It is not a generic checkout writer.
-- A strict standalone parser accepts only the environment name, immutable revision,
-  and relative destination fields of a tracked reference. Its package-internal
-  resolver returns only a scope ID and opaque revision key after exact active-state
-  checks; no Git hook, route, runner, or CLI invokes it yet.
-- A conservative public-content preflight reserves the safe reference directory and
-  reports only high-confidence plaintext credential shapes. It is a bounded scanner,
-  not a secret-manager replacement or a complete detector, and remains disconnected
-  from repository write paths until push, pull-request, import, and publication rules
-  can all enforce the same fail-closed result.
-
-M2a–M2b are intentionally not enabled by any UI, API, command, Git route, Actions
-task, runner, or storage URL. They are auditable primitives and regression-test seams
-only. Do not widen their `SurfaceSystem` or direct-user gates without the M3
-resolved-identity design and a new security review.
+A sealed development-only store, lease service, reference resolver and preflight scanner
+were built and then removed in November 2026 because no surface called them. Migration
+354 and its tables remain. The work below starts again from a key-management design.
 
 Work:
 
