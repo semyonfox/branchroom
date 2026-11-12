@@ -44,6 +44,16 @@ var (
 // It writes no Git config and no push path; it returns the exact absolute hook directory so a
 // later trusted step can point core.hooksPath at it.
 func InstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) {
+	return installRestrictedStoreHook(restrictedRoot, storeID, false)
+}
+
+// ReinstallRestrictedStoreHook rewrites the hook for the current executable and config paths.
+// Install refuses a differing hook as possible tampering, so only an operator repair may replace one.
+func ReinstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) {
+	return installRestrictedStoreHook(restrictedRoot, storeID, true)
+}
+
+func installRestrictedStoreHook(restrictedRoot, storeID string, replace bool) (string, error) {
 	if !filepath.IsAbs(restrictedRoot) || filepath.Clean(restrictedRoot) != restrictedRoot {
 		return "", ErrInvalidRestrictedRoot
 	}
@@ -82,7 +92,7 @@ func InstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) 
 		return "", collapseUnexpectedHookError(err)
 	}
 	target := path.Join(storeHooksDir, preReceiveHookFileName)
-	if err := installPreReceiveHookFile(root, target); err != nil {
+	if err := installPreReceiveHookFile(root, target, replace); err != nil {
 		return "", collapseUnexpectedHookError(err)
 	}
 	// fsync the store directory so the renamed hook entry survives a crash
@@ -207,10 +217,13 @@ var syncHookDirectoryEntry = func(root *os.Root, name string) error {
 	return dir.Close()
 }
 
-func installPreReceiveHookFile(root *os.Root, target string) (err error) {
+func installPreReceiveHookFile(root *os.Root, target string, replace bool) (err error) {
 	content := ReceivePreReceiveHookTemplate()
 	if info, lstatErr := root.Lstat(target); lstatErr == nil {
-		return validateHookTarget(root, target, info, content)
+		// a replacement still refuses a symlink or non-file at the target, the rename only swaps a file
+		if !replace || info.Mode()&fs.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return validateHookTarget(root, target, info, content)
+		}
 	} else if !errors.Is(lstatErr, fs.ErrNotExist) {
 		return lstatErr
 	}

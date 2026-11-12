@@ -175,16 +175,7 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	assert.EqualValues(t, 2, storedScope.AuditSequence)
 	assert.Equal(t, second.EventHash, storedScope.AuditHeadHash)
 
-	var storedEvents []*AuditEvent
-	require.NoError(t, db.GetEngine(ctx).Where("scope_id = ?", scope.ID).OrderBy("sequence").Find(&storedEvents))
-	previous := ""
-	for _, event := range storedEvents {
-		require.NoError(t, event.Validate())
-		assert.Equal(t, previous, event.PreviousHash)
-		assert.Equal(t, event.ComputeHash(), event.EventHash)
-		previous = event.EventHash
-	}
-	assert.Equal(t, storedScope.AuditHeadHash, previous)
+	require.NoError(t, VerifyScopeAuditChain(ctx, storedScope))
 
 	var decisionCount, auditCount int64
 	decisionCount, err = db.GetEngine(ctx).Count(new(Decision))
@@ -212,6 +203,15 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	tampered := *second
 	tampered.ReasonCode = "tampered"
 	assert.Error(t, tampered.Validate())
+
+	_, err = db.GetEngine(ctx).ID(first.ID).Cols("reason_code").Update(&AuditEvent{ReasonCode: "rewritten"})
+	require.NoError(t, err)
+	assert.ErrorContains(t, VerifyScopeAuditChain(ctx, storedScope), "audit event 1 does not match its hash")
+	_, err = db.GetEngine(ctx).ID(first.ID).Cols("reason_code").Update(&AuditEvent{ReasonCode: first.ReasonCode})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(second.ID).Delete(new(AuditEvent))
+	require.NoError(t, err)
+	assert.ErrorContains(t, VerifyScopeAuditChain(ctx, storedScope), "scope head does not match")
 }
 
 // The Branchroom receive surface is an audit classification only, persisted through decisions and events.
