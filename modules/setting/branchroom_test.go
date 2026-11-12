@@ -73,6 +73,16 @@ func TestLoadBranchroom(t *testing.T) {
 		}, Branchroom)
 	})
 
+	t.Run("FreshInstallWithoutPublicRoot", func(t *testing.T) {
+		defer test.MockVariableValue(&RepoRootPath, filepath.Join(testRoot, "fresh", "repositories"))()
+		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = true\nRESTRICTED_ROOT = restricted-repositories\n"))
+
+		inside := filepath.Join(testRoot, "restricted-repositories", "missing-public")
+		RepoRootPath = inside
+		err := loadConfig(t, "[branchroom]\nENABLED = true\nRESTRICTED_ROOT = restricted-repositories\n")
+		assert.ErrorContains(t, err, "must not overlap [repository].ROOT")
+	})
+
 	t.Run("EnabledRequiresPrivateRestrictedRoot", func(t *testing.T) {
 		restrictedRoot := filepath.Join(testRoot, "publicly-readable-restricted-repositories")
 		require.NoError(t, os.MkdirAll(restrictedRoot, 0o700))

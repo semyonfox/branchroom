@@ -60,9 +60,10 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 		return errors.New("[branchroom].RESTRICTED_ROOT must be set when [branchroom].ENABLED is true")
 	}
 
-	publicRoot, err := canonicalBranchroomRoot("[repository].ROOT", RepoRootPath)
+	// the public root is created lazily after config load, so a fresh install may not have it yet
+	publicRoot, err := resolveBranchroomPath(RepoRootPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve [repository].ROOT: %w", err)
 	}
 	restrictedRoot, err = canonicalBranchroomRoot("[branchroom].RESTRICTED_ROOT", restrictedRoot)
 	if err != nil {
@@ -161,6 +162,18 @@ func validateBranchroomSeparateRoot(restricted, root string) error {
 	if root == "" {
 		return nil
 	}
+	resolved, err := resolveBranchroomPath(root)
+	if err != nil {
+		return err
+	}
+	if branchroomRootsOverlap(restricted, resolved) {
+		return errors.New("[branchroom].RESTRICTED_ROOT must not overlap local storage or served asset, template and option directories")
+	}
+	return nil
+}
+
+// resolveBranchroomPath resolves symlinks through the nearest existing ancestor of a path that may not exist yet
+func resolveBranchroomPath(root string) (string, error) {
 	if !filepath.IsAbs(root) {
 		root = filepath.Join(AppWorkPath, root)
 	}
@@ -169,13 +182,10 @@ func validateBranchroomSeparateRoot(restricted, root string) error {
 	for {
 		resolved, err := filepath.EvalSymlinks(root)
 		if err == nil {
-			if branchroomRootsOverlap(restricted, filepath.Join(resolved, suffix)) {
-				return errors.New("[branchroom].RESTRICTED_ROOT must not overlap local storage or served asset, template and option directories")
-			}
-			return nil
+			return filepath.Join(resolved, suffix), nil
 		}
 		if !errors.Is(err, fs.ErrNotExist) || root == filepath.Dir(root) {
-			return err
+			return "", err
 		}
 		suffix = filepath.Join(filepath.Base(root), suffix)
 		root = filepath.Dir(root)
