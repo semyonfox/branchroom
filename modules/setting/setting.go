@@ -150,9 +150,6 @@ func loadCommonSettingsFrom(cfg ConfigProvider) error {
 	if err := loadBranchroomFrom(cfg); err != nil {
 		return err
 	}
-	if err := loadBranchroomEnvironmentFrom(cfg); err != nil {
-		return err
-	}
 	loadUIFrom(cfg)
 	loadAdminFrom(cfg)
 	loadAPIFrom(cfg)

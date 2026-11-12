@@ -32,7 +32,6 @@ const (
 	ReasonNoActiveGrant          = "no_active_grant"
 	ReasonConditionMismatch      = "condition_mismatch"
 	ReasonGrantMatched           = "grant_matched"
-	ReasonMaterializeUnavailable = "materialize_unavailable"
 	ReasonReadSourceUnavailable  = "read_source_unavailable"
 	ReasonWriteSourceUnavailable = "write_source_unavailable"
 )
@@ -50,13 +49,6 @@ const (
 	reasonSourceReadGrantCreated          = "source_read_grant_created"
 	reasonTeamGrantCreated                = "team_grant_created"
 	reasonTeamGrantRevoked                = "team_grant_revoked"
-	reasonEnvironmentRevisionCreated      = "environment_revision_created"
-	reasonEnvironmentLeaseIssued          = "environment_lease_issued"
-	reasonEnvironmentLeaseExpired         = "environment_lease_expired"
-	reasonEnvironmentLeaseClaimed         = "environment_lease_claimed"
-	reasonEnvironmentLeaseDenied          = "environment_lease_denied"
-	reasonEnvironmentLeaseMaterialized    = "environment_lease_materialized"
-	reasonEnvironmentLeaseFailed          = "environment_lease_failed"
 )
 
 // Actor is the concrete authenticated identity considered by policy.
@@ -223,13 +215,6 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 			if scope.Kind != branchroom_model.ScopeKindRepository || request.ResourceType != branchroom_model.ResourceTypeWorkspace || !isWorkspaceResourceID(request.ResourceID) {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonResourceMismatch, 0)
 			}
-		case branchroom_model.ActionMaterialize:
-			if !setting.BranchroomEnvironment.Enabled || request.Surface != branchroom_model.SurfaceSystem || request.Actor.Type != branchroom_model.ActorTypeUser {
-				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonMaterializeUnavailable, 0)
-			}
-			if scope.Kind != branchroom_model.ScopeKindEnvironment || request.ResourceType != branchroom_model.ResourceTypeEnvironment || !isEnvironmentRevisionResourceID(scope.ID, request.ResourceID) {
-				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonResourceMismatch, 0)
-			}
 		default:
 			return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonUnsupportedAction, 0)
 		}
@@ -262,16 +247,6 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 
 func scopeResourceID(scopeID int64) string {
 	return "scope/" + strconv.FormatInt(scopeID, 10)
-}
-
-func environmentRevisionResourceID(scopeID int64, revisionKey string) string {
-	return scopeResourceID(scopeID) + "/environment-revision/" + revisionKey
-}
-
-func isEnvironmentRevisionResourceID(scopeID int64, resourceID string) bool {
-	prefix := scopeResourceID(scopeID) + "/environment-revision/"
-	revisionKey, ok := strings.CutPrefix(resourceID, prefix)
-	return ok && branchroom_model.IsCanonicalUUID(revisionKey)
 }
 
 func isWorkspaceResourceID(resourceID string) bool {

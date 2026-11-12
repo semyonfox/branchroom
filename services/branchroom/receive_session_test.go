@@ -73,74 +73,6 @@ func newReconciliationReceiveSession(sessionKey, bearerHash string, claimedUnix 
 	}
 }
 
-func TestTransferRevokesIssuedReceiveSessions(t *testing.T) {
-	require.NoError(t, unittest.PrepareTestDatabase())
-	ctx := t.Context()
-
-	scope := &branchroom_model.Scope{
-		Kind:        branchroom_model.ScopeKindRepository,
-		RepoID:      1,
-		Name:        "receive-session-transfer",
-		State:       branchroom_model.ScopeStateActive,
-		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
-		OwnerID:     2,
-		CreatedByID: 2,
-	}
-	require.NoError(t, branchroom_model.InsertScope(ctx, scope))
-	require.NoError(t, branchroom_model.InsertWorkspace(ctx, &branchroom_model.Workspace{
-		WorkspaceKey:     "11111111-1111-1111-1111-111111111111",
-		ScopeID:          scope.ID,
-		RepoID:           1,
-		StoreID:          "22222222-2222-2222-2222-222222222222",
-		PublicBaseSHA:    strings.Repeat("a", 40),
-		ObjectFormatName: "sha1",
-		State:            branchroom_model.WorkspaceStateReady,
-		CreatedByID:      2,
-	}))
-	issued := &branchroom_model.ReceiveSession{
-		SessionKey:       "33333333-3333-3333-3333-333333333333",
-		BearerSecretHash: strings.Repeat("a", 64),
-		ScopeID:          scope.ID,
-		WorkspaceID:      1,
-		RepoID:           1,
-		ActorType:        branchroom_model.ActorTypeUser,
-		ActorID:          2,
-		State:            branchroom_model.ReceiveSessionStateIssued,
-		Outcome:          branchroom_model.ReceiveSessionOutcomePending,
-		IssuedUnix:       100,
-		ExpiresUnix:      400,
-	}
-	require.NoError(t, branchroom_model.InsertReceiveSession(ctx, issued))
-	claimed := &branchroom_model.ReceiveSession{
-		SessionKey:       "44444444-4444-4444-4444-444444444444",
-		BearerSecretHash: strings.Repeat("b", 64),
-		ScopeID:          scope.ID,
-		WorkspaceID:      1,
-		RepoID:           1,
-		ActorType:        branchroom_model.ActorTypeUser,
-		ActorID:          2,
-		State:            branchroom_model.ReceiveSessionStateClaimed,
-		Outcome:          branchroom_model.ReceiveSessionOutcomePending,
-		IssuedUnix:       100,
-		ExpiresUnix:      400,
-		ClaimedUnix:      150,
-	}
-	require.NoError(t, branchroom_model.InsertReceiveSession(ctx, claimed))
-
-	require.NoError(t, db.WithTx(ctx, func(txCtx context.Context) error {
-		return RetireRepositoryScopesForTransfer(txCtx, 1, 2)
-	}))
-
-	storedIssued, err := branchroom_model.GetReceiveSessionByID(ctx, issued.ID)
-	require.NoError(t, err)
-	assert.Equal(t, branchroom_model.ReceiveSessionStateRevoked, storedIssued.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeRevoked, storedIssued.Outcome)
-	storedClaimed, err := branchroom_model.GetReceiveSessionByID(ctx, claimed.ID)
-	require.NoError(t, err)
-	assert.Equal(t, branchroom_model.ReceiveSessionStateClaimed, storedClaimed.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomePending, storedClaimed.Outcome)
-}
-
 func TestPurgeRemovesReceiveSessions(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
@@ -172,11 +104,12 @@ func TestPurgeRemovesReceiveSessions(t *testing.T) {
 	require.NoError(t, branchroom_model.InsertReceiveSession(ctx, session))
 
 	require.NoError(t, db.WithTx(ctx, func(txCtx context.Context) error {
-		return PurgeRepositoryPolicy(txCtx, 2)
+		return RetainRepositoryPolicyForDeletion(txCtx, 2)
 	}))
 
 	sessions, err := branchroom_model.FindReceiveSessionsByRepoID(ctx, 2)
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
-	unittest.AssertNotExistsBean(t, &branchroom_model.Scope{ID: scope.ID})
+	retained := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: scope.ID})
+	assert.Equal(t, branchroom_model.ScopeStateRetired, retained.State)
 }

@@ -24,9 +24,6 @@ func TestReceiveSessionValidation(t *testing.T) {
 	stored, err := GetReceiveSessionByKey(ctx, session.SessionKey)
 	require.NoError(t, err)
 	assert.Equal(t, session.BearerSecretHash, stored.BearerSecretHash)
-	storedByHash, err := GetReceiveSessionByBearerSecretHash(ctx, session.BearerSecretHash)
-	require.NoError(t, err)
-	assert.Equal(t, session.ID, storedByHash.ID)
 	_, err = GetReceiveSessionByKey(ctx, "55555555-5555-5555-5555-999999999999")
 	assert.ErrorIs(t, err, util.ErrNotExist)
 
@@ -111,13 +108,6 @@ func TestReceiveSessionClaimAndComplete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ReceiveSessionStateClaimed, stored.State)
 	assert.Equal(t, int64(150), int64(stored.ClaimedUnix))
-	revoked, err := RevokeReceiveSession(ctx, session.ID)
-	require.NoError(t, err)
-	assert.False(t, revoked)
-	expired, err := ExpireReceiveSession(ctx, session.ID, 400)
-	require.NoError(t, err)
-	assert.False(t, expired)
-
 	for _, outcome := range []ReceiveSessionOutcome{
 		ReceiveSessionOutcomePending,
 		ReceiveSessionOutcomeExpired,
@@ -148,16 +138,7 @@ func TestReceiveSessionClaimAndComplete(t *testing.T) {
 	claimed, err = ClaimReceiveSession(ctx, expiredSession.ID, expiredSession.ExpiresUnix)
 	require.NoError(t, err)
 	assert.False(t, claimed)
-	expired, err = ExpireReceiveSession(ctx, expiredSession.ID, expiredSession.ExpiresUnix)
-	require.NoError(t, err)
-	assert.True(t, expired)
-	expired, err = ExpireReceiveSession(ctx, expiredSession.ID, expiredSession.ExpiresUnix)
-	require.NoError(t, err)
-	assert.False(t, expired)
-	stored, err = GetReceiveSessionByID(ctx, expiredSession.ID)
-	require.NoError(t, err)
-	assert.Equal(t, ReceiveSessionStateExpired, stored.State)
-	assert.Equal(t, ReceiveSessionOutcomeExpired, stored.Outcome)
+
 }
 
 // Admitted completes a claimed session like denied or failed, and the session still ends one-use.
@@ -261,13 +242,6 @@ func TestReceiveSessionClaimedAfterExpiryCompletes(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, claimed)
 
-	expired, err := ExpireReceiveSession(ctx, session.ID, 400)
-	require.NoError(t, err)
-	assert.False(t, expired)
-	revoked, err := RevokeReceiveSession(ctx, session.ID)
-	require.NoError(t, err)
-	assert.False(t, revoked)
-
 	completed, err := CompleteReceiveSession(ctx, session.ID, ReceiveSessionOutcomeFailed)
 	require.NoError(t, err)
 	assert.True(t, completed)
@@ -275,43 +249,6 @@ func TestReceiveSessionClaimedAfterExpiryCompletes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ReceiveSessionStateCompleted, stored.State)
 	assert.Equal(t, ReceiveSessionOutcomeFailed, stored.Outcome)
-}
-
-func TestReceiveSessionRevokeAndFindings(t *testing.T) {
-	require.NoError(t, unittest.PrepareTestDatabase())
-	ctx := t.Context()
-
-	session := newTestReceiveSession()
-	require.NoError(t, InsertReceiveSession(ctx, session))
-	otherScopeSession := newTestReceiveSession()
-	otherScopeSession.SessionKey = "66666666-6666-6666-6666-666666666666"
-	otherScopeSession.BearerSecretHash = strings.Repeat("e", 64)
-	otherScopeSession.ScopeID = 2
-	otherScopeSession.RepoID = 2
-	require.NoError(t, InsertReceiveSession(ctx, otherScopeSession))
-
-	sessions, err := FindReceiveSessionsByScopeID(ctx, session.ScopeID)
-	require.NoError(t, err)
-	require.Len(t, sessions, 1)
-	assert.Equal(t, session.ID, sessions[0].ID)
-	sessions, err = FindReceiveSessionsByRepoID(ctx, session.RepoID)
-	require.NoError(t, err)
-	require.Len(t, sessions, 1)
-	assert.Equal(t, session.ID, sessions[0].ID)
-
-	revoked, err := RevokeReceiveSession(ctx, session.ID)
-	require.NoError(t, err)
-	assert.True(t, revoked)
-	revoked, err = RevokeReceiveSession(ctx, session.ID)
-	require.NoError(t, err)
-	assert.False(t, revoked)
-	stored, err := GetReceiveSessionByID(ctx, session.ID)
-	require.NoError(t, err)
-	assert.Equal(t, ReceiveSessionStateRevoked, stored.State)
-	assert.Equal(t, ReceiveSessionOutcomeRevoked, stored.Outcome)
-	claimed, err := ClaimReceiveSession(ctx, session.ID, 150)
-	require.NoError(t, err)
-	assert.False(t, claimed)
 }
 
 func newTestReceiveSession() *ReceiveSession {

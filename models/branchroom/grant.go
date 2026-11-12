@@ -56,9 +56,6 @@ func (grant *Grant) Validate() error {
 	} else if grant.WorkflowID != "" || grant.WorkflowRepoID != 0 || grant.WorkflowCommitSHA != "" || grant.Ref != "" || grant.RunnerID != 0 {
 		return util.NewInvalidArgumentErrorf("Branchroom grant conditions require an Actions task subject")
 	}
-	if grant.Action == ActionMaterialize && grant.SubjectType != SubjectTypeUser {
-		return util.NewInvalidArgumentErrorf("Branchroom environment materialization grants require a direct user")
-	}
 	if grant.Action == ActionReadSource && grant.SubjectType != SubjectTypeUser && grant.SubjectType != SubjectTypeTeam {
 		return util.NewInvalidArgumentErrorf("Branchroom source-read grants require a direct user or organization team")
 	}

@@ -34,18 +34,6 @@ func CreateRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 	return createRepositoryScope(ctx, request, branchroom_model.ScopeKindRepository)
 }
 
-// createRepositoryEnvironmentScope creates an internal encrypted-environment scope.
-// It intentionally has no web, API, Git, or runner entry point in the development slice.
-func createRepositoryEnvironmentScope(ctx context.Context, request CreateRepositoryScopeRequest) (*branchroom_model.Scope, error) {
-	if !setting.Branchroom.Enabled || !setting.BranchroomEnvironment.Enabled {
-		return nil, util.NewNotExistErrorf("Branchroom environment scope does not exist")
-	}
-	if request.Surface != branchroom_model.SurfaceSystem {
-		return nil, util.NewInvalidArgumentErrorf("Branchroom environment scopes require an internal surface")
-	}
-	return createRepositoryScope(ctx, request, branchroom_model.ScopeKindEnvironment)
-}
-
 func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeRequest, kind branchroom_model.ScopeKind) (*branchroom_model.Scope, error) {
 	if request.RepoID <= 0 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom scope creation request")
@@ -76,17 +64,6 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 			CreatedByID: request.Actor.ID,
 		}); err != nil {
 			return nil, err
-		}
-		if kind == branchroom_model.ScopeKindEnvironment {
-			if err := branchroom_model.InsertGrant(txCtx, &branchroom_model.Grant{
-				ScopeID:     scope.ID,
-				SubjectType: branchroom_model.SubjectTypeUser,
-				SubjectID:   request.Actor.ID,
-				Action:      branchroom_model.ActionMaterialize,
-				CreatedByID: request.Actor.ID,
-			}); err != nil {
-				return nil, err
-			}
 		}
 
 		now := timeutil.TimeStampNow()

@@ -181,33 +181,6 @@ func GetReceiveSessionByKey(ctx context.Context, sessionKey string) (*ReceiveSes
 	return session, nil
 }
 
-// GetReceiveSessionByBearerSecretHash returns a receive session from a canonical SHA-256 hash.
-// Callers must hash the opaque bearer secret before this model boundary.
-func GetReceiveSessionByBearerSecretHash(ctx context.Context, bearerSecretHash string) (*ReceiveSession, error) {
-	if !isSHA256Hex(bearerSecretHash) {
-		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom receive session bearer hash")
-	}
-	session := new(ReceiveSession)
-	has, err := db.GetEngine(ctx).Where("bearer_secret_hash = ?", bearerSecretHash).Get(session)
-	if err != nil {
-		return nil, err
-	}
-	if !has {
-		return nil, util.NewNotExistErrorf("Branchroom receive session does not exist")
-	}
-	return session, nil
-}
-
-// FindReceiveSessionsByScopeID returns a scope's sessions in deterministic creation order.
-func FindReceiveSessionsByScopeID(ctx context.Context, scopeID int64) ([]*ReceiveSession, error) {
-	return findReceiveSessionsByScopeID(ctx, scopeID, false)
-}
-
-// FindReceiveSessionsByScopeIDForUpdate returns a scope's sessions with row locks on supported databases.
-func FindReceiveSessionsByScopeIDForUpdate(ctx context.Context, scopeID int64) ([]*ReceiveSession, error) {
-	return findReceiveSessionsByScopeID(ctx, scopeID, true)
-}
-
 func findReceiveSessionsByScopeID(ctx context.Context, scopeID int64, forUpdate bool) ([]*ReceiveSession, error) {
 	if scopeID <= 0 {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom scope ID")
@@ -283,31 +256,6 @@ func FailStaleClaimedReceiveSessions(ctx context.Context, staleBefore timeutil.T
 		Where("state = ? AND outcome = ? AND claimed_unix > 0 AND claimed_unix <= ?", ReceiveSessionStateClaimed, ReceiveSessionOutcomePending, staleBefore).
 		Cols("state", "outcome").
 		Update(&ReceiveSession{State: ReceiveSessionStateCompleted, Outcome: ReceiveSessionOutcomeFailed})
-}
-
-// ExpireReceiveSession atomically records that an unclaimed issued session can no longer be used.
-func ExpireReceiveSession(ctx context.Context, sessionID int64, now timeutil.TimeStamp) (bool, error) {
-	if sessionID <= 0 || now <= 0 {
-		return false, util.NewInvalidArgumentErrorf("invalid Branchroom receive session expiry")
-	}
-	affected, err := db.GetEngine(ctx).ID(sessionID).
-		Where("state = ? AND outcome = ? AND claimed_unix = 0 AND expires_unix <= ?", ReceiveSessionStateIssued, ReceiveSessionOutcomePending, now).
-		Cols("state", "outcome").
-		Update(&ReceiveSession{State: ReceiveSessionStateExpired, Outcome: ReceiveSessionOutcomeExpired})
-	return affected == 1, err
-}
-
-// RevokeReceiveSession atomically revokes an unclaimed issued session.
-// A claimed session is retained for its caller to complete, preserving the one-use claim audit trail.
-func RevokeReceiveSession(ctx context.Context, sessionID int64) (bool, error) {
-	if sessionID <= 0 {
-		return false, util.NewInvalidArgumentErrorf("invalid Branchroom receive session revocation")
-	}
-	affected, err := db.GetEngine(ctx).ID(sessionID).
-		Where("state = ? AND outcome = ? AND claimed_unix = 0", ReceiveSessionStateIssued, ReceiveSessionOutcomePending).
-		Cols("state", "outcome").
-		Update(&ReceiveSession{State: ReceiveSessionStateRevoked, Outcome: ReceiveSessionOutcomeRevoked})
-	return affected == 1, err
 }
 
 func init() {

@@ -44,7 +44,7 @@ func (credential *ReceiveAdmissionCredential) Clear() {
 	if credential == nil {
 		return
 	}
-	clearBytes(credential.BearerSecret)
+	clear(credential.BearerSecret)
 	credential.SessionKey = ""
 	credential.BearerSecret = nil
 }
@@ -191,12 +191,12 @@ func IssueReceiveAdmission(ctx context.Context, request IssueReceiveAdmissionReq
 		}
 		bearerEntropy := make([]byte, receiveAdmissionBearerEntropyLen)
 		if _, err := rand.Read(bearerEntropy); err != nil {
-			clearBytes(bearerEntropy)
+			clear(bearerEntropy)
 			return nil, errReceiveAdmissionDenied
 		}
 		bearerSecret := make([]byte, hex.EncodedLen(len(bearerEntropy)))
 		hex.Encode(bearerSecret, bearerEntropy)
-		clearBytes(bearerEntropy)
+		clear(bearerEntropy)
 
 		credential := &ReceiveAdmissionCredential{
 			SessionKey:   sessionKeyUUID.String(),

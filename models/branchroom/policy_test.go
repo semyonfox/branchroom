@@ -80,13 +80,6 @@ func TestGrantValidationAndRevocation(t *testing.T) {
 		WorkflowID:  "deploy.yml",
 		CreatedByID: 1,
 	}).Validate())
-	assert.Error(t, (&Grant{
-		ScopeID:     scope.ID,
-		SubjectType: SubjectTypeTeam,
-		SubjectID:   3,
-		Action:      ActionMaterialize,
-		CreatedByID: 1,
-	}).Validate())
 	assert.NoError(t, (&Grant{
 		ScopeID:     scope.ID,
 		SubjectType: SubjectTypeTeam,

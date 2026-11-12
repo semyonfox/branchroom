@@ -71,7 +71,7 @@ func TestDeleteOwnerRepositoriesDirectly(t *testing.T) {
 	})
 }
 
-func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
+func TestDeleteRepositoryDirectlyPurgesRepoScopedRowsAndRetainsBranchroomAudit(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	branchroomScope := &branchroom_model.Scope{
 		Kind:        branchroom_model.ScopeKindRepository,
@@ -127,10 +127,13 @@ func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
 	unittest.AssertNotExistsBean(t, &git_model.CommitStatusSummary{RepoID: 1})
 	unittest.AssertNotExistsBean(t, &git_model.CommitStatusIndex{RepoID: 1})
 	unittest.AssertNotExistsBean(t, &repo_model.RepoTransfer{RepoID: 1})
-	unittest.AssertNotExistsBean(t, &branchroom_model.Scope{RepoID: 1})
-	unittest.AssertNotExistsBean(t, &branchroom_model.Grant{ScopeID: branchroomScope.ID})
-	unittest.AssertNotExistsBean(t, &branchroom_model.Decision{RepoID: 1})
-	unittest.AssertNotExistsBean(t, &branchroom_model.AuditEvent{RepoID: 1})
+	retained := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: branchroomScope.ID})
+	assert.Equal(t, branchroom_model.ScopeStateRetired, retained.State)
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Grant{ID: branchroomGrant.ID})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{ScopeID: branchroomScope.ID, Sequence: 1})
+	deleted := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{ScopeID: branchroomScope.ID, Sequence: 2})
+	assert.Equal(t, "repository_deleted", deleted.ReasonCode)
+	assert.Equal(t, retained.AuditHeadHash, deleted.EventHash)
 }
 
 func TestDeleteRepositoryDirectlyBlocksUnpurgedBranchroomWorkspace(t *testing.T) {
@@ -209,44 +212,5 @@ func TestDeleteRepositoryDirectlyAllowsPurgedBranchroomWorkspace(t *testing.T) {
 
 	unittest.AssertNotExistsBean(t, &repo_model.Repository{ID: 1})
 	unittest.AssertNotExistsBean(t, &branchroom_model.Workspace{RepoID: 1})
-	unittest.AssertNotExistsBean(t, &branchroom_model.Scope{RepoID: 1})
-}
-
-func TestDeleteRepositoryDirectlyBlocksUnpurgedBranchroomEnvironmentRevision(t *testing.T) {
-	unittest.PrepareTestEnv(t)
-	branchroomScope := &branchroom_model.Scope{
-		Kind:        branchroom_model.ScopeKindEnvironment,
-		RepoID:      1,
-		Name:        "environment requires retention",
-		State:       branchroom_model.ScopeStateActive,
-		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
-		OwnerID:     2,
-		CreatedByID: 2,
-	}
-	assert.NoError(t, branchroom_model.InsertScope(t.Context(), branchroomScope))
-	payloadCiphertext := []byte("ciphertext-only-environment-payload")
-	revision := &branchroom_model.EnvironmentRevision{
-		RevisionKey:          "33333333-3333-3333-3333-333333333333",
-		ScopeID:              branchroomScope.ID,
-		RepoID:               1,
-		Revision:             1,
-		CipherSuite:          branchroom_model.EnvironmentCipherSuiteAES256GCM,
-		PayloadNonce:         []byte("0123456789ab"),
-		PayloadCiphertext:    payloadCiphertext,
-		WrappedDEKNonce:      []byte("abcdefghijkl"),
-		WrappedDEKCiphertext: []byte("wrapped-data-encryption-key"),
-		KeyProvider:          branchroom_model.EnvironmentKeyProviderLocalDev,
-		KeyReference:         "local-dev/primary-v1",
-		CiphertextDigest:     branchroom_model.EnvironmentCiphertextDigest(payloadCiphertext),
-		PlaintextLength:      27,
-		State:                branchroom_model.EnvironmentRevisionStateActive,
-		CreatedByID:          2,
-	}
-	assert.NoError(t, branchroom_model.InsertEnvironmentRevision(t.Context(), revision))
-
-	err := repo_service.DeleteRepositoryDirectly(t.Context(), 1)
-	assert.ErrorIs(t, err, branchroom_service.ErrEnvironmentRetentionRequired)
-	unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
-	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: branchroomScope.ID})
-	unittest.AssertExistsAndLoadBean(t, &branchroom_model.EnvironmentRevision{ID: revision.ID})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{RepoID: 1, State: branchroom_model.ScopeStateRetired})
 }

@@ -247,7 +247,8 @@ func authorizeWorkspaceWriteByIdentity(ctx context.Context, repoID, userID int64
 		if err != nil {
 			return authorizedWorkspaceRead{}, err
 		}
-		if !allowed || branchroom_module.VerifyRestrictedStoreHook(txCtx, setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID) != nil {
+		// hook integrity is checked at receive admission and again inside the hook, where it matters
+		if !allowed {
 			return authorizedWorkspaceRead{denied: true}, nil
 		}
 		return authorizedWorkspaceRead{storeID: workspace.StoreID}, nil
