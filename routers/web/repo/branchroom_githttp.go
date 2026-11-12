@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	auth_model "gitea.dev/models/auth"
@@ -74,9 +75,9 @@ func BranchroomGitHTTPInfoRefs(ctx *context.Context) {
 
 	ctx.RespHeader().Set("Content-Type", "application/x-git-"+service+"-advertisement")
 	ctx.Status(http.StatusOK)
-	_, _ = ctx.Write(packetWrite("# service=git-" + service + "\n"))
-	_, _ = ctx.Write([]byte("0000"))
-	_, _ = ctx.Write(refs)
+	_ = pktLineWriteText(ctx.Resp, "# service=git-"+service)
+	_ = pktLineWriteFlush(ctx.Resp)
+	_, _ = ctx.Resp.Write(refs)
 }
 
 // BranchroomGitHTTPUploadPack serves only authenticated smart upload-pack RPCs.
@@ -256,7 +257,7 @@ func branchroomGitHTTPEnvironment(ctx *context.Context) []string {
 	// Do not inherit the web process environment: ambient GIT_* values can alter
 	// receive behavior and unrelated service variables do not belong in a child.
 	environ := gitcmd.CommonGitCmdEnvs()
-	if protocol := ctx.Req.Header.Get("Git-Protocol"); protocol != "" && safeGitProtocolHeader.MatchString(protocol) {
+	if protocol := ctx.Req.Header.Get("Git-Protocol"); protocol != "" && safeGitProtocolHeader().MatchString(protocol) {
 		environ = append(environ, "GIT_PROTOCOL="+protocol)
 	}
 	return environ
@@ -334,8 +335,12 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 		branchroomGitHTTPUnauthorized(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
-	switch ctx.Data["LoginMethod"] {
-	case auth.BasicMethodName, auth.AccessTokenMethodName:
+	// only a password or a personal access token, never an OAuth2 grant, Actions task,
+	// deploy key or package token, which all arrive through basic auth too
+	_, isToken := user_model.GetDoerTokenScope(ctx.Doer)
+	switch {
+	case isToken && strings.HasPrefix(user_model.GetDoerCredential(ctx.Doer), user_model.CredentialAccessToken+":"):
+	case !isToken && ctx.Doer.ExtDoerData == nil && ctx.Data["LoginMethod"] == auth.BasicMethodName:
 	default:
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
@@ -344,7 +349,7 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
-	if ctx.Data["ApiTokenScope"] == nil {
+	if !isToken {
 		_, err := auth_model.GetTwoFactorByUID(ctx, ctx.Doer.ID)
 		if err == nil {
 			branchroomGitHTTPUnauthorized(ctx)
@@ -394,7 +399,7 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 }
 
 func branchroomGitHTTPTokenCanRead(ctx *context.Context) bool {
-	scope, hasAPITokenScope := ctx.Data["ApiTokenScope"].(auth_model.AccessTokenScope)
+	scope, hasAPITokenScope := user_model.GetDoerTokenScope(ctx.Doer)
 	if !hasAPITokenScope {
 		return true
 	}
@@ -412,7 +417,7 @@ func branchroomGitHTTPTokenCanRead(ctx *context.Context) bool {
 }
 
 func branchroomGitHTTPTokenCanWrite(ctx *context.Context) bool {
-	scope, hasAPITokenScope := ctx.Data["ApiTokenScope"].(auth_model.AccessTokenScope)
+	scope, hasAPITokenScope := user_model.GetDoerTokenScope(ctx.Doer)
 	if !hasAPITokenScope {
 		return true
 	}

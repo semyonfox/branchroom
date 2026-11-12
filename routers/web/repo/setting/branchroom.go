@@ -63,7 +63,7 @@ type branchroomTeamGrantData struct {
 // MustEnableBranchroom hides all Branchroom routes while the feature is disabled.
 func MustEnableBranchroom(ctx *context.Context) {
 	if !setting.Branchroom.Enabled {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return
 	}
 }
@@ -76,22 +76,22 @@ func Branchroom(ctx *context.Context) {
 
 	scopes, err := branchroom_model.FindScopesByRepoID(ctx, ctx.Repo.Repository.ID)
 	if err != nil {
-		ctx.ServerError("FindScopesByRepoID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, ctx.Repo.Repository.ID)
 	if err != nil {
-		ctx.ServerError("FindBranchroomWorkspaces", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	workspacesByScopeID := make(map[int64]*branchroom_model.Workspace, len(workspaces))
 	for _, workspace := range workspaces {
 		if workspace.RepoID != ctx.Repo.Repository.ID {
-			ctx.ServerError("ValidateBranchroomWorkspace", util.ErrInvalidArgument)
+			ctx.ServerErrorAuto(errors.New("branchroom workspace validation failed"))
 			return
 		}
 		if err := workspace.Validate(); err != nil {
-			ctx.ServerError("ValidateBranchroomWorkspace", err)
+			ctx.ServerErrorAuto(err)
 			return
 		}
 		workspacesByScopeID[workspace.ScopeID] = workspace
@@ -121,7 +121,7 @@ func Branchroom(ctx *context.Context) {
 		}
 		discoveryGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionDiscover, now)
 		if err != nil {
-			ctx.ServerError("FindActiveBranchroomGrants", err)
+			ctx.ServerErrorAuto(err)
 			return
 		}
 		for _, grant := range discoveryGrants {
@@ -136,7 +136,7 @@ func Branchroom(ctx *context.Context) {
 		}
 		sourceReadGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionReadSource, now)
 		if err != nil {
-			ctx.ServerError("FindActiveBranchroomSourceReadGrants", err)
+			ctx.ServerErrorAuto(err)
 			return
 		}
 		for _, grant := range sourceReadGrants {
@@ -151,7 +151,7 @@ func Branchroom(ctx *context.Context) {
 		}
 		sourceWriteGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionWriteSource, now)
 		if err != nil {
-			ctx.ServerError("FindActiveBranchroomSourceWriteGrants", err)
+			ctx.ServerErrorAuto(err)
 			return
 		}
 		for _, grant := range sourceWriteGrants {
@@ -164,12 +164,12 @@ func Branchroom(ctx *context.Context) {
 	}
 	users, err := user_model.GetUsersMapByIDs(ctx, userIDs)
 	if err != nil {
-		ctx.ServerError("GetBranchroomGrantUsers", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	teams, err := organization_model.GetTeamsByIDs(ctx, teamIDs)
 	if err != nil {
-		ctx.ServerError("GetBranchroomGrantTeams", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
@@ -296,7 +296,7 @@ func BranchroomWorkspacePost(ctx *context.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		if errors.Is(err, branchroom_service.ErrWorkspaceAlreadyExists) {
@@ -320,7 +320,7 @@ func BranchroomWorkspaceRouteKeyRotatePost(ctx *context.Context) {
 
 	scopeID := ctx.PathParamInt64("scopeID")
 	if scopeID <= 0 {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return
 	}
 	if err := branchroom_service.RotateRepositoryWorkspaceRouteKey(ctx, branchroom_service.RotateRepositoryWorkspaceRouteKeyRequest{
@@ -330,7 +330,7 @@ func BranchroomWorkspaceRouteKeyRotatePost(ctx *context.Context) {
 		Surface: branchroom_model.SurfaceWeb,
 	}); err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.route_key_rotate_failed"))
@@ -467,7 +467,7 @@ func branchroomDirectUserGrantPost(ctx *context.Context, getForm func(ctx *conte
 	err := createGrant(ctx, ctx.Repo.Repository.ID, form.ScopeID, branchroom_service.ActorFromUser(ctx.Doer), form.Username, notBefore, expires)
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		switch {
@@ -511,7 +511,7 @@ func BranchroomTeamGrantPost(ctx *context.Context) {
 			ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 			return
 		}
-		ctx.ServerError("GetBranchroomGrantTeam", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	_, err = branchroom_service.CreateRepositoryTeamGrant(ctx, branchroom_service.CreateRepositoryTeamGrantRequest{
@@ -526,7 +526,7 @@ func BranchroomTeamGrantPost(ctx *context.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		switch {
@@ -555,16 +555,16 @@ func BranchroomTeamGrantRevokePost(ctx *context.Context) {
 	scopeID := ctx.PathParamInt64("scopeID")
 	grantID := ctx.PathParamInt64("grantID")
 	if scopeID <= 0 || grantID <= 0 {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return
 	}
 	grant, err := branchroom_model.GetGrantByID(ctx, grantID)
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
-		ctx.ServerError("GetBranchroomTeamGrant", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	err = branchroom_service.RevokeRepositoryTeamGrant(ctx, branchroom_service.RevokeRepositoryTeamGrantRequest{
@@ -577,7 +577,7 @@ func BranchroomTeamGrantRevokePost(ctx *context.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_grant_revoke_failed"))
@@ -624,12 +624,12 @@ func branchroomWorkspaceLifecyclePost(ctx *context.Context, run branchroomWorksp
 	}
 	scopeID := ctx.PathParamInt64("scopeID")
 	if scopeID <= 0 {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return
 	}
 	if _, err := run(ctx, ctx.Repo.Repository.ID, scopeID, branchroom_service.ActorFromUser(ctx.Doer)); err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		if errors.Is(err, branchroom_service.ErrWorkspaceStateChanged) {
@@ -702,13 +702,13 @@ func branchroomDirectUserGrantRevokePost(ctx *context.Context, revokeGrant branc
 	scopeID := ctx.PathParamInt64("scopeID")
 	grantID := ctx.PathParamInt64("grantID")
 	if scopeID <= 0 || grantID <= 0 {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return
 	}
 	err := revokeGrant(ctx, ctx.Repo.Repository.ID, scopeID, grantID, branchroom_service.ActorFromUser(ctx.Doer))
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		ctx.Flash.Error(ctx.Tr(failedMessage))
@@ -740,7 +740,7 @@ func BranchroomPost(ctx *context.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
 		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.create_failed"))
@@ -753,17 +753,17 @@ func BranchroomPost(ctx *context.Context) {
 }
 
 func requireBranchroomScopeOwner(ctx *context.Context) bool {
-	if !setting.Branchroom.Enabled || ctx.Doer == nil || ctx.DoerIsImpersonated() || ctx.Doer.MustChangePassword || !ctx.Repo.Repository.UnitEnabled(ctx, unit_model.TypeCode) {
-		ctx.NotFound(nil)
+	if !setting.Branchroom.Enabled || ctx.Doer == nil || context.IsDoerSessionImpersonated(ctx.Session) || ctx.Doer.MustChangePassword || !ctx.Repo.Repository.UnitEnabled(ctx, unit_model.TypeCode) {
+		ctx.NotFound()
 		return false
 	}
 	owner, err := branchroom_service.CanManageRepositoryScopes(ctx, ctx.Repo.Repository.ID, branchroom_service.ActorFromUser(ctx.Doer))
 	if err != nil {
-		ctx.ServerError("CanManageRepositoryScopes", err)
+		ctx.ServerErrorAuto(err)
 		return false
 	}
 	if !owner {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return false
 	}
 	return true

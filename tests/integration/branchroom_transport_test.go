@@ -51,7 +51,7 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 
 		restricted, err := branchroom.RestrictedRepository("a13e2a27-167d-4586-a511-42910dc3a955")
 		require.NoError(t, err)
-		require.NoError(t, git.InitRepository(t.Context(), restricted, git.Sha1ObjectFormat.Name()))
+		require.NoError(t, git.InitRepository(t.Context(), restricted, git.Sha1ObjectFormat.Name(), ""))
 		require.NoError(t, git.ForceFastImport(t.Context(), restricted, []git.FastImportCommit{{
 			Ref:     "refs/heads/restricted",
 			Message: "restricted commit",
@@ -100,7 +100,7 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 
 		t.Run("known SHA fetch", func(t *testing.T) {
 			local := t.TempDir()
-			require.NoError(t, git.InitRepositoryLocal(t.Context(), local, false, git.Sha1ObjectFormat.Name()))
+			require.NoError(t, git.InitRepositoryLocal(t.Context(), local, false, git.Sha1ObjectFormat.Name(), ""))
 			_, _, err := gitcmd.NewCommand("fetch").AddDynamicArguments(publicURL.String(), restrictedCommit).
 				WithDir(local).RunStdString(t.Context())
 			assert.Error(t, err)
@@ -470,7 +470,7 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.NotContains(t, publicAdvertisement.Body, secondAllowedCommit)
 
 			publicClone := t.TempDir()
-			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name()))
+			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name(), ""))
 			_, _, err = gitcmd.NewCommand("fetch").AddDynamicArguments(u.JoinPath("user2", "repo1.git").String(), secondAllowedCommit).WithDir(publicClone).RunStdString(t.Context())
 			assert.Error(t, err)
 		})

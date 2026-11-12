@@ -195,7 +195,7 @@ func TestBranchroomPreReceiveInternalEndpointIsTrusted(t *testing.T) {
 		{name: "unassigned private IPv4 http", protocol: setting.HTTP, localURL: "http://10.0.0.6:3000/"},
 		{name: "remote http", protocol: setting.HTTP, localURL: "http://192.0.2.1:3000/"},
 		{name: "DNS name http", protocol: setting.HTTP, localURL: "http://gitea.internal/"},
-		{name: "unspecified http", protocol: setting.HTTP, localURL: "http://0.0.0.0:3000/"},
+		{name: "unspecified http", protocol: setting.HTTP, localURL: "http://0.0.0.0:3000/", trusted: true}, // dialling 0.0.0.0 reaches this host
 		{name: "multicast http", protocol: setting.HTTP, localURL: "http://224.0.0.1:3000/"},
 		{name: "missing host", protocol: setting.HTTP, localURL: "http:///"},
 	} {

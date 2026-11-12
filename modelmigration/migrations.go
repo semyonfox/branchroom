@@ -33,6 +33,7 @@ import (
 	"gitea.dev/modelmigration/v1_8"
 	"gitea.dev/modelmigration/v1_9"
 	"gitea.dev/modelmigration/v28"
+	"gitea.dev/modelmigration/v29"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
@@ -425,13 +426,34 @@ func prepareMigrationTasks() []*migration {
 		newMigration(349, "Expand action_schedule content column", v28.ExpandActionScheduleContent),
 		newMigration(350, "Add published_unix column to release", v28.AddPublishedUnixToRelease),
 		newMigration(351, "Track transfer recipient access grants", v28.AddRecipientAccessGrantedToRepoTransfer),
-		newMigration(352, "Add Branchroom policy schema", v28.AddBranchroomPolicySchema),
-		newMigration(353, "Add Branchroom workspace schema", v28.AddBranchroomWorkspaceSchema),
-		newMigration(354, "Add Branchroom environment schema", v28.AddBranchroomEnvironmentSchema),
-		newMigration(355, "Add Branchroom workspace route keys", v28.AddBranchroomWorkspaceRouteKey),
-		newMigration(356, "Add Branchroom receive session schema", v28.AddBranchroomReceiveSessionSchema),
-		newMigration(357, "Add Branchroom receive session outcomes", v28.AddBranchroomReceiveSessionOutcomes),
-		newMigration(358, "Convert Branchroom audit hashes to varchar", v28.ConvertBranchroomAuditHashesToVarchar),
+		newMigration(352, "Add token columns to deploy_key", v28.AddTokenToDeployKey),
+		newMigration(353, "Add audit event table", v28.AddAuditEventTable),
+		newMigration(354, "Add Actions job queue indexes", v28.AddActionQueueIndexes),
+		newMigration(355, "Add AutoMerge merged_commit_id column", v28.AddAutoMergeMergedCommitID),
+		// Gitea 28.0.0 ends at migration ID number 355 (database version 356)
+
+		newMigration(356, "Add index on action_run commit_sha", v29.AddActionRunCommitSHAIndex),
+		newMigration(357, "Normalize legacy team authorize values", v29.NormalizeLegacyTeamAuthorize),
+		newMigration(358, "Track previous remember-me token hashes", v29.AddPreviousAuthTokenHash),
+		newMigration(359, "Add stage and number columns to action_task_step", v29.AddStageAndNumberToActionTaskStep),
+		newMigration(360, "Move branch protection settings to JSON", v29.MoveBranchProtectionConfigToJSON),
+		newMigration(361, "Drop legacy commit_id column from comment", v29.DropCommentCommitID),
+		newMigration(362, "Add reusable_workflow_ref column to action_run_job", v29.AddReusableWorkflowRefToActionRunJob),
+		newMigration(363, "Add release_id to reaction table", v29.AddReleaseIDToReaction),
+		newMigration(364, "Add new table project_workflow", v29.AddProjectWorkflow),
+		newMigration(365, "Normalize legacy repository unit and login source JSON", v29.NormalizeLegacyConfigJSON),
+		newMigration(366, "Drop user_open_id table", v29.DropUserOpenIDTable),
+		newMigration(367, "Add latest_release_id to repository table", v29.AddLatestReleaseIDToRepository),
+		newMigration(368, "Add unique index for team name", v29.AddUniqueTeamNameIndex),
+
+		// Branchroom migrations, numbered 352 to 358 before the upstream sync, see rewindBranchroomLegacyVersion
+		newMigration(369, "Add Branchroom policy schema", v29.AddBranchroomPolicySchema),
+		newMigration(370, "Add Branchroom workspace schema", v29.AddBranchroomWorkspaceSchema),
+		newMigration(371, "Add Branchroom environment schema", v29.AddBranchroomEnvironmentSchema),
+		newMigration(372, "Add Branchroom workspace route keys", v29.AddBranchroomWorkspaceRouteKey),
+		newMigration(373, "Add Branchroom receive session schema", v29.AddBranchroomReceiveSessionSchema),
+		newMigration(374, "Add Branchroom receive session outcomes", v29.AddBranchroomReceiveSessionOutcomes),
+		newMigration(375, "Convert Branchroom audit hashes to varchar", v29.ConvertBranchroomAuditHashesToVarchar),
 	}
 	return preparedMigrations
 }
@@ -501,6 +523,26 @@ func migrationIDNumberToDBVersion(idNumber int64) int64 {
 	return idNumber + 1
 }
 
+// branchroom databases from before the upstream sync numbered their own migrations 352 to 358,
+// numbers upstream has since used. none of upstream's ran there, so rewind to the fork point
+// and let the branchroom migrations, which are idempotent, run again at their new numbers
+func rewindBranchroomLegacyVersion(x base.EngineMigration, currentVersion *Version) (int64, error) {
+	const forkVersion, legacyMaxVersion = 352, 359
+	if currentVersion.Version <= forkVersion || currentVersion.Version > legacyMaxVersion {
+		return currentVersion.Version, nil
+	}
+	legacy, err := x.IsTableExist("branchroom_scope")
+	if err != nil || !legacy {
+		return currentVersion.Version, err
+	}
+	log.Info("Rewinding Branchroom database version %d to %d to replay its migrations after upstream's", currentVersion.Version, forkVersion)
+	currentVersion.Version = forkVersion
+	if _, err := x.ID(1).Cols("version").Update(currentVersion); err != nil {
+		return 0, err
+	}
+	return forkVersion, nil
+}
+
 // Migrate database to current version
 func Migrate(ctx context.Context, x base.EngineMigration) error {
 	migrations := prepareMigrationTasks()
@@ -527,6 +569,9 @@ func Migrate(ctx context.Context, x base.EngineMigration) error {
 	}
 
 	curDBVer := currentVersion.Version
+	if curDBVer, err = rewindBranchroomLegacyVersion(x, currentVersion); err != nil {
+		return err
+	}
 	// Outdated Gitea database version is not supported
 	if curDBVer < minDBVersion {
 		log.Fatal(`Gitea no longer supports auto-migration from your previously installed version.

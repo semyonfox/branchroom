@@ -2,7 +2,6 @@ savePrefix: ''
 updateNotifier: false
 ignoreScripts: true
 minimumReleaseAge: 0
-confirmModulesPurge: false
 verifyDepsBeforeRun: false
 overrides:
   # transitive copies with security fixes that their parents have not picked up yet

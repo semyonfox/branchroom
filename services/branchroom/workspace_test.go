@@ -573,7 +573,7 @@ func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *
 
 	repository := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
 	public := repository.CodeStorageRepo()
-	require.NoError(t, git.InitRepository(t.Context(), public, repository.ObjectFormatName))
+	require.NoError(t, git.InitRepository(t.Context(), public, repository.ObjectFormatName, ""))
 	require.NoError(t, git.ForceFastImport(t.Context(), public, []git.FastImportCommit{{
 		Ref:     "refs/heads/main",
 		Message: "public main",

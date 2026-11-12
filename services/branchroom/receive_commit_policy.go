@@ -25,7 +25,7 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 		return false
 	}
 	objectFormat := git.ObjectFormatFromName(workspace.ObjectFormatName)
-	if !git.IsValidObjectFormat(workspace.ObjectFormatName) || len(workspace.PublicBaseSHA) != objectFormat.FullLength() || !objectFormat.IsValid(workspace.PublicBaseSHA) {
+	if !git.IsValidObjectFormat(workspace.ObjectFormatName) || !git.IsStringValidObjectID(objectFormat, workspace.PublicBaseSHA) {
 		return false
 	}
 	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
@@ -46,8 +46,8 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 	seenRefs := make(map[string]struct{}, len(updates))
 	for _, update := range updates {
 		if _, exists := seenRefs[update.Ref]; exists ||
-			len(update.OldOID) != objectFormat.FullLength() || !objectFormat.IsValid(update.OldOID) ||
-			len(update.NewOID) != objectFormat.FullLength() || !objectFormat.IsValid(update.NewOID) {
+			!git.IsStringValidObjectID(objectFormat, update.OldOID) ||
+			!git.IsStringValidObjectID(objectFormat, update.NewOID) {
 			return false
 		}
 		seenRefs[update.Ref] = struct{}{}
@@ -124,7 +124,7 @@ func receiveCurrentRef(ctx context.Context, restricted git.RepositoryFacade, env
 		return "", false, false
 	}
 	objectID := strings.TrimSpace(stdout)
-	if len(objectID) != objectFormat.FullLength() || !objectFormat.IsValid(objectID) {
+	if !git.IsStringValidObjectID(objectFormat, objectID) {
 		return "", false, false
 	}
 	return objectID, true, true

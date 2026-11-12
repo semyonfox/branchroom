@@ -243,7 +243,7 @@ func verifyBaseCommit(ctx context.Context, repository gitrepo.RepositoryFacade, 
 
 func workspaceBaseMatchesRepositoryObjectFormat(publicBaseSHA, objectFormatName string) bool {
 	objectFormat := git.ObjectFormatFromName(objectFormatName)
-	return git.IsValidObjectFormat(objectFormatName) && len(publicBaseSHA) == objectFormat.FullLength() && objectFormat.IsValid(publicBaseSHA)
+	return git.IsValidObjectFormat(objectFormatName) && git.IsStringValidObjectID(objectFormat, publicBaseSHA)
 }
 
 func markWorkspaceReady(ctx context.Context, workspace *branchroom_model.Workspace, request CreateRepositoryWorkspaceRequest) (*branchroom_model.Workspace, error) {

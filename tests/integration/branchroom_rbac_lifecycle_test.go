@@ -15,6 +15,7 @@ import (
 	"gitea.dev/models/db"
 	organization_model "gitea.dev/models/organization"
 	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -300,6 +301,8 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 			}
 			require.NoError(t, org_service.NewTeam(t.Context(), adminTeam))
 			require.NoError(t, org_service.AddTeamMember(t.Context(), adminTeam, adminUser))
+			// upstream only grants repository admin to admin teams through access rows, which adding a member does not refresh
+			require.NoError(t, access_model.RecalculateTeamAccesses(t.Context(), repository, 0))
 
 			orgAdmin := loginUser(t, "user28")
 			scope := createScope(t)

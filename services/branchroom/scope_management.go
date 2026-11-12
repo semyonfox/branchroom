@@ -10,6 +10,7 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	organization_model "gitea.dev/models/organization"
+	perm_model "gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
@@ -182,7 +183,7 @@ func isActualRepositoryOwner(ctx context.Context, repoID, userID int64) (bool, e
 		return false, err
 	}
 	for _, team := range teams {
-		if team.HasAdminAccess() {
+		if team.AccessMode >= perm_model.AccessModeAdmin { // upstream dropped Team.HasAdminAccess, keep its meaning
 			return true, nil
 		}
 	}

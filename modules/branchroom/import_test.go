@@ -37,7 +37,7 @@ func TestImportPublicBaseIsolated(t *testing.T) {
 
 	public, err := gitrepo.RepositoryManagedInRoot("public-store", publicRoot, "public.git")
 	require.NoError(t, err)
-	require.NoError(t, git.InitRepository(t.Context(), public, git.Sha1ObjectFormat.Name()))
+	require.NoError(t, git.InitRepository(t.Context(), public, git.Sha1ObjectFormat.Name(), ""))
 	require.NoError(t, git.ForceFastImport(t.Context(), public, []git.FastImportCommit{
 		{
 			Ref:     "refs/heads/main",

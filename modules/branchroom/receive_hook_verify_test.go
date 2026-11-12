@@ -30,7 +30,7 @@ func prepareVerifiedStore(t *testing.T) string {
 	require.NoError(t, err)
 
 	repoPath := filepath.Join(root, testRestrictedStoreID+".git")
-	require.NoError(t, git.InitRepositoryLocal(t.Context(), repoPath, true, git.Sha1ObjectFormat.Name()))
+	require.NoError(t, git.InitRepositoryLocal(t.Context(), repoPath, true, git.Sha1ObjectFormat.Name(), ""))
 	// pin deterministic modes because git init honours the umask
 	require.NoError(t, os.Chmod(repoPath, 0o755))
 	require.NoError(t, os.Chmod(filepath.Join(repoPath, "config"), 0o644))
