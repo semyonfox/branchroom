@@ -144,6 +144,12 @@ func TestLoadBranchroom(t *testing.T) {
 		assert.ErrorContains(t, err, "must not overlap local storage")
 	})
 
+	t.Run("RejectsEditableGitHooks", func(t *testing.T) {
+		defer test.MockVariableValue(&DisableGitHooks, false)()
+		err := loadConfig(t, "[branchroom]\nENABLED = true\n")
+		assert.ErrorContains(t, err, "requires [security] DISABLE_GIT_HOOKS")
+	})
+
 	t.Run("RejectsFastCGI", func(t *testing.T) {
 		defer test.MockVariableValue(&Protocol, FCGI)()
 		err := loadConfig(t, "[branchroom]\nENABLED = true\n")

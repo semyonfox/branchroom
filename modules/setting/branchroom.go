@@ -45,6 +45,9 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	if DatabaseType(rootCfg.Section("database").Key("DB_TYPE").String()).IsMSSQL() {
 		return errors.New("[branchroom] does not support MSSQL")
 	}
+	if !DisableGitHooks {
+		return errors.New("[branchroom] requires [security] DISABLE_GIT_HOOKS, editable server-side hooks run as the service account and can read restricted stores")
+	}
 	if Protocol == FCGI || Protocol == FCGIUnix {
 		return errors.New("[branchroom] does not support FastCGI, the gateway needs connection read deadlines")
 	}

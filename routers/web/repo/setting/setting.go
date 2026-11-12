@@ -955,6 +955,11 @@ func handleSettingsPostDelete(ctx *context.Context) {
 
 	if err := repo_service.DeleteRepository(ctx, ctx.Doer, ctx.Repo.Repository, true); err != nil {
 		if errors.Is(err, branchroom_service.ErrWorkspaceRetentionRequired) {
+			if !setting.Branchroom.Enabled {
+				ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.workspace_retention_required_disabled"))
+				ctx.JSONRedirect(ctx.Repo.RepoLink + "/settings")
+				return
+			}
 			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.workspace_retention_required"))
 			ctx.JSONRedirect(ctx.Repo.RepoLink + "/settings/branchroom")
 			return

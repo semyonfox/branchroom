@@ -4,6 +4,7 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/routers/web/explore"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 	repo_service "gitea.dev/services/repository"
 )
@@ -52,6 +54,11 @@ func DeleteRepo(ctx *context.Context) {
 	}
 
 	if err := repo_service.DeleteRepository(ctx, ctx.Doer, repo, true); err != nil {
+		if errors.Is(err, branchroom_service.ErrWorkspaceRetentionRequired) {
+			ctx.Flash.Error(ctx.Tr("admin.repos.branchroom_retention_required", repo.FullName()))
+			ctx.JSONRedirect(setting.AppSubURL + "/-/admin/repos?page=" + url.QueryEscape(ctx.FormString("page")) + "&sort=" + url.QueryEscape(ctx.FormString("sort")))
+			return
+		}
 		ctx.ServerError("DeleteRepository", err)
 		return
 	}

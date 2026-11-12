@@ -414,6 +414,14 @@ func TestBranchroomWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testi
 	require.DirExists(t, store)
 	response = owner.MakeRequest(t, NewRequest(t, http.MethodDelete, "/api/v1/repos/user4/repo1").AddBasicAuth("user4"), http.StatusConflict)
 	assert.Contains(t, response.Body.String(), branchroom_service.ErrWorkspaceRetentionRequired.Error())
+	setting.Branchroom.Enabled = false
+	response = owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, settingsURL+"?action=delete", map[string]string{"repo_name": repository.Name}), http.StatusOK)
+	redirect = test.ParseJSONRedirect(response.Body.Bytes()).Redirect
+	require.NotNil(t, redirect)
+	assert.Equal(t, settingsURL, *redirect)
+	page = owner.MakeRequest(t, NewRequest(t, http.MethodGet, settingsURL), http.StatusOK)
+	assert.Contains(t, page.Body.String(), "Enable Branchroom and purge them")
+	setting.Branchroom.Enabled = true
 	owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+scopeID+"/workspaces/purge"), http.StatusSeeOther)
 	require.NoDirExists(t, store)
 	testDeleteRepository(t, owner, "user4", repository.Name)

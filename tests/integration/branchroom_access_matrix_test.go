@@ -6,6 +6,7 @@ package integration
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"gitea.dev/services/oauth2_provider"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -142,5 +144,17 @@ func TestBranchroomAccessMatrices(t *testing.T) {
 				}
 			})
 		}
+
+		t.Run("oversized chunked body", func(t *testing.T) {
+			_, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Delete(new(branchroom_model.Grant))
+			require.NoError(t, err)
+			require.NoError(t, branchroom_model.InsertGrant(t.Context(), &branchroom_model.Grant{ScopeID: scope.ID, SubjectType: branchroom_model.SubjectTypeUser, SubjectID: 4, Action: read, CreatedByID: 2}))
+			chunked := func(req *http.Request) { req.ContentLength = -1 }
+			oversized := strings.Repeat("0", 1<<20+1)
+			response := makeBranchroomGitHTTPRequestWithRequest(t, http.MethodPost, operations[1].url, "user4", userPassword, operations[1].contentType, oversized, chunked)
+			assert.Equal(t, http.StatusRequestEntityTooLarge, response.StatusCode)
+			response = makeBranchroomGitHTTPRequestWithRequest(t, http.MethodPost, operations[1].url, "", "", operations[1].contentType, oversized, chunked)
+			assert.Equal(t, http.StatusUnauthorized, response.StatusCode)
+		})
 	})
 }

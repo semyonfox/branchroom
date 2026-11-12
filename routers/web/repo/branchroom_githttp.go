@@ -97,8 +97,7 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 
 	body, ok := readBranchroomGitHTTPRPCBody(ctx.Resp, ctx.Req, rpcDeadline)
 	if !ok {
-		clear(body)
-		branchroomGitHTTPNotFound(ctx)
+		branchroomGitHTTPBodyRejected(ctx, body)
 		return
 	}
 	defer clear(body)
@@ -142,8 +141,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 	}
 	body, ok := readBranchroomGitHTTPRPCBody(ctx.Resp, ctx.Req, rpcDeadline)
 	if !ok {
-		clear(body)
-		branchroomGitHTTPNotFound(ctx)
+		branchroomGitHTTPBodyRejected(ctx, body)
 		return
 	}
 	defer clear(body)
@@ -438,6 +436,18 @@ func branchroomGitHTTPUnauthorized(ctx *context.Context) {
 
 func branchroomGitHTTPNotFound(ctx *context.Context) {
 	ctx.PlainText(http.StatusNotFound, "Repository not found\n")
+}
+
+// branchroomGitHTTPBodyRejected runs only after authorization, so saying a body was too
+// large tells an authorized client nothing about the workspace it did not already know
+func branchroomGitHTTPBodyRejected(ctx *context.Context, body []byte) {
+	tooLarge := len(body) > branchroomGitHTTPMaxRequestBody
+	clear(body)
+	if tooLarge {
+		ctx.PlainText(http.StatusRequestEntityTooLarge, "Request exceeds the 1 MiB restricted gateway limit\n")
+		return
+	}
+	branchroomGitHTTPNotFound(ctx)
 }
 
 func branchroomGitHTTPServerError(ctx *context.Context) {
