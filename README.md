@@ -96,6 +96,10 @@ environment materialization, Actions integration or pull requests. The
 settings page explicitly labels scopes as policy metadata so it cannot be mistaken for
 a protected-branch control.
 
+To run Branchroom with real restricted source, follow the
+[operations runbook](docs/branchroom/operations.md), which states the supported
+deployment and what is not yet supported.
+
 The fork-local source of truth is the
 [implementation plan](docs/branchroom/implementation-plan.md). It explains the
 scope, threat model, Gitea integration points, milestones, and security gates. The
