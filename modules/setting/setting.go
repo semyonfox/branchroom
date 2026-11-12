@@ -135,12 +135,6 @@ func loadCommonSettingsFrom(cfg ConfigProvider) error {
 	}
 	loadTimeFrom(cfg)
 	loadRepositoryFrom(cfg)
-	if err := loadBranchroomFrom(cfg); err != nil {
-		return err
-	}
-	if err := loadBranchroomEnvironmentFrom(cfg); err != nil {
-		return err
-	}
 	if err := loadAvatarsFrom(cfg); err != nil {
 		return err
 	}
@@ -151,6 +145,12 @@ func loadCommonSettingsFrom(cfg ConfigProvider) error {
 		return err
 	}
 	if err := loadActionsFrom(cfg); err != nil {
+		return err
+	}
+	if err := loadBranchroomFrom(cfg); err != nil {
+		return err
+	}
+	if err := loadBranchroomEnvironmentFrom(cfg); err != nil {
 		return err
 	}
 	loadUIFrom(cfg)

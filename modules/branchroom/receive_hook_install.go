@@ -12,6 +12,8 @@ import (
 	"path"
 	"path/filepath"
 
+	"gitea.dev/modules/setting"
+
 	"github.com/google/uuid"
 )
 
@@ -138,7 +140,7 @@ func ensurePrivateRestrictedRoot(restrictedRoot string) (fs.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !isOwnedByGiteaProcess(info) {
+	if err := setting.ValidateBranchroomRestrictedRoot(restrictedRoot); err != nil {
 		return nil, ErrUnsafeRestrictedRoot
 	}
 	return info, nil

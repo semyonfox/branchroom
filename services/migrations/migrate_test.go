@@ -5,14 +5,17 @@ package migrations
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
+	"gitea.dev/modules/test"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMigrateWhiteBlocklist(t *testing.T) {
@@ -114,4 +117,22 @@ func TestAllowBlockList(t *testing.T) {
 
 	// reset to allow local networks (mock servers use 127.0.0.1)
 	init("", "", true)
+}
+
+func TestMigrateRejectsRestrictedLocalPaths(t *testing.T) {
+	defer test.MockVariableValue(&setting.ImportLocalPaths, true)()
+	defer test.MockVariableValue(&setting.Branchroom)()
+	root := t.TempDir()
+	restricted := filepath.Join(root, "restricted")
+	require.NoError(t, os.Mkdir(restricted, 0o700))
+	store := filepath.Join(restricted, "store.git")
+	require.NoError(t, os.Mkdir(store, 0o700))
+	alias := filepath.Join(root, "alias")
+	require.NoError(t, os.Symlink(store, alias))
+	setting.Branchroom.RestrictedRepoRootPath = restricted
+	user := &user_model.User{IsAdmin: true}
+	for _, path := range []string{restricted, store, alias, "file://" + store} {
+		require.Error(t, IsMigrateURLAllowed(path, user))
+	}
+	require.NoError(t, IsMigrateURLAllowed(root, user))
 }

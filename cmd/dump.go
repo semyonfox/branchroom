@@ -153,6 +153,10 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	}
 	dumper.Verbose = verbose
 	dumper.GlobalExcludeAbsPath(outFileName)
+	if setting.Branchroom.RestrictedRepoRootPath != "" {
+		dumper.GlobalExcludeAbsPath(setting.Branchroom.RestrictedRepoRootPath)
+		log.Info("Branchroom restricted stores require a separate backup")
+	}
 	defer func() {
 		if err := dumper.Close(); err != nil {
 			fatal("Failed to save archive %q: %v", outFileName, err)

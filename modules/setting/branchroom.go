@@ -29,7 +29,21 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 		MaxWorkspacesPerOwner: sec.Key("MAX_WORKSPACES_PER_OWNER").MustInt(10),
 	}
 	if !Branchroom.Enabled {
+		configured := strings.TrimSpace(sec.Key("RESTRICTED_ROOT").String())
+		if configured != "" {
+			if !filepath.IsAbs(configured) {
+				configured = filepath.Join(AppWorkPath, configured)
+			}
+			resolved, err := filepath.EvalSymlinks(configured)
+			if err == nil {
+				configured = resolved
+			}
+			Branchroom.RestrictedRepoRootPath = filepath.Clean(configured)
+		}
 		return nil
+	}
+	if DatabaseType(rootCfg.Section("database").Key("DB_TYPE").String()).IsMSSQL() {
+		return errors.New("[branchroom] does not support MSSQL")
 	}
 	if !branchroomRestrictedStoreIntegritySupported() {
 		return errors.New("[branchroom] requires Unix filesystem ownership checks")
@@ -54,7 +68,19 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	if branchroomRootsOverlap(publicRoot, restrictedRoot) {
 		return errors.New("[branchroom].RESTRICTED_ROOT must not overlap [repository].ROOT")
 	}
-	if err := validatePrivateBranchroomRoot(restrictedRoot); err != nil {
+	for _, root := range []string{CustomPath, StaticRootPath} {
+		if err := validateBranchroomSeparateRoot(restrictedRoot, root); err != nil {
+			return err
+		}
+	}
+	for _, storage := range []*Storage{Attachment.Storage, LFS.Storage, Avatar.Storage, RepoAvatar.Storage, Packages.Storage, Actions.LogStorage, Actions.ArtifactStorage, RepoArchive.Storage} {
+		if storage != nil && storage.Type == LocalStorageType {
+			if err := validateBranchroomSeparateRoot(restrictedRoot, storage.Path); err != nil {
+				return err
+			}
+		}
+	}
+	if err := ValidateBranchroomRestrictedRoot(restrictedRoot); err != nil {
 		return err
 	}
 
@@ -62,13 +88,17 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	return nil
 }
 
-func validatePrivateBranchroomRoot(root string) error {
+// ValidateBranchroomRestrictedRoot checks the filesystem contract shared by startup and receive.
+func ValidateBranchroomRestrictedRoot(root string) error {
 	info, err := os.Stat(root)
 	if err != nil {
 		return fmt.Errorf("[branchroom].RESTRICTED_ROOT must be an existing directory: %w", err)
 	}
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return errors.New("[branchroom].RESTRICTED_ROOT must deny group and other access")
+	}
+	if !BranchroomRootOwnedByService(info) {
+		return errors.New("[branchroom].RESTRICTED_ROOT must be owned by the service account")
 	}
 	for parent := filepath.Dir(root); ; parent = filepath.Dir(parent) {
 		parentInfo, err := os.Lstat(parent)
@@ -116,4 +146,29 @@ func branchroomPathContains(parent, child string) bool {
 		return false
 	}
 	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+}
+
+func validateBranchroomSeparateRoot(restricted, root string) error {
+	if root == "" {
+		return nil
+	}
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(AppWorkPath, root)
+	}
+	root = filepath.Clean(root)
+	suffix := ""
+	for {
+		resolved, err := filepath.EvalSymlinks(root)
+		if err == nil {
+			if branchroomRootsOverlap(restricted, filepath.Join(resolved, suffix)) {
+				return errors.New("[branchroom].RESTRICTED_ROOT must not overlap local storage, CustomPath or StaticRootPath")
+			}
+			return nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) || root == filepath.Dir(root) {
+			return err
+		}
+		suffix = filepath.Join(filepath.Base(root), suffix)
+		root = filepath.Dir(root)
+	}
 }

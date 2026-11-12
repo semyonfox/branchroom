@@ -38,9 +38,9 @@ func TestLoadBranchroom(t *testing.T) {
 		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10}, Branchroom)
 	})
 
-	t.Run("DisabledIgnoresRestrictedRoot", func(t *testing.T) {
+	t.Run("DisabledRetainsRestrictedRootForBackupExclusion", func(t *testing.T) {
 		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = false\nRESTRICTED_ROOT = public-repositories\n"))
-		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10}, Branchroom)
+		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10, RestrictedRepoRootPath: publicRoot}, Branchroom)
 	})
 
 	if !branchroomRestrictedStoreIntegritySupported() {
@@ -140,4 +140,23 @@ func privateBranchroomTestRoot(t *testing.T) string {
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	require.NoError(t, os.Chmod(root, 0o700))
 	return root
+}
+
+func TestBranchroomRejectsMSSQL(t *testing.T) {
+	defer test.MockVariableValue(&Branchroom)()
+	cfg, err := NewConfigProviderFromData("[database]\nDB_TYPE = mssql\n[branchroom]\nENABLED = true\n")
+	require.NoError(t, err)
+	require.ErrorContains(t, loadBranchroomFrom(cfg), "does not support MSSQL")
+}
+
+func TestBranchroomSeparateRoots(t *testing.T) {
+	root := privateBranchroomTestRoot(t)
+	restricted := filepath.Join(root, "restricted")
+	require.NoError(t, os.Mkdir(restricted, 0o700))
+	alias := filepath.Join(root, "alias")
+	require.NoError(t, os.Symlink(restricted, alias))
+	for _, path := range []string{restricted, filepath.Join(restricted, "new", "storage"), alias, filepath.Join(alias, "new"), root} {
+		require.ErrorContains(t, validateBranchroomSeparateRoot(restricted, path), "must not overlap")
+	}
+	require.NoError(t, validateBranchroomSeparateRoot(restricted, filepath.Join(root, "other", "new")))
 }

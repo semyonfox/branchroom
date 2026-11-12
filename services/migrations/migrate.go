@@ -65,6 +65,24 @@ func IsMigrateURLAllowed(remoteURL string, doer *user_model.User) error {
 			return &git.ErrInvalidCloneAddr{Host: "<LOCAL_FILESYSTEM>", IsInvalidPath: true, LocalPath: true}
 		}
 
+		if setting.Branchroom.RestrictedRepoRootPath != "" {
+			source, err := filepath.EvalSymlinks(u.Host + u.Path)
+			if err != nil {
+				return err
+			}
+			root, err := filepath.EvalSymlinks(setting.Branchroom.RestrictedRepoRootPath)
+			if err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(root, source)
+			if err != nil {
+				return err
+			}
+			if relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return &git.ErrInvalidCloneAddr{Host: "<LOCAL_FILESYSTEM>", IsPermissionDenied: true, LocalPath: true}
+			}
+		}
+
 		return nil
 	}
 
