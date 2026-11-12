@@ -76,3 +76,25 @@ func TestReadBranchroomGitHTTPGzip(t *testing.T) {
 		server.Close()
 	}
 }
+
+func TestReadBranchroomGitHTTPGzipBoundsChunkedInput(t *testing.T) {
+	var member bytes.Buffer
+	writer := gzip.NewWriter(&member)
+	require.NoError(t, writer.Close())
+	compressed := bytes.Repeat(member.Bytes(), branchroomGitHTTPMaxRequestBody/member.Len()+2)
+
+	finished := make(chan bool, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, int64(-1), r.ContentLength)
+		_, ok := readBranchroomGitHTTPRPCBody(w, r, time.Now().Add(5*time.Second))
+		finished <- ok
+	}))
+	defer server.Close()
+	req, err := http.NewRequest(http.MethodPost, server.URL, io.MultiReader(bytes.NewReader(compressed)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Encoding", "gzip")
+	response, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	assert.False(t, <-finished)
+}

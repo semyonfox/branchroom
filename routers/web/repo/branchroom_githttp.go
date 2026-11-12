@@ -244,7 +244,8 @@ func readBranchroomGitHTTPRPCBody(resp http.ResponseWriter, req *http.Request, d
 	}
 	var body io.Reader = req.Body
 	if req.Header.Get("Content-Encoding") == "gzip" {
-		decoded, err := gzip.NewReader(body)
+		// chunked bodies carry no length, so bound the compressed side too
+		decoded, err := gzip.NewReader(io.LimitReader(body, branchroomGitHTTPMaxRequestBody+1))
 		if err != nil {
 			return nil, false
 		}
