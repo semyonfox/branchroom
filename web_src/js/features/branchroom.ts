@@ -6,16 +6,18 @@ export function initBranchroom() {
   const enabled = document.querySelector('meta[name="branchroom-telemetry-enabled"]')?.getAttribute('content') === 'true';
   const endpoint = document.querySelector('meta[name="branchroom-telemetry-endpoint"]')?.getAttribute('content') || '';
   const telemetry = createBranchroomTelemetry(root.classList.contains('branchroom') ? 'settings' : 'workspace', enabled, endpoint);
-  const privacySwitch = root.querySelector<HTMLInputElement>('#branchroom-telemetry-disable')!;
-  const privacyStatus = root.querySelector<HTMLElement>('#branchroom-telemetry-status')!;
-  privacySwitch.checked = branchroomTelemetryDisabled();
-  const updatePrivacyStatus = () => { privacyStatus.textContent = privacyStatus.getAttribute(telemetry.active() ? 'data-on' : 'data-off') };
-  updatePrivacyStatus();
-  privacySwitch.addEventListener('change', () => {
-    telemetry.setDisabled(privacySwitch.checked);
-    setBranchroomTelemetryDisabled(privacySwitch.checked);
+  const privacySwitch = root.querySelector<HTMLInputElement>('#branchroom-telemetry-disable');
+  const privacyStatus = root.querySelector<HTMLElement>('#branchroom-telemetry-status');
+  if (privacySwitch && privacyStatus) {
+    privacySwitch.checked = branchroomTelemetryDisabled();
+    const updatePrivacyStatus = () => { privacyStatus.textContent = privacyStatus.getAttribute(telemetry.active() ? 'data-on' : 'data-off') };
     updatePrivacyStatus();
-  });
+    privacySwitch.addEventListener('change', () => {
+      telemetry.setDisabled(privacySwitch.checked);
+      setBranchroomTelemetryDisabled(privacySwitch.checked);
+      updatePrivacyStatus();
+    });
+  }
   telemetry.record('screen_view');
 
   root.querySelector<HTMLAnchorElement>('.branchroom-create-link')?.addEventListener('click', () => {

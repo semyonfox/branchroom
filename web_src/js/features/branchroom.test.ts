@@ -174,6 +174,8 @@ test('native range validation retains values and records only the fixed invalid 
   }
   const root = mountHandoff();
   root.className = 'page-content branchroom';
+  root.querySelector('#branchroom-telemetry-disable')!.remove();
+  root.querySelector('#branchroom-telemetry-status')!.remove();
   const form = document.createElement('form');
   form.innerHTML = '<input type="datetime-local" name="not_before"><input type="datetime-local" name="expires"><p class="branchroom-time-error" data-error-message="Expiry must follow start"></p>';
   root.append(form);
