@@ -37,14 +37,22 @@ The server refuses to start if the configured restricted root overlaps
 route hidden when `ENABLED` is false. `[repository] DISABLE_HTTP_GIT = true` also
 hides the handoff result and the restricted Git HTTP gateway.
 
-Restricted stores must not overlap public repositories, local storage, CustomPath or
-StaticRootPath. Local imports cannot read from the restricted root. `gitea dump`
-excludes restricted stores, which need a separate backup. MSSQL is unsupported when
-Branchroom is enabled.
+Restricted stores must not overlap public repositories, local storage, or the served
+`public`, `templates` and `options` directories under `CustomPath` and
+`StaticRootPath`. A root under the work path, such as `data/branchroom`, is fine. Local
+imports cannot read from the restricted root. `gitea dump` excludes restricted stores,
+including through a symlinked data path, so they need a separate backup. Branchroom
+refuses to start on MSSQL and under FastCGI (`PROTOCOL = fcgi` or `fcgi+unix`), because
+the gateway needs row locks and connection read deadlines.
 
 Server-side hooks and runners on the same host can read restricted stores as the service
-account. Moving the executable, configuration or restricted root requires regenerating
-the installed receive hooks.
+account. The installed receive hook records the executable, configuration and restricted
+root paths. Moving any of them stops pushes, and there is no command to reinstall the
+hooks yet.
+
+Pushes run with `receive.fsckObjects`, which is stricter than an ordinary Gitea push.
+Incoming objects with legacy defects such as zero-padded file modes, a missing email or
+a bad timezone are rejected. History already in the store is not rechecked.
 
 Build and start Gitea using the normal local development instructions in
 [`docs/development.md`](../development.md). The environment foundation is not part
