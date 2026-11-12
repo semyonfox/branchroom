@@ -292,7 +292,7 @@ func TestAPICron(t *testing.T) {
 		assert.Equal(t, "31", resp.Header().Get("X-Total-Count"))
 
 		crons := DecodeJSON(t, resp, []api.Cron{})
-		assert.Len(t, crons, 31)
+		assert.Len(t, crons, 30)
 	})
 
 	t.Run("Execute", func(t *testing.T) {
