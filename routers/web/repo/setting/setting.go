@@ -30,6 +30,7 @@ import (
 	"gitea.dev/modules/web"
 	repo_router "gitea.dev/routers/web/repo"
 	actions_service "gitea.dev/services/actions"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
 	"gitea.dev/services/migrations"
@@ -953,6 +954,11 @@ func handleSettingsPostDelete(ctx *context.Context) {
 	}
 
 	if err := repo_service.DeleteRepository(ctx, ctx.Doer, ctx.Repo.Repository, true); err != nil {
+		if errors.Is(err, branchroom_service.ErrWorkspaceRetentionRequired) {
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.workspace_retention_required"))
+			ctx.JSONRedirect(ctx.Repo.RepoLink + "/settings/branchroom")
+			return
+		}
 		ctx.ServerError("DeleteRepository", err)
 		return
 	}

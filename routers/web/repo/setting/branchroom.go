@@ -79,12 +79,6 @@ func Branchroom(ctx *context.Context) {
 		ctx.ServerError("FindScopesByRepoID", err)
 		return
 	}
-	visibleScopes := make([]*branchroom_model.Scope, 0, len(scopes))
-	for _, scope := range scopes {
-		if scope.Kind == branchroom_model.ScopeKindRepository && scope.State != branchroom_model.ScopeStateRetired {
-			visibleScopes = append(visibleScopes, scope)
-		}
-	}
 	workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, ctx.Repo.Repository.ID)
 	if err != nil {
 		ctx.ServerError("FindBranchroomWorkspaces", err)
@@ -103,6 +97,17 @@ func Branchroom(ctx *context.Context) {
 		workspacesByScopeID[workspace.ScopeID] = workspace
 	}
 
+	visibleScopes := make([]*branchroom_model.Scope, 0, len(scopes))
+	for _, scope := range scopes {
+		if scope.Kind != branchroom_model.ScopeKindRepository {
+			continue
+		}
+		workspace := workspacesByScopeID[scope.ID]
+		if scope.State != branchroom_model.ScopeStateRetired || workspace != nil && (workspace.State == branchroom_model.WorkspaceStateRetired || workspace.State == branchroom_model.WorkspaceStateFailed || branchroom_service.WorkspaceProvisioningAbandoned(workspace)) {
+			visibleScopes = append(visibleScopes, scope)
+		}
+	}
+
 	discoveryGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	sourceReadGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
 	sourceWriteGrantsByScopeID := make(map[int64][]*branchroom_model.Grant, len(visibleScopes))
@@ -111,6 +116,9 @@ func Branchroom(ctx *context.Context) {
 	teamIDs := make([]int64, 0)
 	now := timeutil.TimeStampNow()
 	for _, scope := range visibleScopes {
+		if scope.State == branchroom_model.ScopeStateRetired {
+			continue
+		}
 		discoveryGrants, err := branchroom_model.FindActiveGrantsAt(ctx, scope.ID, branchroom_model.ActionDiscover, now)
 		if err != nil {
 			ctx.ServerError("FindActiveBranchroomGrants", err)
@@ -186,9 +194,9 @@ func Branchroom(ctx *context.Context) {
 			data.CanGrantSourceRead = scope.State == branchroom_model.ScopeStateActive && workspace.State == branchroom_model.WorkspaceStateReady
 			data.CanGrantSourceWrite = data.CanGrantSourceRead
 			data.CanRotateRouteKey = data.CanGrantSourceRead
-			data.CanRetryWorkspace = workspace.State == branchroom_model.WorkspaceStateFailed
-			data.CanRetireWorkspace = workspace.State == branchroom_model.WorkspaceStateReady || workspace.State == branchroom_model.WorkspaceStateFailed
-			data.CanPurgeWorkspace = data.CanRetireWorkspace || workspace.State == branchroom_model.WorkspaceStateRetired
+			data.CanRetryWorkspace = scope.State == branchroom_model.ScopeStateActive && (workspace.State == branchroom_model.WorkspaceStateFailed || branchroom_service.WorkspaceProvisioningAbandoned(workspace))
+			data.CanRetireWorkspace = scope.State == branchroom_model.ScopeStateActive && (workspace.State == branchroom_model.WorkspaceStateReady || workspace.State == branchroom_model.WorkspaceStateFailed)
+			data.CanPurgeWorkspace = workspace.State == branchroom_model.WorkspaceStateReady || workspace.State == branchroom_model.WorkspaceStateFailed || workspace.State == branchroom_model.WorkspaceStateRetired || branchroom_service.WorkspaceProvisioningAbandoned(workspace)
 		}
 		for _, grant := range discoveryGrantsByScopeID[scope.ID] {
 			subjectName := string(ctx.Tr("repo.settings.branchroom.deleted_user", grant.SubjectID))

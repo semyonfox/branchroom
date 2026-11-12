@@ -164,7 +164,7 @@ func capturePurgeableWorkspace(ctx context.Context, request PurgeWorkspaceReques
 		if err != nil {
 			return nil, err
 		}
-		if workspaceProvisioningAbandoned(workspace) {
+		if WorkspaceProvisioningAbandoned(workspace) {
 			if err := transitionLockedWorkspace(txCtx, scope, workspace, branchroom_model.WorkspaceStateFailed, "workspace_abandoned", 0, request.Actor, request.Surface, request.RequestID); err != nil {
 				return nil, err
 			}
@@ -263,10 +263,10 @@ func reserveWorkspaceRetry(ctx context.Context, request RetryWorkspaceProvisioni
 		if err != nil {
 			return nil, err
 		}
-		if workspace.State != branchroom_model.WorkspaceStateFailed && !workspaceProvisioningAbandoned(workspace) {
+		if workspace.State != branchroom_model.WorkspaceStateFailed && !WorkspaceProvisioningAbandoned(workspace) {
 			return nil, ErrWorkspaceStateChanged
 		}
-		if workspaceProvisioningAbandoned(workspace) {
+		if WorkspaceProvisioningAbandoned(workspace) {
 			if err := transitionLockedWorkspace(txCtx, scope, workspace, branchroom_model.WorkspaceStateFailed, "workspace_abandoned", 0, request.Actor, request.Surface, request.RequestID); err != nil {
 				return nil, err
 			}
@@ -369,6 +369,18 @@ func enforceWorkspaceOwnerQuota(ctx context.Context, ownerID int64) error {
 	}
 	if count >= int64(limit) {
 		return ErrWorkspaceQuotaReached
+	}
+	return nil
+}
+
+// CheckRepositoryWorkspaceRetention checks retention before deletion side effects.
+func CheckRepositoryWorkspaceRetention(ctx context.Context, repoID int64) error {
+	retained, err := db.GetEngine(ctx).Where("repo_id = ? AND state <> ?", repoID, branchroom_model.WorkspaceStatePurged).Exist(new(branchroom_model.Workspace))
+	if err != nil {
+		return err
+	}
+	if retained {
+		return ErrWorkspaceRetentionRequired
 	}
 	return nil
 }

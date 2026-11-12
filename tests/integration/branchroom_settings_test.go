@@ -6,12 +6,17 @@ package integration
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitrepo"
@@ -19,6 +24,8 @@ import (
 	"gitea.dev/modules/test"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
+	branchroom_service "gitea.dev/services/branchroom"
+	repository_service "gitea.dev/services/repository"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
@@ -348,4 +355,67 @@ func TestBranchroomSettings(t *testing.T) {
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-grants/1/revoke"), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/1/revoke"), http.StatusNotFound)
 	})
+}
+
+func TestBranchroomWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	defer test.MockVariableValue(&setting.Branchroom)()
+	setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t)}
+	repository := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	require.NoError(t, repository.LoadOwner(t.Context()))
+	admin := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	newOwner := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	baseSHA, err := git.GetBranchCommitID(t.Context(), repository.CodeStorageRepo(), repository.DefaultBranch)
+	require.NoError(t, err)
+	actor := branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}
+	scope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{RepoID: repository.ID, Actor: actor, Name: "retained-store", Surface: branchroom_model.SurfaceSystem})
+	require.NoError(t, err)
+	workspace, err := branchroom_service.CreateRepositoryWorkspace(t.Context(), branchroom_service.CreateRepositoryWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: actor, PublicBaseSHA: baseSHA, Surface: branchroom_model.SurfaceSystem})
+	require.NoError(t, err)
+	store := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git")
+	require.DirExists(t, store)
+	_, err = db.GetEngine(t.Context()).ID(workspace.ID).Cols("state", "updated_unix").NoAutoTime().Update(&branchroom_model.Workspace{State: branchroom_model.WorkspaceStateProvisioning, UpdatedUnix: timeutil.TimeStamp(time.Now().Add(-2 * time.Hour).Unix())})
+	require.NoError(t, err)
+	owner := loginUser(t, "user2")
+	page := owner.MakeRequest(t, NewRequest(t, http.MethodGet, "/user2/repo1/settings/branchroom"), http.StatusOK)
+	html := NewHTMLParser(t, page.Body)
+	scopeID := strconv.FormatInt(scope.ID, 10)
+	AssertHTMLElement(t, html, "#branchroom-workspace-retry-"+scopeID, true)
+	AssertHTMLElement(t, html, "#branchroom-workspace-purge-"+scopeID, true)
+	_, err = db.GetEngine(t.Context()).ID(workspace.ID).Cols("state").Update(&branchroom_model.Workspace{State: branchroom_model.WorkspaceStateReady})
+	require.NoError(t, err)
+	// exercise the outgoing pull request closure path
+	_, err = db.GetEngine(t.Context()).ID(2).Cols("base_repo_id").Update(&issues_model.PullRequest{BaseRepoID: 3})
+	require.NoError(t, err)
+	require.NoError(t, repository_service.StartRepositoryTransfer(t.Context(), admin, newOwner, repository, nil))
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Scope{ID: scope.ID, State: branchroom_model.ScopeStateRetired})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Workspace{ID: workspace.ID, State: branchroom_model.WorkspaceStateRetired})
+	require.ErrorIs(t, branchroom_service.ReleaseRepositoryWorkspaceRetention(t.Context(), repository.ID), branchroom_service.ErrWorkspaceRetentionRequired)
+	_, err = branchroom_service.PurgeWorkspace(t.Context(), branchroom_service.PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: actor, Surface: branchroom_model.SurfaceSystem})
+	require.ErrorIs(t, err, util.ErrNotExist)
+	owner = loginUser(t, "user4")
+	settingsURL := "/user4/repo1/settings"
+	branchroomURL := settingsURL + "/branchroom"
+	page = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
+	html = NewHTMLParser(t, page.Body)
+	item := html.Find("#branchroom-workspace-purge-" + scopeID).Closest(".item-main")
+	require.Contains(t, item.Text(), "retained-store")
+	require.Equal(t, 1, item.Find("form").Length())
+	assert.Equal(t, branchroomURL+"/scopes/"+scopeID+"/workspaces/purge", item.Find("form").AttrOr("action", ""))
+	response := owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, settingsURL+"?action=delete", map[string]string{"repo_name": repository.Name}), http.StatusOK)
+	redirect := test.ParseJSONRedirect(response.Body.Bytes()).Redirect
+	require.NotNil(t, redirect)
+	assert.Equal(t, branchroomURL, *redirect)
+	page = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
+	assert.Contains(t, page.Body.String(), "Purge the restricted workspaces in Branchroom settings")
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repository.ID})
+	issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 3})
+	assert.False(t, issue.IsClosed)
+	require.DirExists(t, store)
+	response = owner.MakeRequest(t, NewRequest(t, http.MethodDelete, "/api/v1/repos/user4/repo1").AddBasicAuth("user4"), http.StatusConflict)
+	assert.Contains(t, response.Body.String(), branchroom_service.ErrWorkspaceRetentionRequired.Error())
+	owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+scopeID+"/workspaces/purge"), http.StatusSeeOther)
+	require.NoDirExists(t, store)
+	testDeleteRepository(t, owner, "user4", repository.Name)
+	unittest.AssertNotExistsBean(t, &repo_model.Repository{ID: repository.ID})
 }

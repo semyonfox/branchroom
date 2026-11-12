@@ -344,6 +344,6 @@ func workspaceResourceID(workspaceKey string) string {
 	return "workspace/" + workspaceKey
 }
 
-func workspaceProvisioningAbandoned(workspace *branchroom_model.Workspace) bool {
+func WorkspaceProvisioningAbandoned(workspace *branchroom_model.Workspace) bool {
 	return workspace.State == branchroom_model.WorkspaceStateProvisioning && workspace.UpdatedUnix.AsTime().Add(workspaceProvisioningWindow).Before(time.Now())
 }

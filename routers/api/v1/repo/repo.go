@@ -33,6 +33,7 @@ import (
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
 	actions_service "gitea.dev/services/actions"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	feed_service "gitea.dev/services/feed"
@@ -1146,6 +1147,8 @@ func Delete(ctx *context.APIContext) {
 	// responses:
 	//   "204":
 	//     "$ref": "#/responses/empty"
+	//   "409":
+	//     "$ref": "#/responses/conflict"
 	//   "403":
 	//     "$ref": "#/responses/forbidden"
 	//   "404":
@@ -1168,6 +1171,10 @@ func Delete(ctx *context.APIContext) {
 	}
 
 	if err := repo_service.DeleteRepository(ctx, ctx.Doer, repo, true); err != nil {
+		if errors.Is(err, branchroom_service.ErrWorkspaceRetentionRequired) {
+			ctx.APIError(http.StatusConflict, err.Error())
+			return
+		}
 		ctx.APIErrorInternal(err)
 		return
 	}

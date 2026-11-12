@@ -27,6 +27,7 @@ import (
 	repo_module "gitea.dev/modules/repository"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/structs"
+	branchroom_service "gitea.dev/services/branchroom"
 	notify_service "gitea.dev/services/notify"
 	pull_service "gitea.dev/services/pull"
 )
@@ -59,6 +60,9 @@ func CreateRepository(ctx context.Context, doer, owner *user_model.User, opts Cr
 
 // DeleteRepository deletes a repository for a user or organization.
 func DeleteRepository(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, notify bool) error {
+	if err := branchroom_service.CheckRepositoryWorkspaceRetention(ctx, repo.ID); err != nil {
+		return err
+	}
 	if err := pull_service.CloseRepoBranchesPulls(ctx, doer, repo); err != nil {
 		log.Error("CloseRepoBranchesPulls failed: %v", err)
 	}

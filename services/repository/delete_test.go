@@ -133,11 +133,12 @@ func TestDeleteRepositoryDirectlyPurgesRepoScopedRows(t *testing.T) {
 	unittest.AssertNotExistsBean(t, &branchroom_model.AuditEvent{RepoID: 1})
 }
 
-func TestDeleteRepositoryDirectlyBlocksActiveBranchroomWorkspace(t *testing.T) {
+func TestDeleteRepositoryDirectlyBlocksUnpurgedBranchroomWorkspace(t *testing.T) {
 	for _, state := range []branchroom_model.WorkspaceState{
 		branchroom_model.WorkspaceStateProvisioning,
 		branchroom_model.WorkspaceStateReady,
 		branchroom_model.WorkspaceStateFailed,
+		branchroom_model.WorkspaceStateRetired,
 	} {
 		t.Run(string(state), func(t *testing.T) {
 			unittest.PrepareTestEnv(t)
@@ -165,6 +166,9 @@ func TestDeleteRepositoryDirectlyBlocksActiveBranchroomWorkspace(t *testing.T) {
 			if state != branchroom_model.WorkspaceStateFailed {
 				workspace.FailureCode = ""
 			}
+			if state == branchroom_model.WorkspaceStateRetired {
+				workspace.RetiredUnix = timeutil.TimeStampNow()
+			}
 			assert.NoError(t, branchroom_model.InsertWorkspace(t.Context(), workspace))
 
 			err := repo_service.DeleteRepositoryDirectly(t.Context(), 1)
@@ -176,31 +180,8 @@ func TestDeleteRepositoryDirectlyBlocksActiveBranchroomWorkspace(t *testing.T) {
 	}
 }
 
-func TestDeleteRepositoryDirectlyAllowsTerminalBranchroomWorkspace(t *testing.T) {
+func TestDeleteRepositoryDirectlyAllowsPurgedBranchroomWorkspace(t *testing.T) {
 	unittest.PrepareTestEnv(t)
-	retiredScope := &branchroom_model.Scope{
-		Kind:        branchroom_model.ScopeKindRepository,
-		RepoID:      1,
-		Name:        "retired retention",
-		State:       branchroom_model.ScopeStateActive,
-		OwnerType:   branchroom_model.ScopeOwnerTypeUser,
-		OwnerID:     2,
-		CreatedByID: 2,
-	}
-	assert.NoError(t, branchroom_model.InsertScope(t.Context(), retiredScope))
-	retired := &branchroom_model.Workspace{
-		WorkspaceKey:     "11111111-1111-1111-1111-111111111111",
-		ScopeID:          retiredScope.ID,
-		RepoID:           1,
-		StoreID:          "22222222-2222-2222-2222-222222222222",
-		PublicBaseSHA:    strings.Repeat("a", 40),
-		ObjectFormatName: "sha1",
-		State:            branchroom_model.WorkspaceStateRetired,
-		RetiredUnix:      timeutil.TimeStampNow(),
-		CreatedByID:      2,
-	}
-	assert.NoError(t, branchroom_model.InsertWorkspace(t.Context(), retired))
-
 	purgedScope := &branchroom_model.Scope{
 		Kind:        branchroom_model.ScopeKindRepository,
 		RepoID:      1,

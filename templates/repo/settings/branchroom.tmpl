@@ -74,6 +74,7 @@
 									<button id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
 								</form>
 							{{end}}
+							{{if ne .State "retired"}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
 								<strong>{{ctx.Locale.Tr "repo.settings.branchroom.discovery_grants"}}</strong>
 								<div class="ui list">
@@ -191,6 +192,7 @@
 									</form>
 								{{end}}
 							</div>
+							{{end}}
 						</div>
 					</div>
 				{{else}}
