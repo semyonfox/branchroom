@@ -72,7 +72,7 @@ func RetireWorkspace(ctx context.Context, request RetireWorkspaceRequest) (*bran
 		return nil, err
 	}
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Workspace, error) {
-		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom workspace does not exist")
+		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, "Branchroom workspace does not exist")
 		if err != nil {
 			return nil, err
 		}

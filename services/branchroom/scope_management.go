@@ -31,10 +31,10 @@ func CreateRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 	if !setting.Branchroom.Enabled {
 		return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
 	}
-	return createRepositoryScope(ctx, request, branchroom_model.ScopeKindRepository)
+	return createRepositoryScope(ctx, request)
 }
 
-func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeRequest, kind branchroom_model.ScopeKind) (*branchroom_model.Scope, error) {
+func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeRequest) (*branchroom_model.Scope, error) {
 	if request.RepoID <= 0 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom scope creation request")
 	}
@@ -45,7 +45,7 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 		}
 
 		scope := &branchroom_model.Scope{
-			Kind:        kind,
+			Kind:        branchroom_model.ScopeKindRepository,
 			RepoID:      request.RepoID,
 			Name:        request.Name,
 			State:       branchroom_model.ScopeStateActive,
@@ -106,9 +106,9 @@ func requireScopeOwnerTx(ctx context.Context, repoID int64, actor Actor, notExis
 	return nil
 }
 
-// requireActiveScopeTx additionally fetches one locked scope and requires it to
-// belong to the repository, carry kind, and stay active.
-func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeID int64, kind branchroom_model.ScopeKind, notExistMessage string) (*branchroom_model.Scope, error) {
+// requireActiveScopeTx additionally fetches one locked scope and requires it to be an
+// active repository scope of the repository.
+func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeID int64, notExistMessage string) (*branchroom_model.Scope, error) {
 	if err := requireScopeOwnerTx(ctx, repoID, actor, notExistMessage); err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeI
 	if err != nil {
 		return nil, err
 	}
-	if scope.RepoID != repoID || scope.Kind != kind || scope.State != branchroom_model.ScopeStateActive {
+	if scope.RepoID != repoID || scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
 		return nil, util.NewNotExistErrorf("%s", notExistMessage)
 	}
 	return scope, nil

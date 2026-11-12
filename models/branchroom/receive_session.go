@@ -181,19 +181,6 @@ func GetReceiveSessionByKey(ctx context.Context, sessionKey string) (*ReceiveSes
 	return session, nil
 }
 
-func findReceiveSessionsByScopeID(ctx context.Context, scopeID int64, forUpdate bool) ([]*ReceiveSession, error) {
-	if scopeID <= 0 {
-		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom scope ID")
-	}
-	sessions := make([]*ReceiveSession, 0)
-	engine := db.GetEngine(ctx).Where("scope_id = ?", scopeID).Asc("id")
-	if forUpdate && branchroomSupportsForUpdate() {
-		engine = engine.ForUpdate()
-	}
-	err := engine.Find(&sessions)
-	return sessions, err
-}
-
 // FindReceiveSessionsByRepoID returns a repository's sessions in deterministic creation order.
 func FindReceiveSessionsByRepoID(ctx context.Context, repoID int64) ([]*ReceiveSession, error) {
 	return findReceiveSessionsByRepoID(ctx, repoID, false)

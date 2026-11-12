@@ -208,7 +208,7 @@ type createRepositoryDirectUserGrantRequest struct {
 
 func createRepositoryDirectUserGrant(ctx context.Context, request createRepositoryDirectUserGrantRequest) (*branchroom_model.Grant, error) {
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Grant, error) {
-		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom scope does not exist")
+		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, "Branchroom scope does not exist")
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func CreateRepositoryTeamGrant(ctx context.Context, request CreateRepositoryTeam
 	}
 
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Grant, error) {
-		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom scope does not exist")
+		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, "Branchroom scope does not exist")
 		if err != nil {
 			return nil, err
 		}

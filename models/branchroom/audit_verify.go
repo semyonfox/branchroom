@@ -5,6 +5,7 @@ package branchroom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"gitea.dev/models/db"
@@ -31,7 +32,7 @@ func VerifyScopeAuditChain(ctx context.Context, scope *Scope) error {
 		previous = event.EventHash
 	}
 	if scope.AuditSequence != int64(len(events)) || scope.AuditHeadHash != previous {
-		return fmt.Errorf("scope head does not match its last audit event")
+		return errors.New("scope head does not match its last audit event")
 	}
 	return nil
 }

@@ -138,7 +138,6 @@ func TestReceiveSessionClaimAndComplete(t *testing.T) {
 	claimed, err = ClaimReceiveSession(ctx, expiredSession.ID, expiredSession.ExpiresUnix)
 	require.NoError(t, err)
 	assert.False(t, claimed)
-
 }
 
 // Admitted completes a claimed session like denied or failed, and the session still ends one-use.
