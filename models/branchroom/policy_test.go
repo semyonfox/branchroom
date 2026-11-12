@@ -163,7 +163,9 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	scope := newTestScope()
 	require.NoError(t, InsertScope(ctx, scope))
 
-	first, err := RecordDecisionAndAudit(ctx, scope, newTestDecision(scope, DecisionResultAllow, "grant_matched"))
+	firstDecision := newTestDecision(scope, DecisionResultAllow, "grant_matched")
+	firstDecision.CreatedUnix = timeutil.TimeStampNow() - 60
+	first, err := RecordDecisionAndAudit(ctx, scope, firstDecision)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, first.Sequence)
 	assert.Empty(t, first.PreviousHash)
@@ -179,6 +181,17 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, storedScope.AuditSequence)
 	assert.Equal(t, second.EventHash, storedScope.AuditHeadHash)
+
+	var storedEvents []*AuditEvent
+	require.NoError(t, db.GetEngine(ctx).Where("scope_id = ?", scope.ID).OrderBy("sequence").Find(&storedEvents))
+	previous := ""
+	for _, event := range storedEvents {
+		require.NoError(t, event.Validate())
+		assert.Equal(t, previous, event.PreviousHash)
+		assert.Equal(t, event.ComputeHash(), event.EventHash)
+		previous = event.EventHash
+	}
+	assert.Equal(t, storedScope.AuditHeadHash, previous)
 
 	var decisionCount, auditCount int64
 	decisionCount, err = db.GetEngine(ctx).Count(new(Decision))

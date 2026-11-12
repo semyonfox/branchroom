@@ -37,7 +37,7 @@ type Decision struct {
 	OrdinaryAllowed bool               `xorm:"NOT NULL"`
 	RequestID       string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	ExpiresUnix     timeutil.TimeStamp `xorm:"INDEX NOT NULL DEFAULT 0"`
-	CreatedUnix     timeutil.TimeStamp `xorm:"created INDEX(scope_created) INDEX(actor_created) NOT NULL"`
+	CreatedUnix     timeutil.TimeStamp `xorm:"INDEX(scope_created) INDEX(actor_created) NOT NULL"`
 }
 
 // TableName returns the stable Branchroom decision table name.
@@ -75,7 +75,7 @@ type AuditEvent struct {
 	RequestID       string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	PreviousHash    string             `xorm:"CHAR(64) NOT NULL DEFAULT ''"`
 	EventHash       string             `xorm:"CHAR(64) UNIQUE NOT NULL"`
-	CreatedUnix     timeutil.TimeStamp `xorm:"created INDEX(scope_created) INDEX(actor_created) NOT NULL"`
+	CreatedUnix     timeutil.TimeStamp `xorm:"INDEX(scope_created) INDEX(actor_created) NOT NULL"`
 }
 
 // TableName returns the stable Branchroom audit-event table name.
@@ -126,25 +126,13 @@ func (event *AuditEvent) ComputeHash() string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// maxRecordDecisionAuditAttempts bounds retries when the audit-head compare-and-swap
-// races another writer, so a benign conflict cannot fail an otherwise valid operation.
-const maxRecordDecisionAuditAttempts = 3
-
 // RecordDecisionAndAudit writes a decision and its audit event atomically.
 func RecordDecisionAndAudit(ctx context.Context, scope *Scope, decision *Decision) (*AuditEvent, error) {
 	if scope == nil || decision == nil || scope.ID <= 0 {
 		return nil, util.NewInvalidArgumentErrorf("Branchroom scope and decision are required")
 	}
 
-	var event *AuditEvent
-	var err error
-	for range maxRecordDecisionAuditAttempts {
-		event, err = recordDecisionAndAuditOnce(ctx, scope, decision)
-		if !errors.Is(err, ErrAuditConflict) {
-			return event, err
-		}
-	}
-	return event, err
+	return recordDecisionAndAuditOnce(ctx, scope, decision)
 }
 
 func recordDecisionAndAuditOnce(ctx context.Context, scope *Scope, decision *Decision) (*AuditEvent, error) {
