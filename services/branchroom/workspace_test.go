@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -608,4 +609,64 @@ func insertWorkspaceScope(t *testing.T, repoID, ownerID int64, name string) *bra
 	}
 	require.NoError(t, branchroom_model.InsertScope(t.Context(), scope))
 	return scope
+}
+
+func TestWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "retained-store")
+	store := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git")
+	require.DirExists(t, store)
+	_, err := RetireWorkspace(t.Context(), RetireWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
+	require.NoError(t, err)
+	require.ErrorIs(t, ReleaseRepositoryWorkspaceRetention(t.Context(), repository.ID), ErrWorkspaceRetentionRequired)
+	require.DirExists(t, store)
+	_, err = db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateRetired})
+	require.NoError(t, err)
+	_, err = db.GetEngine(t.Context()).ID(repository.ID).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 4})
+	require.NoError(t, err)
+	_, err = PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
+	require.ErrorIs(t, err, util.ErrNotExist)
+	require.DirExists(t, store)
+	_, err = PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: 4}, Surface: branchroom_model.SurfaceSystem})
+	require.NoError(t, err)
+	require.NoDirExists(t, store)
+	require.NoError(t, ReleaseRepositoryWorkspaceRetention(t.Context(), repository.ID))
+	_, err = branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
+	require.ErrorIs(t, err, util.ErrNotExist)
+}
+
+func TestAbandonedWorkspaceProvisioning(t *testing.T) {
+	for _, operation := range []string{"retry", "purge"} {
+		t.Run(operation, func(t *testing.T) {
+			_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+			scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "abandoned-store")
+			_, err := db.GetEngine(t.Context()).ID(workspace.ID).Cols("state", "updated_unix").NoAutoTime().Update(&branchroom_model.Workspace{State: branchroom_model.WorkspaceStateProvisioning, UpdatedUnix: timeutil.TimeStamp(time.Now().Add(-workspaceProvisioningWindow - time.Minute).Unix())})
+			require.NoError(t, err)
+			if operation == "retry" {
+				retried, err := RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
+				require.NoError(t, err)
+				require.Equal(t, branchroom_model.WorkspaceStateReady, retried.State)
+			} else {
+				_, err := PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
+				require.NoError(t, err)
+				require.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git"))
+			}
+		})
+	}
+}
+
+func TestWorkspaceReadyFailureRemovesImportedStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "ready-failure")
+	request := CreateRepositoryWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, PublicBaseSHA: baseSHA, Surface: branchroom_model.SurfaceSystem}
+	workspace, err := reserveRepositoryWorkspace(t.Context(), request, repository.ObjectFormatName)
+	require.NoError(t, err)
+	_, err = db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateRetired})
+	require.NoError(t, err)
+	_, err = importReservedWorkspace(t.Context(), repository, workspace, request)
+	require.ErrorIs(t, err, ErrWorkspaceStateChanged)
+	require.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git"))
+	stored, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+	require.Equal(t, branchroom_model.WorkspaceStateFailed, stored.State)
 }

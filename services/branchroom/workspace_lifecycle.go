@@ -147,13 +147,26 @@ func PurgeWorkspace(ctx context.Context, request PurgeWorkspaceRequest) (*branch
 
 func capturePurgeableWorkspace(ctx context.Context, request PurgeWorkspaceRequest) (*branchroom_model.Workspace, error) {
 	return db.WithTx2(ctx, func(txCtx context.Context) (*branchroom_model.Workspace, error) {
-		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom workspace does not exist")
+		err := requireScopeOwnerTx(txCtx, request.RepoID, request.Actor, "Branchroom workspace does not exist")
 		if err != nil {
 			return nil, err
+		}
+		scope, err := branchroom_model.GetScopeByIDForUpdate(txCtx, request.ScopeID)
+		if err != nil {
+			return nil, err
+		}
+		if scope.RepoID != request.RepoID || scope.Kind != branchroom_model.ScopeKindRepository {
+			return nil, util.ErrNotExist
 		}
 		workspace, err := branchroom_model.GetWorkspaceByScopeIDForUpdate(txCtx, scope.ID)
 		if err != nil {
 			return nil, err
+		}
+		if workspaceProvisioningAbandoned(workspace) {
+			if err := transitionLockedWorkspace(txCtx, scope, workspace, branchroom_model.WorkspaceStateFailed, "workspace_abandoned", 0, request.Actor, request.Surface, request.RequestID); err != nil {
+				return nil, err
+			}
+			workspace.State = branchroom_model.WorkspaceStateFailed
 		}
 		switch workspace.State {
 		case branchroom_model.WorkspaceStateReady, branchroom_model.WorkspaceStateFailed, branchroom_model.WorkspaceStateRetired:
@@ -212,6 +225,9 @@ func RetryWorkspaceProvisioning(ctx context.Context, request RetryWorkspaceProvi
 	if err != nil {
 		return nil, err
 	}
+	if err := removeRestrictedStore(ctx, reserved.StoreID); err != nil {
+		return nil, err
+	}
 	return importReservedWorkspace(ctx, repository, reserved, CreateRepositoryWorkspaceRequest{
 		RepoID:        request.RepoID,
 		ScopeID:       request.ScopeID,
@@ -241,10 +257,16 @@ func reserveWorkspaceRetry(ctx context.Context, request RetryWorkspaceProvisioni
 		if err != nil {
 			return nil, err
 		}
-		if workspace.State != branchroom_model.WorkspaceStateFailed {
+		if workspace.State != branchroom_model.WorkspaceStateFailed && !workspaceProvisioningAbandoned(workspace) {
 			return nil, ErrWorkspaceStateChanged
 		}
-		updated, err := branchroom_model.TransitionWorkspace(txCtx, workspace.ID, branchroom_model.WorkspaceStateFailed, branchroom_model.WorkspaceStateProvisioning, "", 0)
+		if workspaceProvisioningAbandoned(workspace) {
+			if err := transitionLockedWorkspace(txCtx, scope, workspace, branchroom_model.WorkspaceStateFailed, "workspace_abandoned", 0, request.Actor, request.Surface, request.RequestID); err != nil {
+				return nil, err
+			}
+			workspace.State = branchroom_model.WorkspaceStateFailed
+		}
+		updated, err := branchroom_model.TransitionWorkspace(txCtx, workspace.ID, workspace.State, branchroom_model.WorkspaceStateProvisioning, "", 0)
 		if err != nil {
 			return nil, err
 		} else if !updated {
@@ -270,6 +292,7 @@ func reserveWorkspaceRetry(ctx context.Context, request RetryWorkspaceProvisioni
 			return nil, err
 		}
 		workspace.State = branchroom_model.WorkspaceStateProvisioning
+		workspace.UpdatedUnix = now
 		workspace.FailureCode = ""
 		return workspace, nil
 	})
@@ -320,6 +343,8 @@ func reasonForWorkspaceTransition(to branchroom_model.WorkspaceState) string {
 		return reasonWorkspaceRetired
 	case branchroom_model.WorkspaceStatePurged:
 		return reasonWorkspacePurged
+	case branchroom_model.WorkspaceStateFailed:
+		return "workspace_abandoned"
 	default:
 		return ""
 	}
@@ -342,9 +367,7 @@ func enforceWorkspaceOwnerQuota(ctx context.Context, ownerID int64) error {
 	return nil
 }
 
-// ReleaseRepositoryWorkspaceRetention deletes terminal (retired or purged)
-// workspace mappings so permanent repository deletion can proceed, and refuses
-// while any mapping still holds provisioning, ready, or failed state.
+// ReleaseRepositoryWorkspaceRetention releases only mappings whose stores were purged.
 func ReleaseRepositoryWorkspaceRetention(ctx context.Context, repoID int64) error {
 	if repoID <= 0 {
 		return util.NewInvalidArgumentErrorf("invalid Branchroom repository ID")
@@ -355,7 +378,7 @@ func ReleaseRepositoryWorkspaceRetention(ctx context.Context, repoID int64) erro
 		}
 		// These current writes make mappings committed while deletion waited on the
 		// repository lock visible before the retention query below.
-		if _, err := db.GetEngine(txCtx).Where("repo_id = ?", repoID).Cols("updated_unix").Update(&branchroom_model.Workspace{UpdatedUnix: timeutil.TimeStampNow()}); err != nil {
+		if _, err := db.GetEngine(txCtx).Where("repo_id = ?", repoID).NoAutoTime().SetExpr("updated_unix", "updated_unix").Update(new(branchroom_model.Workspace)); err != nil {
 			return err
 		}
 		workspaces, err := branchroom_model.FindWorkspacesByRepoIDForUpdate(txCtx, repoID)
@@ -365,7 +388,7 @@ func ReleaseRepositoryWorkspaceRetention(ctx context.Context, repoID int64) erro
 		terminalIDs := make([]int64, 0, len(workspaces))
 		for _, workspace := range workspaces {
 			switch workspace.State {
-			case branchroom_model.WorkspaceStateRetired, branchroom_model.WorkspaceStatePurged:
+			case branchroom_model.WorkspaceStatePurged:
 				terminalIDs = append(terminalIDs, workspace.ID)
 			default:
 				return ErrWorkspaceRetentionRequired

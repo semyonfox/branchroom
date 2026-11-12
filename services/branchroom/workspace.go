@@ -6,6 +6,7 @@ package branchroom
 import (
 	"context"
 	"errors"
+	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/google/uuid"
 )
+
+const workspaceProvisioningWindow = time.Hour
 
 var (
 	// ErrWorkspaceAlreadyExists means a scope already owns an isolated workspace mapping.
@@ -84,12 +87,15 @@ func CreateRepositoryWorkspace(ctx context.Context, request CreateRepositoryWork
 // provisioning workspace: it fills the isolated store, installs transport guards,
 // then marks the mapping ready or failed.
 func importReservedWorkspace(ctx context.Context, repository *repo_model.Repository, workspace *branchroom_model.Workspace, request CreateRepositoryWorkspaceRequest) (*branchroom_model.Workspace, error) {
+	importCtx, cancel := context.WithDeadline(ctx, workspace.UpdatedUnix.AsTime().Add(workspaceProvisioningWindow))
+	defer cancel()
+
 	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
 	if err != nil {
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceStoreUnavailable)
 		return nil, ErrWorkspaceProvisioning
 	}
-	if err := branchroom_module.ImportPublicBase(ctx, repository.CodeStorageRepo(), restricted); err != nil {
+	if err := branchroom_module.ImportPublicBase(importCtx, repository.CodeStorageRepo(), restricted); err != nil {
 		removeFailedRestrictedStore(ctx, restricted)
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceImportFailed)
 		return nil, ErrWorkspaceProvisioning
@@ -99,7 +105,7 @@ func importReservedWorkspace(ctx context.Context, repository *repo_model.Reposit
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceStorePermissionsFailed)
 		return nil, ErrWorkspaceProvisioning
 	}
-	if err := verifyImportedBase(ctx, restricted, workspace.PublicBaseSHA, workspace.ObjectFormatName); err != nil {
+	if err := verifyImportedBase(importCtx, restricted, workspace.PublicBaseSHA, workspace.ObjectFormatName); err != nil {
 		removeFailedRestrictedStore(ctx, restricted)
 		markWorkspaceProvisioningFailed(ctx, workspace, request, reasonWorkspaceImportVerifyFailed)
 		return nil, ErrWorkspaceProvisioning
@@ -111,13 +117,20 @@ func importReservedWorkspace(ctx context.Context, repository *repo_model.Reposit
 		markWorkspaceProvisioningFailed(ctx, workspace, request, "receive_hook_install_failed")
 		return nil, ErrWorkspaceProvisioning
 	}
-	if err := git.ManagedConfigSetAndVerify(ctx, restricted, "core.hooksPath", hookDir); err != nil {
+	if err := git.ManagedConfigSetAndVerify(importCtx, restricted, "core.hooksPath", hookDir); err != nil {
 		removeFailedRestrictedStore(ctx, restricted)
 		markWorkspaceProvisioningFailed(ctx, workspace, request, "receive_hook_config_failed")
 		return nil, ErrWorkspaceProvisioning
 	}
 
-	return markWorkspaceReady(ctx, workspace, request)
+	ready, err := markWorkspaceReady(importCtx, workspace, request)
+	if err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		defer cancel()
+		removeFailedRestrictedStore(cleanupCtx, restricted)
+		markWorkspaceProvisioningFailed(cleanupCtx, workspace, request, "workspace_ready_failed")
+	}
+	return ready, err
 }
 
 func removeFailedRestrictedStore(ctx context.Context, restricted gitrepo.RepositoryFacade) {
@@ -329,4 +342,8 @@ func markWorkspaceProvisioningFailed(ctx context.Context, workspace *branchroom_
 
 func workspaceResourceID(workspaceKey string) string {
 	return "workspace/" + workspaceKey
+}
+
+func workspaceProvisioningAbandoned(workspace *branchroom_model.Workspace) bool {
+	return workspace.State == branchroom_model.WorkspaceStateProvisioning && workspace.UpdatedUnix.AsTime().Add(workspaceProvisioningWindow).Before(time.Now())
 }
