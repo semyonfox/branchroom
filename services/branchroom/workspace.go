@@ -152,6 +152,9 @@ func reserveRepositoryWorkspace(ctx context.Context, request CreateRepositoryWor
 		if err != nil {
 			return nil, err
 		}
+		if err := lockWorkspaceOwner(txCtx, scope.OwnerID); err != nil {
+			return nil, err
+		}
 
 		owner, err := CanManageRepositoryScopes(txCtx, request.RepoID, request.Actor)
 		if err != nil {

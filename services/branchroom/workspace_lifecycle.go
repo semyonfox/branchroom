@@ -357,18 +357,22 @@ func reasonForWorkspaceTransition(to branchroom_model.WorkspaceState) string {
 	}
 }
 
+// lockWorkspaceOwner serialises provisioning by one scope owner across repositories, which
+// otherwise lock different rows. It must run before any workspace row or gap lock is taken.
+func lockWorkspaceOwner(ctx context.Context, ownerID int64) error {
+	if setting.Branchroom.MaxWorkspacesPerOwner <= 0 || !setting.Database.Type.IsMySQL() && !setting.Database.Type.IsPostgreSQL() {
+		return nil
+	}
+	_, err := db.GetEngine(ctx).ID(ownerID).ForUpdate().Get(new(user_model.User))
+	return err
+}
+
 // enforceWorkspaceOwnerQuota rejects new provisioning once the scope owner has
 // reached the configured number of active workspaces across all repositories.
 func enforceWorkspaceOwnerQuota(ctx context.Context, ownerID int64) error {
 	limit := setting.Branchroom.MaxWorkspacesPerOwner
 	if limit <= 0 {
 		return nil
-	}
-	// provisioning in different repositories locks different rows, so serialise on the owner
-	if setting.Database.Type.IsMySQL() || setting.Database.Type.IsPostgreSQL() {
-		if _, err := db.GetEngine(ctx).ID(ownerID).ForUpdate().Get(new(user_model.User)); err != nil {
-			return err
-		}
 	}
 	count, err := branchroom_model.CountOwnerActiveWorkspaces(ctx, ownerID)
 	if err != nil {
