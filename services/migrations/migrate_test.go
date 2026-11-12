@@ -135,4 +135,7 @@ func TestMigrateRejectsRestrictedLocalPaths(t *testing.T) {
 		require.Error(t, IsMigrateURLAllowed(path, user))
 	}
 	require.NoError(t, IsMigrateURLAllowed(root, user))
+
+	setting.Branchroom.RestrictedRepoRootPath = filepath.Join(root, "missing") // configured while disabled, never created
+	require.NoError(t, IsMigrateURLAllowed(store, user))
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -71,15 +72,17 @@ func IsMigrateURLAllowed(remoteURL string, doer *user_model.User) error {
 				return err
 			}
 			root, err := filepath.EvalSymlinks(setting.Branchroom.RestrictedRepoRootPath)
-			if err != nil {
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
-			relative, err := filepath.Rel(root, source)
-			if err != nil {
-				return err
-			}
-			if relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				return &git.ErrInvalidCloneAddr{Host: "<LOCAL_FILESYSTEM>", IsPermissionDenied: true, LocalPath: true}
+			if err == nil {
+				relative, err := filepath.Rel(root, source)
+				if err != nil {
+					return err
+				}
+				if relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					return &git.ErrInvalidCloneAddr{Host: "<LOCAL_FILESYSTEM>", IsPermissionDenied: true, LocalPath: true}
+				}
 			}
 		}
 
