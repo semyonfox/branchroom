@@ -112,38 +112,32 @@ func sourceHandoffNotFound() error {
 	return util.NewNotExistErrorf("Branchroom source handoff does not exist")
 }
 
-// userHasSourceHandoffAuthorization keeps the two-step direct-user opt-in and,
-// matching the Git HTTP gateway, also honors an active covering team read-source
-// grant: team membership is already an explicit owner decision.
 func userHasSourceHandoffAuthorization(ctx context.Context, orgID, scopeID, userID int64, now timeutil.TimeStamp) (bool, error) {
-	_, err := branchroom_model.GetActiveDirectUserGrantAt(ctx, scopeID, userID, branchroom_model.ActionDiscover, now)
-	hasDirectDiscovery := err == nil
-	if err != nil && !errors.Is(err, util.ErrNotExist) {
-		return false, err
-	}
-	_, err = branchroom_model.GetActiveDirectUserGrantAt(ctx, scopeID, userID, branchroom_model.ActionReadSource, now)
-	hasDirectRead := err == nil
-	if err != nil && !errors.Is(err, util.ErrNotExist) {
-		return false, err
-	}
-	if hasDirectDiscovery && hasDirectRead {
-		return true, nil
-	}
-	grants, err := branchroom_model.FindActiveGrantsAt(ctx, scopeID, branchroom_model.ActionReadSource, now)
-	if err != nil {
-		return false, err
-	}
-	for _, grant := range grants {
-		if grant.SubjectType != branchroom_model.SubjectTypeTeam {
-			continue
-		}
-		member, err := organization_model.IsTeamMember(ctx, orgID, grant.SubjectID, userID)
+	for _, action := range []branchroom_model.Action{branchroom_model.ActionDiscover, branchroom_model.ActionReadSource} {
+		grants, err := branchroom_model.FindActiveGrantsAt(ctx, scopeID, action, now)
 		if err != nil {
 			return false, err
 		}
-		if member {
-			return true, nil
+		allowed := false
+		for _, grant := range grants {
+			if grant.SubjectType == branchroom_model.SubjectTypeUser && grant.SubjectID == userID {
+				allowed = true
+				break
+			}
+			if grant.SubjectType == branchroom_model.SubjectTypeTeam {
+				member, err := organization_model.IsTeamMember(ctx, orgID, grant.SubjectID, userID)
+				if err != nil {
+					return false, err
+				}
+				if member {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			return false, nil
 		}
 	}
-	return false, nil
+	return true, nil
 }

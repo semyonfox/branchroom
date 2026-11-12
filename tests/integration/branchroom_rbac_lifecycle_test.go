@@ -158,6 +158,8 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 				Action:      branchroom_model.ActionReadSource,
 			})
 
+			member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusNotFound)
+			postTeamGrantForm(manager, scope.ID, team.Name, "discover", "", "", http.StatusSeeOther)
 			resp := member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusOK)
 			expectedCloneURL := gatewayBase.JoinPath(workspace.RouteKey + ".git").String()
 			assert.Contains(t, resp.Body.String(), expectedCloneURL)
@@ -229,6 +231,8 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 				Action:      branchroom_model.ActionReadSource,
 			})
 			assert.NotZero(t, activeGrant.ExpiresUnix)
+			member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusNotFound)
+			postTeamGrantForm(manager, scope.ID, team.Name, "discover", "", "", http.StatusSeeOther)
 			resp := member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusOK)
 			assert.Contains(t, resp.Body.String(), gatewayBase.JoinPath(workspace.RouteKey+".git").String())
 			assert.Equal(t, http.StatusOK, advertiseSource(workspace.RouteKey, "user4").StatusCode)
