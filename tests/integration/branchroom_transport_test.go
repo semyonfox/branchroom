@@ -76,10 +76,12 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 			"/api/v1/repos/user2/repo1/archive/" + restrictedCommit + ".zip",
 		} {
 			t.Run(path, func(t *testing.T) {
-    expected := http.StatusNotFound
-    if strings.Contains(path, "/git/blobs/") { expected = http.StatusBadRequest }
-    MakeRequest(t, NewRequest(t, http.MethodGet, path), expected)
-   })
+				expected := http.StatusNotFound
+				if strings.Contains(path, "/git/blobs/") {
+					expected = http.StatusBadRequest
+				}
+				MakeRequest(t, NewRequest(t, http.MethodGet, path), expected)
+			})
 		}
 
 		t.Run("smart HTTP advertisement", func(t *testing.T) {
