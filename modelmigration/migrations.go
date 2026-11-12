@@ -431,6 +431,7 @@ func prepareMigrationTasks() []*migration {
 		newMigration(355, "Add Branchroom workspace route keys", v28.AddBranchroomWorkspaceRouteKey),
 		newMigration(356, "Add Branchroom receive session schema", v28.AddBranchroomReceiveSessionSchema),
 		newMigration(357, "Add Branchroom receive session outcomes", v28.AddBranchroomReceiveSessionOutcomes),
+		newMigration(358, "Convert Branchroom audit hashes to varchar", v28.ConvertBranchroomAuditHashesToVarchar),
 	}
 	return preparedMigrations
 }

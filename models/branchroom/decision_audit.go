@@ -73,7 +73,7 @@ type AuditEvent struct {
 	ReasonCode      string             `xorm:"VARCHAR(64) NOT NULL"`
 	OrdinaryAllowed bool               `xorm:"NOT NULL"`
 	RequestID       string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
-	PreviousHash    string             `xorm:"CHAR(64) NOT NULL DEFAULT ''"`
+	PreviousHash    string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	EventHash       string             `xorm:"CHAR(64) UNIQUE NOT NULL"`
 	CreatedUnix     timeutil.TimeStamp `xorm:"INDEX(scope_created) INDEX(actor_created) NOT NULL"`
 }
