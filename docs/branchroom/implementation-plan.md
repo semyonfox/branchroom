@@ -1,6 +1,6 @@
 # Branchroom implementation plan
 
-- Status: M0–M1 foundations; M4a–M4h.2a isolated-workspace storage, source policy, restricted Git HTTP read/write, clone handoff/locator rotation, and sealed source-write receive sessions; M2a–M2c development-only encrypted-environment plumbing; v1 restricted workspaces not complete
+- Status: November review implemented in `fb30e24774..04ff150f3b`. M0–M1 foundations, M4a–M4h.2a isolated-workspace storage, source policy, restricted Git HTTP read/write, clone handoff/locator rotation, and sealed source-write receive sessions. M2a–M2c development-only encrypted-environment plumbing. V1 restricted workspaces not complete
 - Working name: Branchroom
 - Fork status: maintained on this fork only; no Branchroom upstream submission or architecture discussion is planned; a read-only Gitea remote is maintenance reference only
 - Baseline inspected: `main` at `35786a6ca11c3b9bc5ea852e4aeab42a37fb6d1b` on 19 August 2026
@@ -28,7 +28,7 @@ do not accidentally select an unregistered restricted store: smart ref advertise
 known-SHA fetch, dumb object access, remote archive, and ordinary SSH storage-path
 resolution all stay in the public repository.
 
-M1 adds ordered migration 349 and persisted scope, grant, decision, and hash-linked
+M1 adds ordered migration 352 and persisted scope, grant, decision, and hash-linked
 audit-event records. A single server-internal evaluator composes an ordinary Gitea
 code-read ceiling with an explicit Branchroom discovery grant. It has no allow cache:
 the next evaluation rereads the database, so a committed grant revocation applies to
@@ -43,17 +43,19 @@ authenticated task.
 The first owner-facing page is `/OWNER/REPOSITORY/settings/branchroom`. It is hidden
 and returns 404 for every method while the feature is disabled. When enabled, only an
 actual repository owner or an organization team with repository-admin access can
-create a repository scope; a Gitea site administrator is not a Branchroom bypass.
+create a repository scope. Site administrators remain trusted operators because upstream
+administrator tools can change user identities and membership.
 Creating a scope writes the creator's explicit discovery grant and a safe audit event.
 The page can also create and revoke a direct, active individual user's `discover`
 grant for an active scope. Once M4d has verified a ready isolated workspace, it can
 also grant that user source-read access; this is policy preparation,
-not source exposure. It does not create team, bot, deploy-key, Actions-task, write,
-or expiring grants. Retired scopes are hidden from a new repository owner after
-transfer. The page deliberately says that it creates policy metadata, not a restricted
-Git workspace.
+not source exposure. The current settings page also supports team discovery and
+source-read grants, direct source-write grants and grant time windows. Bots, deploy keys
+and Actions tasks have no grant controls. Retired scopes are hidden from a new
+repository owner after transfer. The page can provision an isolated workspace and manage
+its retry, retirement and purge.
 
-M4a adds ordered migration 350 and a persisted `branchroom_workspace` mapping. Its
+M4a adds ordered migration 353 and a persisted `branchroom_workspace` mapping. Its
 logical workspace and physical-store identities are separate opaque UUIDs; the record
 holds a scope, repository ID, pinned public-base commit, object format, state, and
 safe failure code, never a filesystem path, remote URL, or LFS location. An
@@ -70,8 +72,8 @@ and show the safe workspace state plus its pinned public-base SHA. The handler n
 accepts a store identifier or filesystem path, and the rendered page never contains a
 store ID, workspace UUID, physical path, or clone URL. It cannot provision an
 environment scope, retired scope, or scope in another repository. A `ready` mapping
-has only the narrow M4e Git HTTP read route after a direct-user authorization decision;
-it still has no SSH, LFS, API, CLI, or Actions route.
+has only the narrow Git HTTP read and write routes after a direct-user authorisation
+decision. It still has no SSH, LFS, API, CLI or Actions route.
 
 M4c adds a package-internal source-read resolver for a ready repository workspace.
 It accepts only a repository ID, opaque workspace key, and direct user ID; it reloads
@@ -85,7 +87,7 @@ no-such-workspace result. M4d adds the narrowly scoped owner route to manage
 source-read access for a ready workspace; it does not render a clone URL. The resolver is a
 non-cacheable internal seam, not a general source-access feature.
 
-M2a adds ordered migration 351 and encrypted-environment revision and lease records.
+M2a adds ordered migration 354 and encrypted-environment revision and lease records.
 It is a deliberately sealed development-only backend, not an environment product
 surface. `[branchroom.environment]` is disabled by default, accepts only a local
 development key file, and makes production startup fail when enabled. Each revision
@@ -138,10 +140,10 @@ is not a supported environment-materialization deployment mode.
 Repository transfer retires every affected scope, revokes its active grants, and
 retires its workspace mappings and active environment revisions in the same
 transaction; it revokes unclaimed environment leases. Repository deletion still
-purges policy rows when no retained data exists. Once a workspace mapping or encrypted
-environment revision exists, deletion fails closed until a retention collector can
-remove the restricted store or encrypted record outside the database transaction. This
-avoids silently orphaning or erasing restricted data.
+purges policy rows when no retained data exists. While an unpurged workspace or
+encrypted environment revision exists, deletion fails closed. The current owner must
+purge restricted stores before repository deletion. Encrypted environment retention
+still needs a collector. This avoids silently orphaning or erasing restricted data.
 
 M4e, M4f, and M4g provide a narrow restricted Git HTTP read boundary: an authorized
 direct user can retrieve a clone locator from a stable signed-in page, then Git
@@ -225,17 +227,18 @@ That distinction drives the later implementation choices:
 
 M4a makes the physical-store relationship explicit without making it reachable:
 
-    provisioning -> ready -> retired
-          |
-          +-----> failed
+    provisioning -> ready -> retired -> purged
+          |                    ^
+          +-----> failed ------+
 
-Only the future gateway may resolve a `ready` mapping, and then only after it also
+Only the gateway may resolve a `ready` mapping, and then only after it also
 proves the owning scope is active and the authenticated request passes the policy
 decision. `provisioning`, `failed`, and `retired` mappings have no transport behavior.
-The current deletion path rejects any workspace mapping. A later retention collector
-must use explicit `purge_pending` and `purged` states, perform filesystem deletion
-after a durable database transition, and retain enough safe metadata for recovery and
-audit.
+The current owner can purge ready, failed or retired stores, including stores whose
+scopes were retired by transfer. Purge removes the filesystem store before marking the
+mapping `purged`. Repository deletion releases only purged mappings. Provisioning rows
+older than one hour can be retried or purged. Imports have a matching one hour hard
+timeout.
 
 ## The Git constraint
 
@@ -465,8 +468,8 @@ source or encrypted environment revisions, a rollback must not silently move dat
 into a shared store or discard the ability to read its audit history.
 
 M1's repository-deletion behavior is deliberately narrower: it purges policy rows
-with the deleted repository when there is no restricted workspace mapping. M4a blocks
-deletion once a mapping exists, because the restricted bare store cannot safely be
+with the deleted repository after workspace stores have been explicitly purged. Deletion
+blocks on every unpurged mapping because a restricted bare store cannot safely be
 removed inside a database transaction or silently left behind. A future archival or
 legal-retention mode must add an explicit tombstone, retention schedule, and
 post-commit collector before it can preserve or purge a mapping after deletion.
@@ -573,7 +576,7 @@ API after the server policy API exists.
 
 #### Implemented foundation
 
-- Migration 349 creates `branchroom_scope`, `branchroom_grant`,
+- Migration 352 creates `branchroom_scope`, `branchroom_grant`,
   `branchroom_decision`, and `branchroom_audit_event`. The audit stream carries a
   per-scope sequence and SHA-256 chain; decisions and events use safe UUID
   correlation keys.
@@ -593,8 +596,10 @@ API after the server policy API exists.
 - The owner-only settings page can create and revoke direct active-individual
   `discover` grants for active scopes. The service resolves the target only after it
   verifies ownership and scope state; it records only the immutable grant ID in the
-  audit event. It exposes no controls for team, bot, deploy-key, Actions-task, source,
-  write, or other future grant types. Retired scopes are not listed or mutable.
+  audit event. The current settings page supports team discovery and read grants, direct
+  source-read and source-write grants, and grant time windows. Bot, deploy-key and
+  Actions-task grants have no controls. Retired scopes remain hidden, but the current
+  owner can purge their stores.
 - Repository transfer retires scopes, revokes active grants, and appends a safe
   lifecycle event. Repository deletion removes scope, grant, decision, and audit
   rows atomically with the normal repository deletion flow.
@@ -640,7 +645,7 @@ model.
 
 #### Implemented M2a development foundation
 
-- Migration 351 creates `branchroom_environment_revision` and
+- Migration 354 creates `branchroom_environment_revision` and
   `branchroom_environment_lease`. Revisions are immutable, scope-bound, and contain
   only encrypted payload data, wrapped data-key material, nonces, digest, length,
   safe key-provider metadata, and retirement state. Leases contain only an opaque
@@ -755,7 +760,7 @@ security fixes.
 
 #### Implemented M4a: non-routable workspace mapping
 
-- Migration 350 adds the one-workspace-per-scope mapping with separate opaque logical
+- Migration 353 adds the one-workspace-per-scope mapping with separate opaque logical
   and store UUIDs, a full public-base commit ID, object format, lifecycle state, and
   no filesystem path.
 - `CreateRepositoryWorkspace` is server-internal and owner-authorized. It validates
@@ -774,11 +779,12 @@ security fixes.
 - The existing owner-only settings page can provision one active repository scope
   from the current default-branch commit. The server resolves and verifies the full
   commit ID itself; the browser supplies only a scope ID.
-- The page shows `ready`, `provisioning`, or `failed` state and the public-base SHA,
+- The page shows `ready`, `provisioning`, `failed`, `retired` or `purged` state and the public-base SHA,
   never a physical path, store ID, workspace key, or clone URL. Environment, retired,
   disabled, foreign-repository, duplicate, and non-owner requests fail closed.
-- Provisioning is synchronous and a mapping still blocks repository deletion until a
-  retention collector exists. M4b itself added no retry, delete, source grant, Git
+- Provisioning is synchronous. Unpurged mappings block repository deletion. Failed and
+  abandoned provisioning can be retried, and ready, failed, retired or abandoned stores
+  can be purged. M4b itself added no retry, delete, source grant, Git
   route, LFS namespace, or API.
 
 #### Implemented M4c: internal direct-user source authorization
@@ -820,7 +826,7 @@ security fixes.
 
 #### Implemented M4e: narrow smart Git HTTP read path
 
-- Migration 352 gives every workspace an independent, cryptographically random,
+- Migration 355 gives every workspace an independent, cryptographically random,
   lowercase base32 route key. It is a non-correlating locator rather than an
   authorization credential; migration backfill generates fresh random values and
   preserves existing values on retry.
@@ -850,15 +856,20 @@ security fixes.
   revocation between advertisement and RPC, and all deliberately absent HTTP surfaces.
 - This is an experimental transport proof, not a full workspace: the settings page
   reveals no route key or clone URL, and there is no SSH, LFS, API, Actions, PR,
-  search, retention, or recovery flow.
+  search flow. Retry and purge are available through the current settings page.
+
+Both RPCs accept gzip bodies capped at 1 MiB decoded, with 45 seconds to read the
+body. Receive-pack shares that 45 second request budget. Upload-pack has a separate
+10 minute process timeout. Only password Basic and personal access tokens are accepted.
+OAuth2 JWTs in either Basic credential position and Actions tokens are refused.
 
 #### Implemented M4f: authorized clone handoff
 
 - The stable signed-in page `/{owner}/{repository}/-/branchroom` returns source
   handoffs only for an active direct individual with ordinary Gitea code-read
-  permission, a direct `discover` grant, and active source-read access for a ready
-  repository workspace. It returns the same not-found response to everyone else,
-  including an owner or site administrator without those direct grants.
+  permission, `discover` through a direct or eligible team grant, and active
+  source-read access for a ready repository workspace. It returns the same not-found response to everyone else,
+  including an owner or site administrator without those grants.
 - The page URL itself has no workspace, scope, route key, store ID, or source object.
   It renders only each authorized scope name and that scope's opaque clone URL.
   It uses `private, no-store`, varies by Cookie and Authorization, disables referrers,
@@ -884,7 +895,7 @@ security fixes.
   the commit may finish.
 - Rotation changes only the locator. The Git gateway still checks ordinary Gitea
   code-read permission and active source-read access. A refreshed handoff still
-  requires a direct `discover` grant and active source-read access as well.
+  requires `discover` through a direct or eligible team grant and active source-read access as well.
 - The safe audit event records that a route key was rotated, but no audit record
   contains the old or new key, a clone URL, a filesystem path, or a store ID.
 - Focused model, service, settings, handoff, and Git HTTP checks cover hard cutover,
@@ -901,7 +912,8 @@ security fixes.
   Basic authentication from an active individual and requires a `write:repository`
   scoped PAT when a PAT is used. Browser sessions, bearer/OAuth credentials, Actions,
   bots, deploy keys, and unsupported token scopes fail closed.
-- Migration 354 stores a one-use receive session with only its UUID key, a SHA-256
+- Migrations 356 and 357 store a one-use receive session and its completion outcome with
+  only its UUID key, a SHA-256
   bearer hash, scope, workspace, repository, direct-user binding, expiry, state, and
   terminal outcome. The server issues and claims it after authorization, then passes
   the raw bearer only to the receive-pack child. It never appears in a browser,
@@ -1083,6 +1095,15 @@ Research later:
 - A hardened partial-clone gateway. Git partial clone was made for performance, and it can still leak metadata.
 
 ## Operational work
+
+Restricted stores must not overlap public repositories, local storage, CustomPath or
+StaticRootPath. Local imports cannot read from the restricted root. `gitea dump`
+excludes restricted stores, which need a separate backup. MSSQL is unsupported when
+Branchroom is enabled.
+
+Server-side hooks and runners on the same host can read restricted stores as the service
+account. Moving the executable, configuration or restricted root requires regenerating
+the installed receive hooks.
 
 - Track Gitea releases closely in this fork. Keep the fork delta small, package the
   changes cleanly, and test every rebase before shipping. A read-only upstream remote

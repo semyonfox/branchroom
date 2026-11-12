@@ -12,9 +12,9 @@ not use source or credentials that matter. Keep `[branchroom.environment]` disab
 
 Create a separate existing directory for restricted stores. It must be a real
 directory, not a symlink, with no group or other access, normally mode `0700`. On
-Unix, the root and all of its ancestors must be owned by the Gitea service account or
-root; do not place it below another local user's directory. It must not be the public
-repository root, live inside it, or contain it. For example:
+Unix, the root must be owned by the Gitea service account. Its ancestors must be owned
+by that account or root. Do not place it below another local user's directory. It must
+not be the public repository root, live inside it, or contain it. For example:
 
 ```sh
 install -d -m 0700 -o gitea -g gitea /srv/gitea-branchroom-repositories
@@ -36,6 +36,15 @@ The server refuses to start if the configured restricted root overlaps
 `[repository] ROOT`, including through a symlink. It also leaves every Branchroom
 route hidden when `ENABLED` is false. `[repository] DISABLE_HTTP_GIT = true` also
 hides the handoff result and the restricted Git HTTP gateway.
+
+Restricted stores must not overlap public repositories, local storage, CustomPath or
+StaticRootPath. Local imports cannot read from the restricted root. `gitea dump`
+excludes restricted stores, which need a separate backup. MSSQL is unsupported when
+Branchroom is enabled.
+
+Server-side hooks and runners on the same host can read restricted stores as the service
+account. Moving the executable, configuration or restricted root requires regenerating
+the installed receive hooks.
 
 Build and start Gitea using the normal local development instructions in
 [`docs/development.md`](../development.md). The environment foundation is not part
@@ -87,7 +96,9 @@ loopback listener. Hostnames other than `localhost` require HTTPS.
     git push origin HEAD:refs/heads/branchroom/demo
     ```
 
-    The push may be at most 1 MiB and must finish within 45 seconds. It can only
+    The push may be at most 1 MiB decoded and must finish within 45 seconds. Gzip
+    request bodies are supported. Reading an RPC body has a 45 second deadline.
+    Upload-pack has a separate 10 minute process limit. It can only
     create or fast-forward `refs/heads/branchroom/*`; tags, deletes,
     non-fast-forward updates, SSH, and LFS are rejected.
 12. Return to the owner's Branchroom settings and rotate the clone locator for the
@@ -108,10 +119,13 @@ workspace stays failed safely. Use only dummy data in this demo, including in
 `demo.env`.
 
 The repository owner receives an explicit discovery grant when creating the scope.
-A site administrator is not a Branchroom bypass. Direct `write_source` grants apply
+Site administrators are trusted operators who can use upstream impersonation, password
+reset and membership tools. Direct `write_source` grants apply
 only to active individual users and ready workspaces. Organization teams can provide
 source-read access, but never source-write access. Bots, deploy keys, and Actions
-tasks cannot use this transport.
+tasks cannot use this transport. OAuth2 JWTs in either Basic credential position are
+refused. Use password Basic or a personal access token. Discovery and source-read grants
+may each come from a direct grant or an eligible team.
 
 Rotation does not revoke grants. A Git protocol phase that was already authorized when
 the rotation commits may finish, but a fresh request using the old clone URL fails. The

@@ -25,18 +25,24 @@ and manage direct-user discovery grants at repository settings → Branchroom. O
 isolated workspace is ready, they can also grant source-read access.
 That page stores safe scope, grant, decision, and hash-linked audit metadata; it is
 hidden and returns 404 while the feature is disabled. It accepts active individual
-accounts only—never a team, bot, deploy key, Actions task, write grant, or caller-
-supplied workspace identity.
+accounts and eligible organisation teams. Team grants support discovery and source read,
+while source write requires a direct individual grant. Grants can have start and expiry
+times. Bots, deploy keys and Actions tasks have no settings controls.
 Scope discovery combines ordinary Gitea code-read permission with an explicit
-Branchroom grant. A Gitea site administrator is not a Branchroom policy bypass.
+Branchroom grant. Site administrators are trusted operators. Branchroom grants still
+apply to their own requests, but upstream administrator tools can impersonate users,
+mint PATs or change membership.
 
 A server-internal workspace creator can reserve one opaque UUID mapping per active
 scope, copy a pinned public base into a separate bare store, verify the copy, and mark
 the mapping ready only after an audit event commits. Its database record contains no
 physical path or clone URL. Failed imports stay non-routable. A repository transfer
 retires its scopes, grants, workspace mappings, environment revisions, and unclaimed
-leases. Repository deletion is blocked while a restricted-store mapping or encrypted
-environment revision exists, pending an explicit retention collector.
+leases. Repository deletion requires every restricted store to be purged first. Retired
+mappings retain their stores until the current owner purges them, including after
+transfer. Encrypted environment revisions still block deletion pending a retention
+collector. Failed imports and provisioning abandoned for over one hour can be retried or
+purged.
 
 The owner-only Branchroom settings page can now provision that isolated store from a
 repository's current default-branch commit and show its safe state and pinned base.
@@ -50,7 +56,7 @@ For a ready workspace, the repository owner can rotate its opaque clone locator 
 the same settings page. Rotation is a hard cutover. Once it commits, the old clone URL
 has no alias, redirect, or grace period, and a fresh Git request using it fails. A Git
 phase that was already authorized when the rotation commits may finish. Rotation does
-not bypass ordinary Gitea code-read permission or direct grants: Git still requires
+not bypass ordinary Gitea code-read permission or active grants: Git still requires
 `read_source`, and the handoff page still requires both `discover` and `read_source`.
 The audit record names the rotation without either route key, a URL, a filesystem path,
 or a store ID.
@@ -61,13 +67,14 @@ push also needs ordinary Gitea code-read and code-write permission plus active
 source-read access, which may come from a direct grant or an eligible organization
 team. The server issues a one-use, hash-only receive session and passes its bearer
 only to the receive-pack child. The server-owned pre-receive hook verifies the trusted
-quarantine and the proposed object graph before Git accepts a ref.
+quarantine, refs and ancestry before Git accepts a ref. Receive-pack checks incoming
+object integrity and connectivity before running that hook.
 
 The restricted Git HTTP gateway accepts upload-pack and receive-pack advertisement
 and RPC at a route-key URL. An authorized direct user can retrieve that URL from the
 stable `/{owner}/{repository}/-/branchroom` page. The page requires ordinary Gitea
-code-read permission plus direct `discover` and source-read access, and returns 404
-to everyone else. It does not write a policy decision or audit event just because someone refreshes
+code-read permission plus `discover` from a direct or eligible team grant and
+source-read access, and returns 404 to everyone else. It does not write a policy decision or audit event just because someone refreshes
 the page. The Git gateway reauthorizes and audits the actual protocol requests.
 
 Read requests require Basic authentication from an active individual, ordinary Gitea
@@ -76,9 +83,12 @@ code-read permission, and active source-read access. A read PAT needs
 permission, a direct `write_source` grant, and a `write:repository` scoped PAT when a
 PAT is used. Pushes can only create or fast-forward `refs/heads/branchroom/*`; tags,
 deletes, non-fast-forward updates, SSH, and LFS fail. The receive request limit is
-1 MiB and the process limit is 45 seconds. Authorization is repeated for advertisement
-and RPC. Revocation blocks new receive sessions, while one already claimed by the
-server may finish. Disabling Branchroom rejects a claimed session in the hook.
+1 MiB decoded and the process limit is 45 seconds. Both RPCs accept gzip bodies and
+allow 45 seconds to read the request. Upload-pack has a separate 10 minute process
+limit. OAuth2 JWTs in either Basic credential position and Actions tokens are refused.
+Password Basic and personal access tokens are the only accepted gateway credentials.
+Authorisation is repeated for advertisement and RPC. Revocation blocks new receive
+sessions, while one already claimed by the server may finish. Disabling Branchroom rejects a claimed session in the hook.
 Disabled or denied requests stay non-disclosing.
 
 The development-only environment foundation is also disabled by default. It uses a
@@ -112,14 +122,23 @@ scope, threat model, Gitea integration points, milestones, and security gates. T
 standalone HTML copy is a separately maintained shareable document that this
 repository neither generates nor deploys.
 
+Restricted stores must not overlap public repositories, local storage, CustomPath or
+StaticRootPath. Local imports cannot read from the restricted root. `gitea dump`
+excludes restricted stores, which need a separate backup. MSSQL is unsupported when
+Branchroom is enabled.
+
+Server-side hooks and runners on the same host can read restricted stores as the service
+account. Moving the executable, configuration or restricted root requires regenerating
+the installed receive hooks.
+
 ## Self-hosted demo today
 
 This is a policy demo, not a confidential-source or secret-management demo. Run it
 only with synthetic repositories and throwaway accounts.
 
 Enable `[branchroom]` in your local `app.ini` and point `RESTRICTED_ROOT` at an
-existing real directory outside `[repository] ROOT`. It must not be a symlink,
-must deny group and other access, normally with mode `0700`, and must sit below
+existing real directory outside `[repository] ROOT`, owned by the Gitea service account.
+It must not be a symlink and must deny group and other access, normally with mode `0700`, and must sit below
 directories controlled by the Gitea service account or root. Restricted-store
 transport requires Unix ownership checks. Leave
 `[branchroom.environment]` disabled. As a repository
