@@ -27,9 +27,7 @@ import (
 )
 
 const (
-	branchroomGitHTTPMaxRequestBody = 1 << 20
-	branchroomGitHTTPRPCTimeout     = 45 * time.Second
-	branchroomGitHTTPUploadTimeout  = 10 * time.Minute
+	branchroomGitHTTPUploadTimeout = 10 * time.Minute
 )
 
 func setBranchroomGitHTTPResponseHeaders(header http.Header) {
@@ -89,7 +87,7 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 		branchroomGitHTTPNotFound(ctx)
 		return
 	}
-	rpcDeadline := time.Now().Add(branchroomGitHTTPRPCTimeout)
+	rpcDeadline := time.Now().Add(setting.Branchroom.GitRequestTimeLimit())
 	restricted, ok := authorizeBranchroomGitHTTPRead(ctx)
 	if !ok {
 		return
@@ -134,7 +132,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		branchroomGitHTTPNotFound(ctx)
 		return
 	}
-	rpcDeadline := time.Now().Add(branchroomGitHTTPRPCTimeout)
+	rpcDeadline := time.Now().Add(setting.Branchroom.GitRequestTimeLimit())
 	restricted, authorization, ok := authorizeBranchroomGitHTTPWriteWithIdentity(ctx)
 	if !ok {
 		return
@@ -208,21 +206,22 @@ func isBranchroomGitHTTPUploadPackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-upload-pack-request" &&
 		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
-		req.ContentLength <= branchroomGitHTTPMaxRequestBody
+		req.ContentLength <= setting.Branchroom.GitRequestSizeLimit()
 }
 
 func isBranchroomGitHTTPReceivePackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-receive-pack-request" &&
 		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
-		req.ContentLength <= branchroomGitHTTPMaxRequestBody
+		req.ContentLength <= setting.Branchroom.GitRequestSizeLimit()
 }
 
 // readBranchroomGitHTTPBody consumes an RPC request before a Git child starts so
 // command cancellation never depends on a client-controlled streaming reader.
 func readBranchroomGitHTTPBody(body io.Reader) ([]byte, bool) {
-	contents, err := io.ReadAll(io.LimitReader(body, branchroomGitHTTPMaxRequestBody+1))
-	return contents, err == nil && len(contents) <= branchroomGitHTTPMaxRequestBody
+	limit := setting.Branchroom.GitRequestSizeLimit()
+	contents, err := io.ReadAll(io.LimitReader(body, limit+1))
+	return contents, err == nil && int64(len(contents)) <= limit
 }
 
 func readBranchroomGitHTTPRPCBody(resp http.ResponseWriter, req *http.Request, deadline time.Time) (contents []byte, ok bool) {
@@ -243,7 +242,7 @@ func readBranchroomGitHTTPRPCBody(resp http.ResponseWriter, req *http.Request, d
 	var body io.Reader = req.Body
 	if req.Header.Get("Content-Encoding") == "gzip" {
 		// chunked bodies carry no length, so bound the compressed side too
-		decoded, err := gzip.NewReader(io.LimitReader(body, branchroomGitHTTPMaxRequestBody+1))
+		decoded, err := gzip.NewReader(io.LimitReader(body, setting.Branchroom.GitRequestSizeLimit()+1))
 		if err != nil {
 			return nil, false
 		}
@@ -441,10 +440,10 @@ func branchroomGitHTTPNotFound(ctx *context.Context) {
 // branchroomGitHTTPBodyRejected runs only after authorization, so saying a body was too
 // large tells an authorized client nothing about the workspace it did not already know
 func branchroomGitHTTPBodyRejected(ctx *context.Context, body []byte) {
-	tooLarge := len(body) > branchroomGitHTTPMaxRequestBody
+	tooLarge := int64(len(body)) > setting.Branchroom.GitRequestSizeLimit()
 	clear(body)
 	if tooLarge {
-		ctx.PlainText(http.StatusRequestEntityTooLarge, "Request exceeds the 1 MiB restricted gateway limit\n")
+		ctx.PlainText(http.StatusRequestEntityTooLarge, "Request exceeds the restricted gateway size limit\n")
 		return
 	}
 	branchroomGitHTTPNotFound(ctx)

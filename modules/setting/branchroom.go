@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // BranchroomConfig contains the static configuration for Branchroom foundations.
@@ -17,6 +18,29 @@ type BranchroomConfig struct {
 	Enabled                bool
 	RestrictedRepoRootPath string
 	MaxWorkspacesPerOwner  int
+	MaxGitRequestSize      int64
+	GitRequestTimeout      time.Duration
+}
+
+const (
+	defaultBranchroomMaxGitRequestSize = 32 << 20
+	defaultBranchroomGitRequestTimeout = 2 * time.Minute
+)
+
+// GitRequestSizeLimit bounds a gateway request body, which is held in memory before Git starts.
+func (c BranchroomConfig) GitRequestSizeLimit() int64 {
+	if c.MaxGitRequestSize > 0 {
+		return c.MaxGitRequestSize
+	}
+	return defaultBranchroomMaxGitRequestSize
+}
+
+// GitRequestTimeLimit bounds reading a gateway request body and running receive-pack.
+func (c BranchroomConfig) GitRequestTimeLimit() time.Duration {
+	if c.GitRequestTimeout > 0 {
+		return c.GitRequestTimeout
+	}
+	return defaultBranchroomGitRequestTimeout
 }
 
 // Branchroom stores the static Branchroom configuration.
@@ -27,6 +51,8 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	Branchroom = BranchroomConfig{
 		Enabled:               sec.Key("ENABLED").MustBool(false),
 		MaxWorkspacesPerOwner: sec.Key("MAX_WORKSPACES_PER_OWNER").MustInt(10),
+		MaxGitRequestSize:     sec.Key("MAX_GIT_REQUEST_SIZE").MustInt64(defaultBranchroomMaxGitRequestSize),
+		GitRequestTimeout:     sec.Key("GIT_REQUEST_TIMEOUT").MustDuration(defaultBranchroomGitRequestTimeout),
 	}
 	if !Branchroom.Enabled {
 		configured := strings.TrimSpace(sec.Key("RESTRICTED_ROOT").String())
@@ -56,6 +82,12 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	}
 	if Branchroom.MaxWorkspacesPerOwner < 0 {
 		return errors.New("[branchroom].MAX_WORKSPACES_PER_OWNER must not be negative")
+	}
+	if Branchroom.MaxGitRequestSize <= 0 || Branchroom.MaxGitRequestSize > 1<<30 {
+		return errors.New("[branchroom].MAX_GIT_REQUEST_SIZE must be between 1 byte and 1 GiB")
+	}
+	if Branchroom.GitRequestTimeout <= 0 {
+		return errors.New("[branchroom].GIT_REQUEST_TIMEOUT must be positive")
 	}
 
 	restrictedRoot := strings.TrimSpace(sec.Key("RESTRICTED_ROOT").String())

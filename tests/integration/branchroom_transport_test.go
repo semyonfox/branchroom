@@ -147,6 +147,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 		setting.Branchroom = setting.BranchroomConfig{
 			Enabled:                true,
 			RestrictedRepoRootPath: branchroomTestRoot(t),
+			MaxGitRequestSize:      1 << 20,
 		}
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)

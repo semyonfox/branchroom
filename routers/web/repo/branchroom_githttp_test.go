@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/test"
 	"gitea.dev/services/context"
 
 	"github.com/stretchr/testify/assert"
@@ -20,6 +22,7 @@ import (
 )
 
 func TestReadBranchroomGitHTTPBody(t *testing.T) {
+	defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{MaxGitRequestSize: testBranchroomRequestLimit})()
 	t.Run("accepts a bounded request", func(t *testing.T) {
 		body, ok := readBranchroomGitHTTPBody(bytes.NewReader([]byte("packet-line")))
 		assert.True(t, ok)
@@ -27,13 +30,14 @@ func TestReadBranchroomGitHTTPBody(t *testing.T) {
 	})
 
 	t.Run("rejects an oversized request before receive admission", func(t *testing.T) {
-		body, ok := readBranchroomGitHTTPBody(bytes.NewReader(make([]byte, branchroomGitHTTPMaxRequestBody+1)))
+		body, ok := readBranchroomGitHTTPBody(bytes.NewReader(make([]byte, testBranchroomRequestLimit+1)))
 		assert.False(t, ok)
-		assert.Len(t, body, branchroomGitHTTPMaxRequestBody+1)
+		assert.Len(t, body, testBranchroomRequestLimit+1)
 	})
 }
 
 func TestReadBranchroomGitHTTPRPCBodyStalledTCP(t *testing.T) {
+	defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{MaxGitRequestSize: testBranchroomRequestLimit})()
 	finished := make(chan bool, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, ok := readBranchroomGitHTTPRPCBody(context.WrapResponseWriter(w), r, time.Now().Add(50*time.Millisecond))
@@ -56,7 +60,8 @@ func TestReadBranchroomGitHTTPRPCBodyStalledTCP(t *testing.T) {
 }
 
 func TestReadBranchroomGitHTTPGzip(t *testing.T) {
-	for _, size := range []int{1024, branchroomGitHTTPMaxRequestBody, branchroomGitHTTPMaxRequestBody + 1} {
+	defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{MaxGitRequestSize: testBranchroomRequestLimit})()
+	for _, size := range []int{1024, testBranchroomRequestLimit, testBranchroomRequestLimit + 1} {
 		var compressed bytes.Buffer
 		writer := gzip.NewWriter(&compressed)
 		_, err := writer.Write(bytes.Repeat([]byte("x"), size))
@@ -64,7 +69,7 @@ func TestReadBranchroomGitHTTPGzip(t *testing.T) {
 		require.NoError(t, writer.Close())
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, ok := readBranchroomGitHTTPRPCBody(w, r, time.Now().Add(time.Second))
-			assert.Equal(t, size <= branchroomGitHTTPMaxRequestBody, ok)
+			assert.Equal(t, size <= testBranchroomRequestLimit, ok)
 			assert.Len(t, body, size)
 		}))
 		req, err := http.NewRequest(http.MethodPost, server.URL, &compressed)
@@ -78,10 +83,11 @@ func TestReadBranchroomGitHTTPGzip(t *testing.T) {
 }
 
 func TestReadBranchroomGitHTTPGzipBoundsChunkedInput(t *testing.T) {
+	defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{MaxGitRequestSize: testBranchroomRequestLimit})()
 	var member bytes.Buffer
 	writer := gzip.NewWriter(&member)
 	require.NoError(t, writer.Close())
-	compressed := bytes.Repeat(member.Bytes(), branchroomGitHTTPMaxRequestBody/member.Len()+2)
+	compressed := bytes.Repeat(member.Bytes(), testBranchroomRequestLimit/member.Len()+2)
 
 	finished := make(chan bool, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -98,3 +104,5 @@ func TestReadBranchroomGitHTTPGzipBoundsChunkedInput(t *testing.T) {
 	require.NoError(t, response.Body.Close())
 	assert.False(t, <-finished)
 }
+
+const testBranchroomRequestLimit = 1 << 20

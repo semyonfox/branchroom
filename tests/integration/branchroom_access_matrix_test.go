@@ -31,7 +31,7 @@ import (
 func TestBranchroomAccessMatrices(t *testing.T) {
 	defer test.MockVariableValue(&setting.AppURL, "http://127.0.0.1:0/")()
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
-		defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t)})()
+		defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t), MaxGitRequestSize: 1 << 20})()
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 3)
 		require.NoError(t, err)
 		base, err := git.GetBranchCommitID(t.Context(), repository.CodeStorageRepo(), repository.DefaultBranch)

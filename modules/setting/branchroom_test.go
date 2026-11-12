@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"gitea.dev/modules/test"
 
@@ -35,12 +36,12 @@ func TestLoadBranchroom(t *testing.T) {
 
 	t.Run("DisabledByDefault", func(t *testing.T) {
 		require.NoError(t, loadConfig(t, ""))
-		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10}, Branchroom)
+		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10, MaxGitRequestSize: 32 << 20, GitRequestTimeout: 2 * time.Minute}, Branchroom)
 	})
 
 	t.Run("DisabledRetainsRestrictedRootForBackupExclusion", func(t *testing.T) {
 		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = false\nRESTRICTED_ROOT = public-repositories\n"))
-		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10, RestrictedRepoRootPath: publicRoot}, Branchroom)
+		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10, MaxGitRequestSize: 32 << 20, GitRequestTimeout: 2 * time.Minute, RestrictedRepoRootPath: publicRoot}, Branchroom)
 	})
 
 	if !branchroomRestrictedStoreIntegritySupported() {
@@ -70,6 +71,8 @@ func TestLoadBranchroom(t *testing.T) {
 			Enabled:                true,
 			RestrictedRepoRootPath: restrictedRoot,
 			MaxWorkspacesPerOwner:  10,
+			MaxGitRequestSize:      32 << 20,
+			GitRequestTimeout:      2 * time.Minute,
 		}, Branchroom)
 	})
 
@@ -148,6 +151,20 @@ func TestLoadBranchroom(t *testing.T) {
 		defer test.MockVariableValue(&DisableGitHooks, false)()
 		err := loadConfig(t, "[branchroom]\nENABLED = true\n")
 		assert.ErrorContains(t, err, "requires [security] DISABLE_GIT_HOOKS")
+	})
+
+	t.Run("GitRequestLimits", func(t *testing.T) {
+		restrictedRoot := filepath.Join(testRoot, "restricted-repositories")
+		require.NoError(t, os.MkdirAll(restrictedRoot, 0o700))
+		base := "[branchroom]\nENABLED = true\nRESTRICTED_ROOT = restricted-repositories\n"
+		require.NoError(t, loadConfig(t, base))
+		assert.EqualValues(t, 32<<20, Branchroom.GitRequestSizeLimit())
+		assert.Equal(t, 2*time.Minute, Branchroom.GitRequestTimeLimit())
+		require.NoError(t, loadConfig(t, base+"MAX_GIT_REQUEST_SIZE = 1048576\nGIT_REQUEST_TIMEOUT = 30s\n"))
+		assert.EqualValues(t, 1<<20, Branchroom.GitRequestSizeLimit())
+		assert.Equal(t, 30*time.Second, Branchroom.GitRequestTimeLimit())
+		assert.ErrorContains(t, loadConfig(t, base+"MAX_GIT_REQUEST_SIZE = 0\n"), "MAX_GIT_REQUEST_SIZE")
+		assert.ErrorContains(t, loadConfig(t, base+"GIT_REQUEST_TIMEOUT = -1s\n"), "GIT_REQUEST_TIMEOUT")
 	})
 
 	t.Run("RejectsFastCGI", func(t *testing.T) {
