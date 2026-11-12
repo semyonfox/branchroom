@@ -18,6 +18,8 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
+
+	"github.com/google/uuid"
 )
 
 // Audit reason codes recorded for owner-initiated workspace lifecycle operations.
@@ -228,6 +230,10 @@ func RetryWorkspaceProvisioning(ctx context.Context, request RetryWorkspaceProvi
 	if err := removeRestrictedStore(ctx, reserved.StoreID); err != nil {
 		return nil, err
 	}
+	// a fresh store ID fences off cleanup and state writes from an abandoned import that returns late
+	if err := replaceProvisioningStoreID(ctx, reserved); err != nil {
+		return nil, err
+	}
 	return importReservedWorkspace(ctx, repository, reserved, CreateRepositoryWorkspaceRequest{
 		RepoID:        request.RepoID,
 		ScopeID:       request.ScopeID,
@@ -400,4 +406,18 @@ func ReleaseRepositoryWorkspaceRetention(ctx context.Context, repoID int64) erro
 		_, err = db.GetEngine(txCtx).In("id", terminalIDs).Delete(new(branchroom_model.Workspace))
 		return err
 	})
+}
+
+func replaceProvisioningStoreID(ctx context.Context, workspace *branchroom_model.Workspace) error {
+	storeID := uuid.NewString()
+	affected, err := db.GetEngine(ctx).ID(workspace.ID).
+		Where("state = ? AND store_id = ?", branchroom_model.WorkspaceStateProvisioning, workspace.StoreID).
+		NoAutoTime().Cols("store_id").Update(&branchroom_model.Workspace{StoreID: storeID})
+	if err != nil {
+		return err
+	} else if affected != 1 {
+		return ErrWorkspaceStateChanged
+	}
+	workspace.StoreID = storeID
+	return nil
 }

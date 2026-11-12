@@ -655,6 +655,29 @@ func TestAbandonedWorkspaceProvisioning(t *testing.T) {
 	}
 }
 
+func TestLateAbandonedImportCannotTouchRetriedStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "late-import")
+	_, err := db.GetEngine(t.Context()).ID(workspace.ID).Cols("state", "updated_unix").NoAutoTime().Update(&branchroom_model.Workspace{State: branchroom_model.WorkspaceStateProvisioning, UpdatedUnix: timeutil.TimeStamp(time.Now().Add(-workspaceProvisioningWindow - time.Minute).Unix())})
+	require.NoError(t, err)
+	stale, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+
+	actor := Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}
+	retried, err := RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: actor, Surface: branchroom_model.SurfaceSystem})
+	require.NoError(t, err)
+	require.NotEqual(t, stale.StoreID, retried.StoreID)
+
+	_, err = importReservedWorkspace(t.Context(), repository, stale, CreateRepositoryWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: actor, PublicBaseSHA: baseSHA, Surface: branchroom_model.SurfaceSystem})
+	require.Error(t, err)
+	stored, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateReady, stored.State)
+	assert.Equal(t, retried.StoreID, stored.StoreID)
+	assert.DirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, retried.StoreID+".git"))
+	assert.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, stale.StoreID+".git"))
+}
+
 func TestWorkspaceReadyFailureRemovesImportedStore(t *testing.T) {
 	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
 	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "ready-failure")

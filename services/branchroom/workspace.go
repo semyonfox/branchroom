@@ -256,7 +256,7 @@ func markWorkspaceReady(ctx context.Context, workspace *branchroom_model.Workspa
 		if err != nil {
 			return nil, err
 		}
-		if current.RepoID != request.RepoID || scope.RepoID != request.RepoID || scope.State != branchroom_model.ScopeStateActive {
+		if current.RepoID != request.RepoID || current.StoreID != workspace.StoreID || scope.RepoID != request.RepoID || scope.State != branchroom_model.ScopeStateActive {
 			return nil, ErrWorkspaceStateChanged
 		}
 		updated, err := branchroom_model.TransitionWorkspace(txCtx, current.ID, branchroom_model.WorkspaceStateProvisioning, branchroom_model.WorkspaceStateReady, "", 0)
@@ -307,7 +307,7 @@ func markWorkspaceProvisioningFailed(ctx context.Context, workspace *branchroom_
 		if current.ScopeID != scope.ID || current.RepoID != request.RepoID || scope.RepoID != request.RepoID {
 			return ErrWorkspaceStateChanged
 		}
-		if current.State != branchroom_model.WorkspaceStateProvisioning {
+		if current.State != branchroom_model.WorkspaceStateProvisioning || current.StoreID != workspace.StoreID {
 			return nil
 		}
 		updated, err := branchroom_model.TransitionWorkspace(txCtx, current.ID, branchroom_model.WorkspaceStateProvisioning, branchroom_model.WorkspaceStateFailed, reasonCode, 0)
