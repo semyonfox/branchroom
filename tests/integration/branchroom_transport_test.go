@@ -48,7 +48,7 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 		}
 		setting.LocalURL = u.String()
 
-		restricted, err := branchroom.RestrictedRepository("transport-regression")
+		restricted, err := branchroom.RestrictedRepository("a13e2a27-167d-4586-a511-42910dc3a955")
 		require.NoError(t, err)
 		require.NoError(t, git.InitRepository(t.Context(), restricted, git.Sha1ObjectFormat.Name()))
 		require.NoError(t, git.ForceFastImport(t.Context(), restricted, []git.FastImportCommit{{
@@ -62,6 +62,25 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 		restrictedCommit := branchroomObjectID(t, restricted, "refs/heads/restricted")
 		restrictedBlob := branchroomObjectID(t, restricted, "refs/heads/restricted:restricted.txt")
 		publicURL := u.JoinPath("user2/repo1.git")
+		for _, path := range []string{
+			"/user2/repo1/raw/commit/" + restrictedCommit + "/restricted.txt",
+			"/user2/repo1/src/commit/" + restrictedCommit + "/restricted.txt",
+			"/user2/repo1/blame/commit/" + restrictedCommit + "/restricted.txt",
+			"/user2/repo1/commit/" + restrictedCommit,
+			"/user2/repo1/commit/" + restrictedCommit + ".diff",
+			"/user2/repo1/compare/master..." + restrictedCommit,
+			"/user2/repo1/archive/" + restrictedCommit + ".zip",
+			"/api/v1/repos/user2/repo1/git/commits/" + restrictedCommit,
+			"/api/v1/repos/user2/repo1/git/blobs/" + restrictedBlob,
+			"/api/v1/repos/user2/repo1/contents/restricted.txt?ref=" + restrictedCommit,
+			"/api/v1/repos/user2/repo1/archive/" + restrictedCommit + ".zip",
+		} {
+			t.Run(path, func(t *testing.T) {
+    expected := http.StatusNotFound
+    if strings.Contains(path, "/git/blobs/") { expected = http.StatusBadRequest }
+    MakeRequest(t, NewRequest(t, http.MethodGet, path), expected)
+   })
+		}
 
 		t.Run("smart HTTP advertisement", func(t *testing.T) {
 			req, err := http.NewRequest(http.MethodGet, publicURL.JoinPath("info/refs").String()+"?service=git-upload-pack", nil)
@@ -267,7 +286,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 				{method: http.MethodGet, url: gatewayURL.JoinPath("info/refs").String() + "?service=git-upload-pack&go-get=1"},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-archive").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String()},
-				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "gzip") }},
+				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "br") }},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", body: strings.Repeat("x", (1<<20)+1)},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects/info/packs").String()},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects", restrictedCommit[:2], restrictedCommit[2:]).String()},

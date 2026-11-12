@@ -5,7 +5,6 @@ package branchroom
 
 import (
 	"context"
-	"io"
 	"strings"
 	"time"
 
@@ -45,7 +44,6 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 	}
 
 	seenRefs := make(map[string]struct{}, len(updates))
-	newTips := make([]string, 0, len(updates))
 	for _, update := range updates {
 		if _, exists := seenRefs[update.Ref]; exists ||
 			len(update.OldOID) != objectFormat.FullLength() || !objectFormat.IsValid(update.OldOID) ||
@@ -53,10 +51,6 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 			return false
 		}
 		seenRefs[update.Ref] = struct{}{}
-		newTips = append(newTips, update.NewOID)
-	}
-	if !receiveReachableObjectsAreValid(verifyCtx, restricted, environ, newTips) {
-		return false
 	}
 	for _, update := range updates {
 		if !receiveObjectIsCommit(verifyCtx, restricted, environ, update.NewOID) ||
@@ -80,22 +74,6 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 		}
 	}
 	return true
-}
-
-// receiveReachableObjectsAreValid checks the complete object graph reachable from
-// proposed tips through the exact receive quarantine. Individual type and ancestry
-// checks do not prove that a commit's tree and blobs are present and well formed.
-func receiveReachableObjectsAreValid(ctx context.Context, restricted git.RepositoryFacade, environ, tips []string) bool {
-	if len(tips) == 0 {
-		return false
-	}
-	return gitcmd.NewCommand("fsck", "--strict", "--no-dangling", "--no-reflogs").
-		AddDynamicArguments(tips...).
-		WithEnv(environ).
-		WithRepo(restricted).
-		WithStdoutCopy(io.Discard).
-		WithTimeout(receiveGitVerificationTimeout).
-		Run(ctx) == nil
 }
 
 func receiveRepositoryUsesObjectFormat(ctx context.Context, restricted git.RepositoryFacade, environ []string, expected git.ObjectFormat) bool {

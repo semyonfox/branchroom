@@ -5,12 +5,18 @@ package repo
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
-	"sync"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"gitea.dev/services/context"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadBranchroomGitHTTPBody(t *testing.T) {
@@ -27,30 +33,46 @@ func TestReadBranchroomGitHTTPBody(t *testing.T) {
 	})
 }
 
-func TestReadBranchroomGitHTTPRPCBodyClosesStalledRequest(t *testing.T) {
-	body := &branchroomBlockingRequestBody{closed: make(chan struct{})}
-	_, ok := readBranchroomGitHTTPRPCBody(body, time.Now().Add(10*time.Millisecond))
-	assert.False(t, ok)
+func TestReadBranchroomGitHTTPRPCBodyStalledTCP(t *testing.T) {
+	finished := make(chan bool, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, ok := readBranchroomGitHTTPRPCBody(context.WrapResponseWriter(w), r, time.Now().Add(50*time.Millisecond))
+		_ = r.Body.Close()
+		finished <- ok
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	conn, err := net.Dial("tcp", server.Listener.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = io.WriteString(conn, "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\nx")
+	require.NoError(t, err)
 	select {
-	case <-body.closed:
-	default:
-		t.Fatal("stalled request body was not closed")
+	case ok := <-finished:
+		assert.False(t, ok)
+	case <-time.After(2 * time.Second):
+		t.Fatal("stalled HTTP/1.1 body exceeded its deadline")
 	}
 }
 
-type branchroomBlockingRequestBody struct {
-	closed chan struct{}
-	once   sync.Once
-}
-
-func (body *branchroomBlockingRequestBody) Read([]byte) (int, error) {
-	<-body.closed
-	return 0, io.ErrClosedPipe
-}
-
-func (body *branchroomBlockingRequestBody) Close() error {
-	body.once.Do(func() {
-		close(body.closed)
-	})
-	return nil
+func TestReadBranchroomGitHTTPGzip(t *testing.T) {
+	for _, size := range []int{1024, branchroomGitHTTPMaxRequestBody, branchroomGitHTTPMaxRequestBody + 1} {
+		var compressed bytes.Buffer
+		writer := gzip.NewWriter(&compressed)
+		_, err := writer.Write(bytes.Repeat([]byte("x"), size))
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, ok := readBranchroomGitHTTPRPCBody(w, r, time.Now().Add(time.Second))
+			assert.Equal(t, size <= branchroomGitHTTPMaxRequestBody, ok)
+			assert.Len(t, body, size)
+		}))
+		req, err := http.NewRequest(http.MethodPost, server.URL, &compressed)
+		require.NoError(t, err)
+		req.Header.Set("Content-Encoding", "gzip")
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		server.Close()
+	}
 }

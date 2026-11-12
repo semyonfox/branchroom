@@ -4,6 +4,7 @@
 package repo
 
 import (
+	"compress/gzip"
 	"errors"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web/types"
+	"gitea.dev/services/auth"
 	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 )
@@ -27,6 +29,7 @@ import (
 const (
 	branchroomGitHTTPMaxRequestBody = 1 << 20
 	branchroomGitHTTPRPCTimeout     = 45 * time.Second
+	branchroomGitHTTPUploadTimeout  = 10 * time.Minute
 )
 
 func setBranchroomGitHTTPResponseHeaders(header http.Header) {
@@ -92,7 +95,7 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 		return
 	}
 
-	body, ok := readBranchroomGitHTTPRPCBody(ctx.Req.Body, rpcDeadline)
+	body, ok := readBranchroomGitHTTPRPCBody(ctx.Resp, ctx.Req, rpcDeadline)
 	if !ok {
 		clear(body)
 		branchroomGitHTTPNotFound(ctx)
@@ -112,7 +115,7 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 		WithRepo(restricted).
 		WithStdinBytes(body).
 		WithStdoutCopy(ctx.Resp).
-		WithTimeout(rpcTimeout).
+		WithTimeout(branchroomGitHTTPUploadTimeout).
 		RunWithStderr(ctx)
 	if err != nil && !gitcmd.IsErrorCanceledOrKilled(err) {
 		log.Error("Branchroom Git HTTP upload-pack RPC failed")
@@ -137,7 +140,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 	if !ok {
 		return
 	}
-	body, ok := readBranchroomGitHTTPRPCBody(ctx.Req.Body, rpcDeadline)
+	body, ok := readBranchroomGitHTTPRPCBody(ctx.Resp, ctx.Req, rpcDeadline)
 	if !ok {
 		clear(body)
 		branchroomGitHTTPNotFound(ctx)
@@ -169,7 +172,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		return
 	}
 	ctx.RespHeader().Set("Content-Type", "application/x-git-receive-pack-result")
-	err = gitcmd.NewCommand(ServiceTypeReceivePack).
+	err = gitcmd.NewCommand("-c", "receive.fsckObjects=true", ServiceTypeReceivePack).
 		AddArguments("--stateless-rpc", ".").
 		WithEnv(environ).
 		WithRepo(restricted).
@@ -206,14 +209,14 @@ func branchroomGitHTTPInfoRefsService(req *http.Request) (string, bool) {
 func isBranchroomGitHTTPUploadPackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-upload-pack-request" &&
-		len(req.Header.Values("Content-Encoding")) == 0 &&
+		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
 		req.ContentLength <= branchroomGitHTTPMaxRequestBody
 }
 
 func isBranchroomGitHTTPReceivePackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-receive-pack-request" &&
-		len(req.Header.Values("Content-Encoding")) == 0 &&
+		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
 		req.ContentLength <= branchroomGitHTTPMaxRequestBody
 }
 
@@ -224,17 +227,30 @@ func readBranchroomGitHTTPBody(body io.Reader) ([]byte, bool) {
 	return contents, err == nil && len(contents) <= branchroomGitHTTPMaxRequestBody
 }
 
-// readBranchroomGitHTTPRPCBody closes a stalled server request body at the RPC
-// deadline. net/http guarantees Close unblocks a server Body read.
-func readBranchroomGitHTTPRPCBody(body io.ReadCloser, deadline time.Time) ([]byte, bool) {
-	if !deadline.After(time.Now()) {
-		_ = body.Close()
+func readBranchroomGitHTTPRPCBody(resp http.ResponseWriter, req *http.Request, deadline time.Time) (contents []byte, ok bool) {
+	controller := http.NewResponseController(resp)
+	if err := controller.SetReadDeadline(deadline); err != nil {
 		return nil, false
 	}
-	timer := time.AfterFunc(time.Until(deadline), func() {
-		_ = body.Close()
-	})
-	defer timer.Stop()
+	defer func() {
+		if !ok {
+			_ = controller.SetReadDeadline(time.Now())
+			_ = req.Body.Close()
+		}
+		_ = controller.SetReadDeadline(time.Time{})
+	}()
+	if !deadline.After(time.Now()) {
+		return nil, false
+	}
+	var body io.Reader = req.Body
+	if req.Header.Get("Content-Encoding") == "gzip" {
+		decoded, err := gzip.NewReader(body)
+		if err != nil {
+			return nil, false
+		}
+		defer decoded.Close()
+		body = decoded
+	}
 	return readBranchroomGitHTTPBody(body)
 }
 
@@ -318,6 +334,12 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 	}
 	if !ctx.IsBasicAuth || !ctx.IsSigned || ctx.Doer == nil {
 		branchroomGitHTTPUnauthorized(ctx)
+		return branchroomGitHTTPAuthorization{}, false
+	}
+	switch ctx.Data["LoginMethod"] {
+	case auth.BasicMethodName, auth.AccessTokenMethodName:
+	default:
+		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
 	if !isEligibleBranchroomDoer(ctx) {

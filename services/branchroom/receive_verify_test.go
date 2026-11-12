@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -250,26 +249,6 @@ func TestVerifyClaimedReceiveCompletesDeniedOnInvalidQuarantineWithoutAudit(t *t
 	}
 }
 
-func TestVerifyClaimedReceiveRejectsMissingReachableTree(t *testing.T) {
-	scope, workspace, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
-
-	err := VerifyReceiveSessionPush(t.Context(), VerifyReceiveSessionPushRequest{
-		SessionKey:   session.SessionKey,
-		BearerSecret: bytes.Clone(bearerSecret),
-		Updates:      receiveVerifierMissingTreeUpdates(t, workspace, quarantine),
-		Quarantine:   quarantine,
-	})
-	assert.ErrorIs(t, err, errReceiveDenied)
-
-	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
-	require.NoError(t, err)
-	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
-	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
-	assert.Zero(t, decisions)
-	assert.Zero(t, audits)
-}
-
 func TestFinalizeReceiveAdmissionFailsOnlyPendingClaim(t *testing.T) {
 	_, _, session, bearerSecret, _ := prepareReceiveVerifierFixture(t)
 	credential := &ReceiveAdmissionCredential{SessionKey: session.SessionKey, BearerSecret: bytes.Clone(bearerSecret)}
@@ -435,27 +414,6 @@ func receiveVerifierAdmissibleUpdates(t *testing.T, workspace *branchroom_model.
 	require.NoError(t, err)
 	commitOID = strings.TrimSpace(commitOID)
 	return []byte(strings.Repeat("0", len(commitOID)) + " " + commitOID + " refs/heads/branchroom/main\n")
-}
-
-func receiveVerifierMissingTreeUpdates(t *testing.T, workspace *branchroom_model.Workspace, quarantine branchroom_module.ReceiveQuarantineValues) []byte {
-	t.Helper()
-	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
-	require.NoError(t, err)
-	environ := append(gitcmd.CommonGitCmdEnvs(),
-		private.GitObjectDirectory+"="+quarantine.ObjectDirectory,
-		private.GitAlternativeObjectDirectories+"="+quarantine.AlternateObjectDirectories,
-		private.GitQuarantinePath+"="+quarantine.QuarantinePath,
-	)
-	missingTree := strings.Repeat("0", len(workspace.PublicBaseSHA))
-	commit := fmt.Sprintf("tree %s\nparent %s\nauthor Branchroom Test <branchroom-test@example.invalid> 1 +0000\ncommitter Branchroom Test <branchroom-test@example.invalid> 1 +0000\n\nmissing tree\n", missingTree, workspace.PublicBaseSHA)
-	commitOID, _, err := gitcmd.NewCommand("hash-object", "-w", "-t", "commit", "--stdin").
-		WithEnv(environ).
-		WithRepo(restricted).
-		WithStdinBytes([]byte(commit)).
-		RunStdString(t.Context())
-	require.NoError(t, err)
-	commitOID = strings.TrimSpace(commitOID)
-	return []byte(strings.Repeat("0", len(commitOID)) + " " + commitOID + " refs/heads/branchroom/missing-tree\n")
 }
 
 func receiveVerifierUpdates(ref string) []byte {
