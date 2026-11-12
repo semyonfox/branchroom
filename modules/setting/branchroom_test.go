@@ -119,6 +119,27 @@ func TestLoadBranchroom(t *testing.T) {
 		})
 	}
 
+	t.Run("AcceptsRootUnderDefaultStaticRoot", func(t *testing.T) {
+		defer test.MockVariableValue(&StaticRootPath, AppWorkPath)()
+		defer test.MockVariableValue(&CustomPath, filepath.Join(AppWorkPath, "custom"))()
+		restricted := filepath.Join(testRoot, "data", "branchroom")
+		require.NoError(t, os.MkdirAll(restricted, 0o700))
+		require.NoError(t, os.Chmod(filepath.Dir(restricted), 0o700))
+		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = true\nRESTRICTED_ROOT = data/branchroom\n"))
+
+		served := filepath.Join(testRoot, "public", "branchroom")
+		require.NoError(t, os.MkdirAll(served, 0o700))
+		require.NoError(t, os.Chmod(filepath.Dir(served), 0o700))
+		err := loadConfig(t, "[branchroom]\nENABLED = true\nRESTRICTED_ROOT = public/branchroom\n")
+		assert.ErrorContains(t, err, "must not overlap local storage")
+	})
+
+	t.Run("RejectsFastCGI", func(t *testing.T) {
+		defer test.MockVariableValue(&Protocol, FCGI)()
+		err := loadConfig(t, "[branchroom]\nENABLED = true\n")
+		assert.ErrorContains(t, err, "does not support FastCGI")
+	})
+
 	t.Run("RejectsSymlinkAlias", func(t *testing.T) {
 		alias := filepath.Join(testRoot, "public-alias")
 		if err := os.Symlink(publicRoot, alias); err != nil {

@@ -45,6 +45,9 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	if DatabaseType(rootCfg.Section("database").Key("DB_TYPE").String()).IsMSSQL() {
 		return errors.New("[branchroom] does not support MSSQL")
 	}
+	if Protocol == FCGI || Protocol == FCGIUnix {
+		return errors.New("[branchroom] does not support FastCGI, the gateway needs connection read deadlines")
+	}
 	if !branchroomRestrictedStoreIntegritySupported() {
 		return errors.New("[branchroom] requires Unix filesystem ownership checks")
 	}
@@ -68,9 +71,15 @@ func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	if branchroomRootsOverlap(publicRoot, restrictedRoot) {
 		return errors.New("[branchroom].RESTRICTED_ROOT must not overlap [repository].ROOT")
 	}
-	for _, root := range []string{CustomPath, StaticRootPath} {
-		if err := validateBranchroomSeparateRoot(restrictedRoot, root); err != nil {
-			return err
+	// only the asset, template and option trees are served or read, the roots themselves default to the work path
+	for _, base := range []string{CustomPath, StaticRootPath} {
+		for _, dir := range []string{"public", "templates", "options"} {
+			if base == "" {
+				continue
+			}
+			if err := validateBranchroomSeparateRoot(restrictedRoot, filepath.Join(base, dir)); err != nil {
+				return err
+			}
 		}
 	}
 	for _, storage := range []*Storage{Attachment.Storage, LFS.Storage, Avatar.Storage, RepoAvatar.Storage, Packages.Storage, Actions.LogStorage, Actions.ArtifactStorage, RepoArchive.Storage} {
@@ -161,7 +170,7 @@ func validateBranchroomSeparateRoot(restricted, root string) error {
 		resolved, err := filepath.EvalSymlinks(root)
 		if err == nil {
 			if branchroomRootsOverlap(restricted, filepath.Join(resolved, suffix)) {
-				return errors.New("[branchroom].RESTRICTED_ROOT must not overlap local storage, CustomPath or StaticRootPath")
+				return errors.New("[branchroom].RESTRICTED_ROOT must not overlap local storage or served asset, template and option directories")
 			}
 			return nil
 		}
