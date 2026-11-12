@@ -5,6 +5,8 @@ package cron
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	activities_model "gitea.dev/models/activities"
@@ -15,6 +17,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/updatechecker"
 	asymkey_service "gitea.dev/services/asymkey"
+	branchroom_service "gitea.dev/services/branchroom"
 	repo_service "gitea.dev/services/repository"
 	archiver_service "gitea.dev/services/repository/archiver"
 	user_service "gitea.dev/services/user"
@@ -218,7 +221,28 @@ func registerRebuildIssueIndexer() {
 	})
 }
 
+func registerBranchroomIntegrity() {
+	RegisterTaskFatal("branchroom_integrity", &BaseConfig{
+		Enabled:    true,
+		RunAtStart: true,
+		Schedule:   "@every 6h",
+	}, func(ctx context.Context, _ *user_model.User, _ *BaseConfig) error {
+		if !setting.Branchroom.Enabled {
+			return nil
+		}
+		report, err := branchroom_service.CheckIntegrity(ctx, false)
+		if err != nil {
+			return err
+		}
+		if len(report.Problems) > 0 {
+			return fmt.Errorf("Branchroom integrity: %s. Run gitea doctor check --run branchroom", strings.Join(report.Problems, "; "))
+		}
+		return nil
+	})
+}
+
 func initExtendedTasks() {
+	registerBranchroomIntegrity()
 	registerDeleteInactiveUsers()
 	registerDeleteRepositoryArchives()
 	registerGarbageCollectRepositories()
