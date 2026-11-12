@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -244,6 +245,29 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 			public := makeBranchroomGitHTTPRequest(t, http.MethodGet, publicURL, "", "")
 			assert.Equal(t, http.StatusOK, public.StatusCode)
 			assert.NotContains(t, public.Body, restrictedCommit)
+		})
+
+		t.Run("gzip clone receives all distinct refs", func(t *testing.T) {
+			commits := make([]git.FastImportCommit, 150)
+			for i := range commits {
+				commits[i] = git.FastImportCommit{Ref: fmt.Sprintf("refs/heads/gzip-%03d", i), Message: fmt.Sprintf("gzip commit %d", i)}
+			}
+			require.NoError(t, git.ForceFastImport(t.Context(), restricted, commits))
+			cloneURL := *gatewayURL
+			cloneURL.User = url.UserPassword("user4", userPassword)
+			cloneDir := t.TempDir()
+			tracePath := filepath.Join(t.TempDir(), "curl.trace")
+			_, _, err := gitcmd.NewCommand("-c", "protocol.version=0", "clone").AddDynamicArguments(cloneURL.String(), cloneDir).WithEnv(append(os.Environ(), "GIT_TRACE_CURL="+tracePath, "GIT_TRACE_CURL_NO_DATA=1")).RunStdString(t.Context())
+			require.NoError(t, err)
+			trace, readErr := os.ReadFile(tracePath)
+			require.NoError(t, readErr)
+			assert.Contains(t, strings.ToLower(string(trace)), "content-encoding: gzip")
+			refs, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin/gzip-*").WithDir(cloneDir).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Len(t, strings.Fields(refs), 300)
+			expected, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/gzip-*").WithRepo(restricted).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, strings.ReplaceAll(expected, " refs/heads/", " refs/remotes/origin/"), refs)
 		})
 
 		t.Run("mandatory password changes deny source access", func(t *testing.T) {
