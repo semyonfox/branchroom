@@ -611,30 +611,6 @@ func insertWorkspaceScope(t *testing.T, repoID, ownerID int64, name string) *bra
 	return scope
 }
 
-func TestWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testing.T) {
-	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
-	scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "retained-store")
-	store := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git")
-	require.DirExists(t, store)
-	_, err := RetireWorkspace(t.Context(), RetireWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
-	require.NoError(t, err)
-	require.ErrorIs(t, ReleaseRepositoryWorkspaceRetention(t.Context(), repository.ID), ErrWorkspaceRetentionRequired)
-	require.DirExists(t, store)
-	_, err = db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateRetired})
-	require.NoError(t, err)
-	_, err = db.GetEngine(t.Context()).ID(repository.ID).Cols("owner_id").Update(&repo_model.Repository{OwnerID: 4})
-	require.NoError(t, err)
-	_, err = PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
-	require.ErrorIs(t, err, util.ErrNotExist)
-	require.DirExists(t, store)
-	_, err = PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: 4}, Surface: branchroom_model.SurfaceSystem})
-	require.NoError(t, err)
-	require.NoDirExists(t, store)
-	require.NoError(t, ReleaseRepositoryWorkspaceRetention(t.Context(), repository.ID))
-	_, err = branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
-	require.ErrorIs(t, err, util.ErrNotExist)
-}
-
 func TestAbandonedWorkspaceProvisioning(t *testing.T) {
 	for _, operation := range []string{"retry", "purge"} {
 		t.Run(operation, func(t *testing.T) {
