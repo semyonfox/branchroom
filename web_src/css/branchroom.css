@@ -20,19 +20,16 @@
 }
 
 .branchroom .ui.button,
-.branchroom-source-handoffs .ui.button,
-.branchroom-dialog .ui.button {
+.branchroom-source-handoffs .ui.button {
   min-height: 44px;
   min-width: 44px;
 }
 
-.branchroom .ui.primary.button,
-.branchroom-dialog .ui.primary.button {
+.branchroom .ui.primary.button {
   background-color: var(--color-primary-hover);
 }
 
-.branchroom .ui.primary.button:hover,
-.branchroom-dialog .ui.primary.button:hover {
+.branchroom .ui.primary.button:hover {
   background-color: var(--color-primary-active);
 }
 
@@ -41,17 +38,6 @@
 .branchroom-source-handoffs input {
   min-height: 44px;
   min-width: 0;
-}
-
-.branchroom-privacy summary,
-.branchroom-privacy label {
-  padding: 12px 0;
-  cursor: pointer;
-}
-
-.branchroom-privacy input {
-  width: 20px;
-  height: 20px;
 }
 
 .branchroom-copy-status,
@@ -70,28 +56,9 @@
 .branchroom .ui.button:focus,
 .branchroom-source-handoffs :focus,
 .branchroom-source-handoffs .ui.input input:focus,
-.branchroom-source-handoffs .ui.button:focus,
-.branchroom-dialog .ui.button:focus,
-.branchroom-dialog :focus {
+.branchroom-source-handoffs .ui.button:focus {
   outline: 2px solid var(--color-text);
   outline-offset: 3px;
-}
-
-.ui.modal.branchroom-dialog {
-  position: fixed;
-  inset: 0;
-  margin: auto;
-  padding: 0;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.ui.modal.branchroom-dialog[open] {
-  display: block;
-}
-
-.branchroom-dialog::backdrop {
-  background: var(--color-overlay-backdrop);
 }
 
 @media (max-width: 767.98px) {
