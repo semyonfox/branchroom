@@ -1,6 +1,6 @@
 import {env} from 'node:process';
 import {execFile} from 'node:child_process';
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
@@ -18,7 +18,7 @@ function withCredentials(cloneURL: string, username: string) {
   const url = new URL(cloneURL);
   url.username = username;
   url.password = testUserPassword;
-  return url.toString();
+  return url.href;
 }
 
 async function handoffURL(browser: Browser, username: string, owner: string, repo: string) {
