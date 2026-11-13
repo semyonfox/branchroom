@@ -10,10 +10,16 @@ import (
 	"testing"
 	"time"
 
+	activities_model "gitea.dev/models/activities"
 	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
+	pull_model "gitea.dev/models/pull"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
+	"gitea.dev/modules/queue"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/tests"
@@ -390,5 +396,128 @@ func TestAPITokenRestrictions(t *testing.T) {
 		cloneURL.Path = baseURL.Path + "user2/repo2.git"
 		MakeRequest(t, NewRequest(t, "GET", "/user2/repo2.git/info/refs?service=git-upload-pack").AddBasicAuth("user2", token.Token), http.StatusUnauthorized)
 		t.Run("clone expired", doGitCloneFail(&cloneURL))
+	})
+}
+
+func TestAPITokenRepositoryBoundaries(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		expiry := time.Now().UTC().Add(time.Hour)
+		create := func(user, name string) *api.AccessToken {
+			req := NewRequestWithJSON(t, "POST", "/api/v1/users/"+user+"/tokens", api.CreateAccessTokenOption{
+				Name: name, Scopes: []string{"all"}, ExpiresAt: &expiry, Repositories: []string{"user2/repo1"},
+			}).AddBasicAuth(user)
+			return DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), &api.AccessToken{})
+		}
+		token := create("user2", "boundaries")
+		stored := unittest.AssertExistsAndLoadBean(t, &auth_model.AccessToken{ID: token.ID})
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		doer.ExtDoerData = user_model.NewAccessTokenExtDoerData(stored)
+
+		t.Run("push commit references", func(t *testing.T) {
+			issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 4})
+			require.True(t, issue.IsClosed)
+			comments := issue.NumComments
+			req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/contents/token-boundary.txt", api.CreateFileOptions{
+				FileOptions: api.FileOptions{Message: "reopen user2/repo2#1"}, ContentBase64: "eA==",
+			}).AddTokenAuth(token.Token)
+			MakeRequest(t, req, http.StatusCreated)
+			require.NoError(t, queue.GetManager().FlushAll(t.Context(), 10*time.Second))
+			issue = unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 4})
+			assert.True(t, issue.IsClosed)
+			assert.Equal(t, comments, issue.NumComments)
+		})
+
+		t.Run("notifications", func(t *testing.T) {
+			for _, path := range []string{"/notifications?all=true", "/notifications/new", "/notifications/threads/5"} {
+				MakeRequest(t, NewRequest(t, "GET", "/api/v1"+path).AddTokenAuth(token.Token), http.StatusForbidden)
+			}
+			rows, err := db.Find[activities_model.Notification](t.Context(), activities_model.FindNotificationOptions{UserID: 2, Doer: doer})
+			require.NoError(t, err)
+			require.NotEmpty(t, rows)
+			for _, row := range rows {
+				assert.EqualValues(t, 1, row.RepoID)
+			}
+		})
+
+		t.Run("own feeds", func(t *testing.T) {
+			MakeRequest(t, NewRequest(t, "GET", "/api/v1/users/user2/activities/feeds").AddTokenAuth(token.Token), http.StatusForbidden)
+			response := MakeRequest(t, NewRequest(t, "GET", "/user2.rss").AddBasicAuth("user2", token.Token), http.StatusOK)
+			assert.NotContains(t, response.Body.String(), "issue4")
+			feeds, _, err := activities_model.GetFeeds(t.Context(), activities_model.GetFeedsOptions{Actor: doer, RequestedUser: doer, IncludePrivate: true})
+			require.NoError(t, err)
+			for _, feed := range feeds {
+				assert.EqualValues(t, 1, feed.RepoID)
+			}
+		})
+
+		t.Run("admin and sudo", func(t *testing.T) {
+			admin := create("user1", "limited-admin")
+			for _, path := range []string{"/admin/users", "/admin/emails", "/admin/actions/runs", "/admin/actions/jobs", "/orgs/org3/hooks", "/repos/user2/repo1?sudo=user2"} {
+				MakeRequest(t, NewRequest(t, "GET", "/api/v1"+path).AddTokenAuth(admin.Token), http.StatusForbidden)
+			}
+		})
+
+		t.Run("repository creation", func(t *testing.T) {
+			for _, route := range []string{"forks", "generate"} {
+				for _, owner := range []string{"user2", "org3"} {
+					req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/"+route, map[string]string{"name": "must-not-exist", "owner": owner, "organization": owner}).AddTokenAuth(token.Token)
+					MakeRequest(t, req, http.StatusForbidden)
+				}
+			}
+			unittest.AssertNotExistsBean(t, &repo_model.Repository{Name: "must-not-exist"})
+		})
+
+		t.Run("account reads", func(t *testing.T) {
+			for _, path := range []string{"/user/emails", "/user/keys", "/user/gpg_keys", "/user/teams", "/orgs/org3/teams", "/orgs/org3/actions/runners", "/orgs/org3/actions/variables", "/orgs/org3/actions/secrets", "/users/user2/tokens"} {
+				MakeRequest(t, NewRequest(t, "GET", "/api/v1"+path).AddTokenAuth(token.Token), http.StatusForbidden)
+			}
+			for _, path := range []string{"/user", "/version", "/users/user2", "/settings/api", "/repos/search"} {
+				MakeRequest(t, NewRequest(t, "GET", "/api/v1"+path).AddTokenAuth(token.Token), http.StatusOK)
+			}
+		})
+
+		t.Run("issue search and catalog", func(t *testing.T) {
+			response := MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/issues/search?state=all").AddTokenAuth(token.Token), http.StatusOK)
+			issues := DecodeJSON(t, response, []*api.Issue{})
+			require.NotEmpty(t, issues)
+			for _, issue := range issues {
+				assert.Equal(t, "repo1", issue.Repo.Name)
+			}
+			MakeRequest(t, NewRequest(t, "GET", "/v2/_catalog").AddBasicAuth("user2", token.Token), http.StatusNotFound)
+		})
+
+		t.Run("hidden repository error", func(t *testing.T) {
+			var messages []string
+			for _, name := range []string{"user10/repo6", "user10/no-such-repo"} {
+				request := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", api.CreateAccessTokenOption{Name: "hidden", Scopes: []string{"all"}, Repositories: []string{name}}).AddBasicAuth("user2")
+				response := MakeRequest(t, request, http.StatusUnprocessableEntity)
+				messages = append(messages, response.Body.String())
+			}
+			assert.Equal(t, messages[0], messages[1])
+		})
+
+		t.Run("fork parent", func(t *testing.T) {
+			request := NewRequestWithJSON(t, "POST", "/api/v1/users/user1/tokens", api.CreateAccessTokenOption{Name: "fork-only", Scopes: []string{"all"}, Repositories: []string{"user20/big_test_private_fork_7"}}).AddBasicAuth("user1")
+			forkToken := DecodeJSON(t, MakeRequest(t, request, http.StatusCreated), &api.AccessToken{})
+			response := MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user20/big_test_private_fork_7").AddTokenAuth(forkToken.Token), http.StatusOK)
+			fork := DecodeJSON(t, response, &api.Repository{})
+			assert.True(t, fork.Fork)
+			assert.Nil(t, fork.Parent)
+		})
+
+		t.Run("auto merge credential", func(t *testing.T) {
+			require.NoError(t, pull_model.ScheduleAutoMerge(t.Context(), doer, 2, repo_model.MergeStyleMerge, "", true))
+			exists, scheduled, err := pull_model.GetScheduledMergeByPullID(t.Context(), 2)
+			require.NoError(t, err)
+			require.True(t, exists)
+			reloaded, err := user_model.GetDoerPermissionUser(t.Context(), scheduled.DoerID, scheduled.UserExtDoerData)
+			require.NoError(t, err)
+			assert.Equal(t, []int64{1}, user_model.GetDoerRepositoryIDs(reloaded))
+			assert.False(t, user_model.DoerTokenAllowsRepositoryID(reloaded, 2))
+			stored.ExpiresUnix = timeutil.TimeStampNow() - 1
+			require.NoError(t, auth_model.UpdateAccessToken(t.Context(), stored))
+			_, err = user_model.GetDoerPermissionUser(t.Context(), scheduled.DoerID, scheduled.UserExtDoerData)
+			require.Error(t, err)
+		})
 	})
 }

@@ -194,3 +194,21 @@ revoke all active direct grants. Each revocation is audited. Team access remains
 until membership or the team's grant is removed. Prohibiting login blocks access
 on the next request. Deleting an account also blocks access, while grant rows
 remain as audit history.
+
+## Repository-limited tokens
+
+A token limited to selected repositories can only access those repositories,
+including their issues, pull requests and Git data. It cannot create, fork or
+generate repositories, use site administrator powers or impersonate another user.
+Account and organisation resources, including emails, keys, teams, runners,
+variables, secrets and token lists, return `403 Forbidden`.
+
+The API also permits `GET /user` for identity, `GET /version`, `GET /settings/*`,
+public user profiles at `GET /users/{username}`, and repository and issue searches.
+Search results include only allowed repositories. Account notification and activity
+API endpoints are blocked. Repository notification endpoints and RSS/Atom feeds
+respect the repository list. Container catalog listing is unavailable.
+
+Commit references cannot change issues outside the repository list. Scheduled
+auto-merges retain the scheduling token's restrictions and cannot run after it
+expires or is revoked.
