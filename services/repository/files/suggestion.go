@@ -116,9 +116,10 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 	target := lines[comment.Line-1]
 	ending := target[len(strings.TrimRight(target, "\r\n")):]
 	replacement := suggestions[0]
-	if ending == "" {
+	switch ending {
+	case "":
 		replacement = strings.TrimSuffix(replacement, "\n")
-	} else if ending == "\r\n" {
+	case "\r\n":
 		replacement = strings.ReplaceAll(replacement, "\n", "\r\n")
 	}
 	updated := strings.Join(lines[:start], "") + replacement + strings.Join(lines[comment.Line:], "")
