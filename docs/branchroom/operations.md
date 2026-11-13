@@ -254,3 +254,29 @@ after looking at the commit, pushes it once with the option above. The sync
 engine opens an issue in the affected repository when Branchroom refuses the
 update. The issue does not include the hook message, which contains the start
 of the match.
+
+## Agent tokens and push receipts
+
+New personal access tokens start with `brpat_` followed by 40 hexadecimal
+characters. Existing hex tokens still authenticate. Runner registration tokens
+are unchanged. Secret push protection recognises the new format, including live
+tokens issued by this server.
+
+When creating a token in account settings or through the API, optionally supply
+an agent name, an HTTP or HTTPS task URL and a sponsor. API clients send
+`agent_identity` with `agent`, `task_url` and `sponsor`. These are declarations by
+the token owner, not verified model or sponsor identities. Token permissions and
+repository restrictions still apply.
+
+The server records that identity when the token creates an issue, pull request,
+comment or review. The web page shows a small attribution marker and API responses
+include `agent_identity`. Revoking or regenerating the token does not erase earlier
+attribution. Actions made with a password, SSH key or ordinary token have no agent
+marker. Commit trailers do not supply this evidence.
+
+Accepted Git pushes made with an agent token record the ref, old and new object
+IDs, token ID, agent and task. The commit page and PR commits list show receipts
+for pushed tips. Ordinary repository receipts are stored separately from the
+Branchroom audit chain. Restricted workspace pushes include identity with their
+existing receive outcome evidence. A rejected or unconfirmed restricted push is
+not evidence that Git accepted the refs.

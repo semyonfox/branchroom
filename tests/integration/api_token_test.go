@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -584,4 +585,31 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 			require.Error(t, err)
 		})
 	})
+}
+
+func TestBranchroomTokenFormats(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	token := createAPIAccessTokenWithoutCleanUp(t, "prefixed", user, []auth_model.AccessTokenScope{auth_model.AccessTokenScopeAll})
+	assert.True(t, strings.HasPrefix(token.Token, auth_model.AccessTokenPrefix))
+	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth(token.Token), http.StatusOK)
+	_, err := db.GetEngine(t.Context()).ID(1).Cols("scope").Update(&auth_model.AccessToken{Scope: auth_model.AccessTokenScopeAll})
+	require.NoError(t, err)
+	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth("d2c6c1ba3890b309189a8e618c72a162e4efbf36"), http.StatusOK)
+}
+
+func TestBranchroomAgentComment(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	identity := &api.AgentIdentity{Agent: "Opus 5.5", TaskURL: "https://example.org/tasks/1", Sponsor: "user2"}
+	req := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", &api.CreateAccessTokenOption{Name: "agent-comment", Scopes: []string{"all"}, AgentIdentity: identity}).AddBasicAuth("user2")
+	token := DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), api.AccessToken{})
+	assert.Equal(t, identity, token.AgentIdentity)
+	req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/issues/1/comments", &api.CreateIssueCommentOption{Body: "recorded by the server"}).AddTokenAuth(token.Token)
+	comment := DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), api.Comment{})
+	assert.Equal(t, identity, comment.AgentIdentity)
+	req = NewRequestf(t, "GET", "/api/v1/repos/user2/repo1/issues/comments/%d", comment.ID).AddTokenAuth(token.Token)
+	fetched := DecodeJSON(t, MakeRequest(t, req, http.StatusOK), api.Comment{})
+	assert.Equal(t, identity, fetched.AgentIdentity)
+	page := MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/issues/1"), http.StatusOK)
+	assert.Contains(t, page.Body.String(), "via Opus 5.5")
 }

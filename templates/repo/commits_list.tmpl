@@ -42,6 +42,9 @@
 							</span>
 						{{end}}
 						</span>
+						{{$receiptRepo := $.Repository}}
+						{{if and $.PageIsPullCommits $.Issue.PullRequest.HeadRepo}}{{$receiptRepo = $.Issue.PullRequest.HeadRepo}}{{end}}
+						{{template "repo/agent_push_receipts" ($receiptRepo.AgentPushReceipts ctx $commitID)}}
 						{{if $gitCommit.MessageBody}}
 						<button type="button" class="ui button ellipsis-button" aria-expanded="false" data-global-click="onRepoEllipsisButtonClick">...</button>
 						{{end}}

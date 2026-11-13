@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	"gitea.dev/models/organization"
@@ -923,6 +924,9 @@ func CreateComment(ctx context.Context, opts *CreateCommentOptions) (_ *Comment,
 			return nil, err
 		}
 
+		if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Doer), "comment", comment.ID); err != nil {
+			return nil, err
+		}
 		if err = opts.Repo.LoadOwner(ctx); err != nil {
 			return nil, err
 		}
@@ -1366,4 +1370,8 @@ func InsertIssueComments(ctx context.Context, comments []*Comment) error {
 		}
 		return nil
 	})
+}
+
+func (c *Comment) AgentIdentity(ctx context.Context) (*structs.AgentIdentity, error) {
+	return branchroom_model.GetAgentAction(ctx, "comment", c.ID)
 }

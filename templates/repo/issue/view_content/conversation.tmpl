@@ -86,6 +86,7 @@ The variables in "ctx.Data" are different in each case, making this template fra
 											{{end}}
 										{{else}}
 											{{template "shared/user/authorlink" $comment.Poster}}
+											{{template "shared/agent_identity" ($comment.AgentIdentity ctx)}}
 										{{end}}
 										{{ctx.Locale.Tr "repo.issues.commented_at" $comment.HashTag $createdSubStr}}
 									</span>

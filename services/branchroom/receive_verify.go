@@ -237,10 +237,20 @@ func recordReceiveOutcome(ctx context.Context, session *branchroom_model.Receive
 		return err
 	}
 	updates, _ := branchroom_module.ParseReceiveUpdates([]byte(session.Updates))
+	var agent branchroom_model.AgentAction
+	hasAgent, err := db.GetEngine(ctx).Where("kind = ? AND target_id = ?", "receive", session.ID).Get(&agent)
+	if err != nil {
+		return err
+	}
+	var identity *branchroom_model.AgentAction
+	if hasAgent {
+		identity = &agent
+	}
 	details, err := json.Marshal(struct {
+		Agent   *branchroom_model.AgentAction        `json:"agent_identity,omitempty"`
 		Updates []branchroom_module.ReceiveRefUpdate `json:"updates,omitempty"`
 		Reason  string                               `json:"reason,omitempty"`
-	}{updates, explanation})
+	}{identity, updates, explanation})
 	if err != nil {
 		return err
 	}

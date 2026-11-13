@@ -12,9 +12,11 @@ import (
 
 	audit_model "gitea.dev/models/audit"
 	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -177,6 +179,13 @@ func CreateAccessToken(ctx *context.Context, owner *user_model.User) {
 		}
 	}
 
+	if agent := ctx.FormString("agent"); agent != "" || ctx.FormString("task_url") != "" || ctx.FormString("sponsor") != "" {
+		t.AgentIdentity = &api.AgentIdentity{Agent: agent, TaskURL: ctx.FormString("task_url"), Sponsor: ctx.FormString("sponsor")}
+		if err := branchroom_model.ValidateAgentIdentity(t.AgentIdentity); err != nil {
+			ctx.JSONError(err.Error())
+			return
+		}
+	}
 	if err := auth_model.NewAccessToken(ctx, t); err != nil {
 		ctx.ServerErrorAuto(err)
 		return

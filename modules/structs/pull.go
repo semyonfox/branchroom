@@ -11,6 +11,7 @@ import (
 
 // PullRequest represents a pull request
 type PullRequest struct {
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
 	// The unique identifier of the pull request
 	ID int64 `json:"id"`
 	// The API URL of the pull request

@@ -49,18 +49,19 @@ type RepositoryMeta struct {
 // Issue represents an issue in a repository
 // swagger:model
 type Issue struct {
-	ID          int64         `json:"id"`
-	URL         string        `json:"url"`
-	HTMLURL     string        `json:"html_url"`
-	Index       int64         `json:"number"`
-	Poster      *User         `json:"user"`
-	Title       string        `json:"title"`
-	Body        string        `json:"body"`
-	Ref         string        `json:"ref"`
-	Attachments []*Attachment `json:"assets"`
-	Labels      []*Label      `json:"labels"`
-	Milestone   *Milestone    `json:"milestone"`
-	Projects    []*Project    `json:"projects"`
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
+	ID            int64          `json:"id"`
+	URL           string         `json:"url"`
+	HTMLURL       string         `json:"html_url"`
+	Index         int64          `json:"number"`
+	Poster        *User          `json:"user"`
+	Title         string         `json:"title"`
+	Body          string         `json:"body"`
+	Ref           string         `json:"ref"`
+	Attachments   []*Attachment  `json:"assets"`
+	Labels        []*Label       `json:"labels"`
+	Milestone     *Milestone     `json:"milestone"`
+	Projects      []*Project     `json:"projects"`
 	// deprecated
 	Assignee  *User     `json:"assignee"`
 	Assignees []*User   `json:"assignees"`

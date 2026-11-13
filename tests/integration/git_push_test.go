@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
@@ -20,6 +21,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	repo_service "gitea.dev/services/repository"
 	"gitea.dev/tests"
@@ -85,23 +87,26 @@ func TestGitPush(t *testing.T) {
 			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 			repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{Name: "repo-secret-push", DefaultBranch: "master"})
 			require.NoError(t, err)
+			token := &auth_model.AccessToken{UID: user.ID, Name: "live-secret", Scope: auth_model.AccessTokenScopeAll, AgentIdentity: &api.AgentIdentity{Agent: "Opus 5.5", TaskURL: "https://example.org/tasks/1"}}
+			require.NoError(t, auth_model.NewAccessToken(t.Context(), token))
 
 			gitPath := t.TempDir()
 			doGitInitTestRepository(gitPath)(t)
 			oldPath, oldUser := u.Path, u.User
 			defer func() { u.Path, u.User = oldPath, oldUser }()
 			u.Path = repo.FullName() + ".git"
-			u.User = url.UserPassword(user.LowerName, userPassword)
+			u.User = url.UserPassword(user.LowerName, token.Token)
 			doGitAddRemote(gitPath, "origin", u)(t)
 			doGitPushTestRepository(gitPath, "origin", "master")(t)
 
 			doGitCreateBranch(gitPath, "leak")(t)
 			doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
 				LocalRepoPath: gitPath, CheckoutBranch: "leak", TreeFilePath: ".env",
-				TreeFileContent: "AWS_ACCESS_KEY_ID=AKIA" + "Q3EGRKMT2OQ5VY7Z\n",
+				TreeFileContent: "TOKEN=" + token.Token + "\n",
 			})(t)
 			doGitPushTestRepositoryFail(gitPath, "origin", "leak")(t)
 			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
+			unittest.AssertNotExistsBean(t, &branchroom_model.PushReceipt{RepoID: repo.ID, Ref: "refs/heads/leak"})
 
 			// with the bypass turned off the option is refused
 			resetBypass := test.MockVariableValue(&setting.SecretScanning.AllowBypass, false)
@@ -116,6 +121,13 @@ func TestGitPush(t *testing.T) {
 			assert.True(t, slices.ContainsFunc(notices, func(n *system_model.Notice) bool {
 				return strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch leak")
 			}), "the bypass leaves an admin notice")
+			receipt := unittest.AssertExistsAndLoadBean(t, &branchroom_model.PushReceipt{RepoID: repo.ID, Ref: "refs/heads/leak", TokenID: token.ID})
+			assert.Equal(t, "Opus 5.5", receipt.Agent)
+			sha, _, err := gitcmd.NewCommand("rev-parse", "leak").WithDir(gitPath).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, strings.TrimSpace(sha), receipt.NewSHA)
+			assert.Equal(t, strings.Repeat("0", 40), receipt.OldSHA)
+			assert.Equal(t, token.AgentIdentity.TaskURL, receipt.TaskURL)
 		})
 
 		t.Run("PullRefs", func(t *testing.T) {

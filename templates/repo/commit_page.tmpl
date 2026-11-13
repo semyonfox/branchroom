@@ -7,6 +7,7 @@
 			<div class="flex-left-right tw-mb-4 tw-items-start">
 				<h3 class="tw-m-0">
 					<span class="commit-summary tw-align-middle" title="{{.Commit.MessageTitle}}">{{ctx.RenderUtils.RenderCommitMessage .Commit.MessageUTF8 $.Repository}}</span>
+					{{template "repo/agent_push_receipts" (.Repository.AgentPushReceipts ctx .CommitID)}}
 					{{template "repo/commit_statuses" dict "Status" .CommitStatus "Statuses" .CommitStatuses}}
 				</h3>
 				{{if not $.PageIsWiki}}

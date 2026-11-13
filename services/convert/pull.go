@@ -75,6 +75,7 @@ func toAPIPullRequest(ctx context.Context, pr *issues_model.PullRequest, doer *u
 	}
 
 	apiPullRequest := &api.PullRequest{
+		AgentIdentity:  apiIssue.AgentIdentity,
 		ID:             pr.ID,
 		URL:            pr.Issue.HTMLURL(ctx),
 		Index:          pr.Index,
@@ -352,6 +353,7 @@ func ToAPIPullRequests(ctx context.Context, baseRepo *repo_model.Repository, prs
 		apiIssue := ToAPIIssue(ctx, doer, pr.Issue)
 
 		apiPullRequest := &api.PullRequest{
+			AgentIdentity:  apiIssue.AgentIdentity,
 			ID:             pr.ID,
 			URL:            pr.Issue.HTMLURL(ctx),
 			Index:          pr.Index,

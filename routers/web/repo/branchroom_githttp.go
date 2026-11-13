@@ -147,9 +147,10 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 	defer clear(body)
 
 	credential, err := branchroom_service.IssueReceiveAdmission(ctx, branchroom_service.IssueReceiveAdmissionRequest{
-		RepoID:   authorization.repoID,
-		RouteKey: authorization.routeKey,
-		UserID:   authorization.userID,
+		RepoID:     authorization.repoID,
+		RouteKey:   authorization.routeKey,
+		UserID:     authorization.userID,
+		Credential: user_model.GetDoerCredential(ctx.Doer),
 	})
 	if err != nil {
 		branchroomGitHTTPNotFound(ctx)

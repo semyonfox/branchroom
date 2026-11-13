@@ -9,18 +9,23 @@ import (
 	"encoding/hex"
 	"time"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
 	"xorm.io/builder"
 )
 
+const AccessTokenPrefix = "brpat_"
+
 // AccessToken represents a personal access token.
 type AccessToken struct {
-	ID             int64 `xorm:"pk autoincr"`
-	UID            int64 `xorm:"INDEX"`
+	AgentIdentity  *api.AgentIdentity `xorm:"-"`
+	ID             int64              `xorm:"pk autoincr"`
+	UID            int64              `xorm:"INDEX"`
 	Name           string
 	Token          string `xorm:"-"`
 	TokenHash      string `xorm:"UNIQUE"` // sha256 of token
@@ -51,7 +56,7 @@ func (t *AccessToken) setNewTokenValue() {
 	salt := util.CryptoRandomString(10)
 	token := util.CryptoRandomBytes(20)
 	t.TokenSalt = salt
-	t.Token = hex.EncodeToString(token)
+	t.Token = AccessTokenPrefix + hex.EncodeToString(token)
 	t.TokenHash = HashToken(t.Token, t.TokenSalt)
 	t.TokenLastEight = t.Token[len(t.Token)-8:]
 }
@@ -61,9 +66,16 @@ func NewAccessToken(ctx context.Context, t *AccessToken) error {
 	if err := t.ValidateExpiry(); err != nil {
 		return err
 	}
+	if err := branchroom_model.ValidateAgentIdentity(t.AgentIdentity); err != nil {
+		return err
+	}
 	t.setNewTokenValue()
-	_, err := db.GetEngine(ctx).Insert(t)
-	return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if _, err := db.GetEngine(ctx).Insert(t); err != nil {
+			return err
+		}
+		return branchroom_model.InsertTokenIdentity(ctx, t.ID, t.AgentIdentity)
+	})
 }
 
 // RegenerateAccessToken regenerates the token value of an existing access token owned by userID, keeping its name and scope.
