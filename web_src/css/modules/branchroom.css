@@ -1,0 +1,240 @@
+@font-face {
+  font-family: Inter;
+  src: url("../../../public/assets/branchroom/fonts/inter-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../../../public/assets/branchroom/fonts/source-serif-4-semibold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+:root {
+  --branchroom-primary-button: #1f58a8;
+  --branchroom-primary-border: #1a4d93;
+  --branchroom-row-border: #ecece8;
+  --branchroom-restricted-bg: #fbf6ea;
+  --branchroom-restricted-border: #e3d3b0;
+  --branchroom-restricted-text: #4f3608;
+  --branchroom-restricted-label: #6e4a0b;
+  --branchroom-hatch-bg: #f6edda;
+  --branchroom-topic-text: #174580;
+  --branchroom-topic-bg: #eef3fa;
+  --branchroom-header-border: #3a3f49;
+  --branchroom-header-input: #262a32;
+  --branchroom-header-text: #e6e7ea;
+  --branchroom-header-placeholder: #b4b9c2;
+  --branchroom-separator: #767c87;
+  --branchroom-merged: #6639ba;
+  --branchroom-open: #1a7f37;
+  --branchroom-closed: #b42318;
+  --branchroom-hatch: #c9a35a;
+  --fonts-proportional: Inter, system-ui, sans-serif;
+  --border-radius: 6px;
+  --border-radius-medium: 8px;
+  --font-weight-light: 400;
+  --font-weight-bold: 600;
+}
+
+body {
+  font-feature-settings: "tnum";
+}
+
+h1, .ui.header h1 { font-size: 24px; }
+h2, .ui.header h2 { font-size: 20px; }
+h3, .ui.header h3 { font-size: 16px; }
+h4, h5, h6 { font-size: 14px; }
+
+h1, h2, h3, h4, h5, h6, .ui.header {
+  font-weight: var(--font-weight-semibold);
+}
+
+.ui.segment, .ui.card, .ui.cards > .card, .ui.menu, .ui.message, .ui.table,
+.ui.dropdown .menu, .modal-dialog, .ui.attached.header {
+  box-shadow: none;
+}
+
+.ui.segment, .ui.card, .ui.cards > .card, .ui.table {
+  border-radius: 8px;
+}
+
+.ui.attached.segment {
+  border-radius: 0 0 8px 8px;
+}
+
+.ui.top.attached.header {
+  background: var(--color-box-header);
+  border-radius: 8px 8px 0 0;
+  border-color: var(--color-secondary);
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+}
+
+.ui.button {
+  min-height: 32px !important; /* size rules repeat .ui four times */
+  padding: 5px 12px;
+  font-size: 13px !important; /* keep the theme scale across button sizes */
+  font-weight: var(--font-weight-medium);
+  box-shadow: none;
+  border-color: var(--color-input-border);
+}
+
+.ui.button:is(.mini, .tiny, .compact) {
+  min-height: 28px !important; /* compact sizes use the same framework specificity */
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
+.ui.primary.button, .ui.primary.buttons .button {
+  background: var(--branchroom-primary-button);
+  border-color: var(--branchroom-primary-border);
+  color: var(--color-white);
+}
+
+.ui.primary.button:hover, .ui.primary.buttons .button:hover {
+  background: color-mix(in srgb, var(--branchroom-primary-button) 80%, black);
+  color: var(--color-white);
+}
+
+.ui.basic.primary.button {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.ui.input > input, .ui.form input:not([type="checkbox"], [type="radio"], [type="file"]),
+.ui.form select, .ui.selection.dropdown {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.ui.label, .ui.labels .label {
+  border-radius: 4px;
+  font-weight: var(--font-weight-medium);
+}
+
+.ui.table th, .ui.form .field > label {
+  font-weight: var(--font-weight-medium);
+}
+
+.ui.table tbody td {
+  height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-color: var(--branchroom-row-border);
+}
+
+#navbar {
+  min-height: 52px;
+  border-color: var(--branchroom-header-border);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+}
+
+#navbar .ui.input > input {
+  background: var(--branchroom-header-input);
+  color: var(--branchroom-header-text);
+  border-color: var(--branchroom-header-border);
+}
+
+#navbar .ui.input > input::placeholder {
+  color: var(--branchroom-header-placeholder);
+}
+
+.secondary-nav .item > .label, .repo-header .ui.labeled.button > .label,
+.ui.tabular.menu .item > .label {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--color-text-light-1);
+  font-weight: var(--font-weight-normal);
+}
+
+.ui.tabular.menu .active.item {
+  border-bottom-color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.repo-header .flex-text-block.tw-text-18 {
+  font-size: 20px !important; /* override the title utility supplied by the template */
+  color: var(--branchroom-separator);
+}
+
+.repository .ui.menu .item {
+  font-size: 14px;
+}
+
+.file-view.markdown :is(h1, h2), .wiki-content-main :is(h1, h2) {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: var(--font-weight-semibold);
+}
+
+.file-view.markdown h1, .wiki-content-main h1 { font-size: 24px; }
+.file-view.markdown h2, .wiki-content-main h2 { font-size: 20px; }
+
+.repository .repo-topic {
+  background: var(--branchroom-topic-bg);
+  color: var(--branchroom-topic-text);
+  border-radius: 4px;
+}
+
+.ui.label.issue-state-label:not(.green, .red, .purple, .violet) {
+  background: var(--color-text-light);
+}
+
+.ui.label.issue-state-label {
+  color: var(--color-white);
+  font-weight: var(--font-weight-medium);
+}
+
+.ui.label.issue-state-label:is(.purple, .violet) { background: var(--branchroom-merged); }
+.ui.label.issue-state-label.green { background: var(--branchroom-open); }
+.ui.label.issue-state-label.red { background: var(--branchroom-closed); }
+
+.branchroom-restricted {
+  background: var(--branchroom-restricted-bg);
+  color: var(--branchroom-restricted-text);
+  border: 1px solid var(--branchroom-restricted-border);
+  border-radius: 8px;
+  background-image: repeating-linear-gradient(135deg, var(--branchroom-hatch) 0 6px, var(--branchroom-hatch-bg) 6px 12px);
+  background-size: 100% 4px;
+  background-repeat: no-repeat;
+  padding-top: 16px;
+}
+
+.ui.header.branchroom-restricted, .ui.message.branchroom-restricted {
+  background-color: var(--branchroom-restricted-bg);
+  border-color: var(--branchroom-restricted-border);
+  color: var(--branchroom-restricted-text);
+}
+
+.branchroom-restricted :is(a, strong, label) {
+  color: var(--branchroom-restricted-label);
+}
+
+.ui:is(.green, .red).button, .ui:is(.green, .red, .purple).label:not(.basic) {
+  color: var(--color-white);
+}
+
+.ui.green.button, .ui.green.label:not(.basic) { background: var(--branchroom-open); }
+.ui.red.button, .ui.red.label:not(.basic) { background: var(--branchroom-closed); }
+.ui.purple.label:not(.basic) { background: var(--branchroom-merged); }
+
+.ui.green.button:hover { background: color-mix(in srgb, var(--branchroom-open) 80%, black); }
+.ui.red.button:hover { background: color-mix(in srgb, var(--branchroom-closed) 80%, black); }
+
+#repo-files-table {
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+#repo-files-table .repo-file-cell, #repo-files-table .repo-file-line {
+  min-height: 40px;
+  border-color: var(--branchroom-row-border);
+}

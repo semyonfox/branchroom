@@ -1,0 +1,342 @@
+@import "../modules/branchroom.css";
+
+gitea-theme-meta-info {
+  --theme-display-name: "Branchroom";
+  --theme-color-scheme: "dark";
+}
+
+:root {
+  --is-dark-theme: true;
+  --color-primary: #7eaaf0;
+  --color-primary-contrast: #ffffff;
+  --color-primary-dark-1: color-mix(in srgb, var(--color-primary) 90%, white);
+  --color-primary-dark-2: color-mix(in srgb, var(--color-primary) 80%, white);
+  --color-primary-dark-3: color-mix(in srgb, var(--color-primary) 70%, white);
+  --color-primary-dark-4: color-mix(in srgb, var(--color-primary) 60%, white);
+  --color-primary-dark-5: color-mix(in srgb, var(--color-primary) 40%, white);
+  --color-primary-dark-6: color-mix(in srgb, var(--color-primary) 20%, white);
+  --color-primary-dark-7: color-mix(in srgb, var(--color-primary) 6%, white);
+  --color-primary-light-1: color-mix(in srgb, var(--color-primary) 90%, black);
+  --color-primary-light-2: color-mix(in srgb, var(--color-primary) 80%, black);
+  --color-primary-light-3: color-mix(in srgb, var(--color-primary) 70%, black);
+  --color-primary-light-4: color-mix(in srgb, var(--color-primary) 60%, black);
+  --color-primary-light-5: color-mix(in srgb, var(--color-primary) 40%, black);
+  --color-primary-light-6: color-mix(in srgb, var(--color-primary) 20%, black);
+  --color-primary-light-7: color-mix(in srgb, var(--color-primary) 6%, black);
+  --color-primary-alpha-10: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --color-primary-alpha-20: color-mix(in srgb, var(--color-primary) 20%, transparent);
+  --color-primary-alpha-30: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  --color-primary-alpha-40: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  --color-primary-alpha-50: color-mix(in srgb, var(--color-primary) 50%, transparent);
+  --color-primary-alpha-60: color-mix(in srgb, var(--color-primary) 60%, transparent);
+  --color-primary-alpha-70: color-mix(in srgb, var(--color-primary) 70%, transparent);
+  --color-primary-alpha-80: color-mix(in srgb, var(--color-primary) 80%, transparent);
+  --color-primary-alpha-90: color-mix(in srgb, var(--color-primary) 90%, transparent);
+  --color-primary-hover: #a6c4f5;
+  --color-primary-active: #a6c4f5;
+  --color-secondary: #2a2e37;
+  --color-secondary-dark-1: color-mix(in srgb, var(--color-secondary) 96%, var(--color-text-dark));
+  --color-secondary-dark-2: color-mix(in srgb, var(--color-secondary) 91%, var(--color-text-dark));
+  --color-secondary-dark-3: color-mix(in srgb, var(--color-secondary) 82%, var(--color-text-dark));
+  --color-secondary-dark-4: color-mix(in srgb, var(--color-secondary) 73%, var(--color-text-dark));
+  --color-secondary-dark-5: color-mix(in srgb, var(--color-secondary) 65%, var(--color-text-dark));
+  --color-secondary-dark-6: color-mix(in srgb, var(--color-secondary) 58%, var(--color-text-dark));
+  --color-secondary-dark-7: color-mix(in srgb, var(--color-secondary) 50%, var(--color-text-dark));
+  --color-secondary-dark-8: color-mix(in srgb, var(--color-secondary) 42%, var(--color-text-dark));
+  --color-secondary-dark-9: color-mix(in srgb, var(--color-secondary) 39%, var(--color-text-dark));
+  --color-secondary-dark-10: color-mix(in srgb, var(--color-secondary) 32%, var(--color-text-dark));
+  --color-secondary-dark-11: color-mix(in srgb, var(--color-secondary) 25%, var(--color-text-dark));
+  --color-secondary-light-1: color-mix(in srgb, var(--color-secondary) 84%, black);
+  --color-secondary-light-2: color-mix(in srgb, var(--color-secondary) 70%, black);
+  --color-secondary-light-3: color-mix(in srgb, var(--color-secondary) 50%, black);
+  --color-secondary-light-4: color-mix(in srgb, var(--color-secondary) 39%, black);
+  --color-secondary-alpha-10: color-mix(in srgb, var(--color-secondary) 10%, transparent);
+  --color-secondary-alpha-20: color-mix(in srgb, var(--color-secondary) 20%, transparent);
+  --color-secondary-alpha-30: color-mix(in srgb, var(--color-secondary) 30%, transparent);
+  --color-secondary-alpha-40: color-mix(in srgb, var(--color-secondary) 40%, transparent);
+  --color-secondary-alpha-50: color-mix(in srgb, var(--color-secondary) 50%, transparent);
+  --color-secondary-alpha-60: color-mix(in srgb, var(--color-secondary) 60%, transparent);
+  --color-secondary-alpha-70: color-mix(in srgb, var(--color-secondary) 70%, transparent);
+  --color-secondary-alpha-80: color-mix(in srgb, var(--color-secondary) 80%, transparent);
+  --color-secondary-alpha-90: color-mix(in srgb, var(--color-secondary) 90%, transparent);
+  --color-secondary-button: var(--color-secondary-dark-4);
+  --color-secondary-hover: var(--color-secondary-dark-3);
+  --color-secondary-active: var(--color-secondary-dark-2);
+  /* console colors - used for actions console and console files */
+  --color-console-fg: #e6e7ea;
+  --color-console-fg-subtle: color-mix(in srgb, var(--color-console-fg) 76%, var(--color-console-bg));
+  --color-console-bg: #161920;
+  --color-console-hover-bg: color-mix(in srgb, var(--color-console-fg) 8%, var(--color-console-bg));
+  --color-console-active-bg: color-mix(in srgb, var(--color-console-fg) 11%, var(--color-console-bg));
+  --color-console-link: color-mix(in srgb, var(--color-console-fg) 58%, var(--color-console-bg));
+  /* named colors */
+  --color-red: #f19b93;
+  --color-orange: #e8b778;
+  --color-yellow: #e8c77a;
+  --color-olive: #bbcb80;
+  --color-green: #7ed39a;
+  --color-teal: #80cbc3;
+  --color-blue: #7eaaf0;
+  --color-violet: #c4a7f0;
+  --color-purple: #c4a7f0;
+  --color-pink: #eaa9ce;
+  --color-brown: #d4b194;
+  --color-black: #e6e7ea;
+  /* light variants - produced via Sass scale-color(color, $lightness: +10%) */
+  --color-red-light: color-mix(in srgb, var(--color-red) 88%, white);
+  --color-orange-light: color-mix(in srgb, var(--color-orange) 88%, white);
+  --color-yellow-light: color-mix(in srgb, var(--color-yellow) 85%, white);
+  --color-olive-light: color-mix(in srgb, var(--color-olive) 89%, white);
+  --color-green-light: color-mix(in srgb, var(--color-green) 89%, white);
+  --color-teal-light: color-mix(in srgb, var(--color-teal) 88%, white);
+  --color-blue-light: color-mix(in srgb, var(--color-blue) 89%, white);
+  --color-violet-light: color-mix(in srgb, var(--color-violet) 89%, white);
+  --color-purple-light: color-mix(in srgb, var(--color-purple) 89%, white);
+  --color-pink-light: color-mix(in srgb, var(--color-pink) 86%, white);
+  --color-brown-light: color-mix(in srgb, var(--color-brown) 90%, white);
+  --color-black-light: color-mix(in srgb, var(--color-black) 96%, white);
+  /* dark 1 variants - produced via Sass scale-color(color, $lightness: -10%) */
+  --color-red-dark-1: color-mix(in srgb, var(--color-red) 90%, black);
+  --color-orange-dark-1: color-mix(in srgb, var(--color-orange) 90%, black);
+  --color-yellow-dark-1: color-mix(in srgb, var(--color-yellow) 91%, black);
+  --color-olive-dark-1: color-mix(in srgb, var(--color-olive) 91%, black);
+  --color-green-dark-1: color-mix(in srgb, var(--color-green) 91%, black);
+  --color-teal-dark-1: color-mix(in srgb, var(--color-teal) 90%, black);
+  --color-blue-dark-1: color-mix(in srgb, var(--color-blue) 90%, black);
+  --color-violet-dark-1: color-mix(in srgb, var(--color-violet) 90%, black);
+  --color-purple-dark-1: color-mix(in srgb, var(--color-purple) 90%, black);
+  --color-pink-dark-1: color-mix(in srgb, var(--color-pink) 90%, black);
+  --color-brown-dark-1: color-mix(in srgb, var(--color-brown) 90%, black);
+  --color-black-dark-1: color-mix(in srgb, var(--color-black) 69%, black);
+  /* dark 2 variants - produced via Sass scale-color(color, $lightness: -20%) */
+  --color-red-dark-2: color-mix(in srgb, var(--color-red) 80%, black);
+  --color-orange-dark-2: color-mix(in srgb, var(--color-orange) 80%, black);
+  --color-yellow-dark-2: color-mix(in srgb, var(--color-yellow) 83%, black);
+  --color-olive-dark-2: color-mix(in srgb, var(--color-olive) 81%, black);
+  --color-green-dark-2: color-mix(in srgb, var(--color-green) 81%, black);
+  --color-teal-dark-2: color-mix(in srgb, var(--color-teal) 80%, black);
+  --color-blue-dark-2: color-mix(in srgb, var(--color-blue) 80%, black);
+  --color-violet-dark-2: color-mix(in srgb, var(--color-violet) 80%, black);
+  --color-purple-dark-2: color-mix(in srgb, var(--color-purple) 80%, black);
+  --color-pink-dark-2: color-mix(in srgb, var(--color-pink) 80%, black);
+  --color-brown-dark-2: color-mix(in srgb, var(--color-brown) 80%, black);
+  --color-black-dark-2: color-mix(in srgb, var(--color-black) 40%, black);
+  /* ansi colors used for actions console and console files */
+  --color-ansi-black: #202225;
+  --color-ansi-red: #cc4848;
+  --color-ansi-green: #87ab63;
+  --color-ansi-yellow: #cc9903;
+  --color-ansi-blue: #3a8ac6;
+  --color-ansi-magenta: #d22e8b;
+  --color-ansi-cyan: #00918a;
+  --color-ansi-white: var(--color-console-fg-subtle);
+  --color-ansi-bright-black: color-mix(in srgb, var(--color-ansi-black) 83%, white);
+  --color-ansi-bright-red: color-mix(in srgb, var(--color-ansi-red) 90%, white);
+  --color-ansi-bright-green: color-mix(in srgb, var(--color-ansi-green) 90%, white);
+  --color-ansi-bright-yellow: #eaaf03;
+  --color-ansi-bright-blue: color-mix(in srgb, var(--color-ansi-blue) 90%, white);
+  --color-ansi-bright-magenta: color-mix(in srgb, var(--color-ansi-magenta) 90%, white);
+  --color-ansi-bright-cyan: #00b6ad;
+  --color-ansi-bright-white: var(--color-console-fg);
+  /* 16-color series */
+  --color-series-16-0: #7db233;
+  --color-series-16-1: #499a37;
+  --color-series-16-2: #ce4751;
+  --color-series-16-3: #8f9121;
+  --color-series-16-4: #ac32a6;
+  --color-series-16-5: #7445e9;
+  --color-series-16-6: #c67d28;
+  --color-series-16-7: #4db392;
+  --color-series-16-8: #aa4d30;
+  --color-series-16-9: #2a6f84;
+  --color-series-16-10: #c45327;
+  --color-series-16-11: #3d965c;
+  --color-series-16-12: #792a93;
+  --color-series-16-13: #439d73;
+  --color-series-16-14: #103aad;
+  --color-series-16-15: #982e85;
+  /* other colors */
+  --color-grey: color-mix(in srgb, var(--color-secondary) 95%, black);
+  --color-grey-light: color-mix(in srgb, var(--color-secondary) 59%, var(--color-text-dark));
+  --color-gold: #e8c77a;
+  --color-white: #ffffff;
+  --color-diff-added-fg: #a6dfb6;
+  --color-diff-added-linenum-bg: #203f2c;
+  --color-diff-added-row-bg: #162c20;
+  --color-diff-added-row-border: #28583a;
+  --color-diff-added-word-bg: #28583a;
+  --color-diff-moved-row-bg: #818044;
+  --color-diff-moved-row-border: #bcca6f;
+  --color-diff-removed-fg: #f4b1a9;
+  --color-diff-removed-linenum-bg: #4b292b;
+  --color-diff-removed-row-bg: #361e20;
+  --color-diff-removed-row-border: #683638;
+  --color-diff-removed-word-bg: #683638;
+  --color-diff-inactive: color-mix(in srgb, var(--color-secondary) 59%, black);
+  --color-error-border: #683638;
+  --color-error-bg: #361e20;
+  --color-error-bg-active: color-mix(in srgb, var(--color-error-text) 23%, var(--color-body));
+  --color-error-bg-hover: color-mix(in srgb, var(--color-error-text) 18%, var(--color-body));
+  --color-error-text: #f4b1a9;
+  --color-success-border: #28583a;
+  --color-success-bg: #162c20;
+  --color-success-text: #7ed39a;
+  --color-warning-border: #5a4620;
+  --color-warning-bg: #2a2312;
+  --color-warning-text: #e8c77a;
+  --color-info-border: #2a2e37;
+  --color-info-bg: #1b2a40;
+  --color-info-text: #a6c4f5;
+  --color-priority-border: #2a2e37;
+  --color-priority-bg: #1c1f27;
+  --color-priority-text: #e6e7ea;
+  --color-red-badge: var(--color-red);
+  --color-red-badge-bg: color-mix(in srgb, var(--color-red-badge) 10%, transparent);
+  --color-red-badge-hover-bg: color-mix(in srgb, var(--color-red-badge) 30%, transparent);
+  --color-green-badge: var(--color-green);
+  --color-green-badge-bg: color-mix(in srgb, var(--color-green-badge) 10%, transparent);
+  --color-green-badge-hover-bg: color-mix(in srgb, var(--color-green-badge) 30%, transparent);
+  --color-yellow-badge: var(--color-yellow);
+  --color-yellow-badge-bg: color-mix(in srgb, var(--color-yellow-badge) 10%, transparent);
+  --color-yellow-badge-hover-bg: color-mix(in srgb, var(--color-yellow-badge) 30%, transparent);
+  --color-orange-badge: var(--color-orange);
+  --color-orange-badge-bg: color-mix(in srgb, var(--color-orange-badge) 10%, transparent);
+  --color-orange-badge-hover-bg: color-mix(in srgb, var(--color-orange-badge) 30%, transparent);
+  --color-git: #f05133;
+  --color-logo: #609926;
+  /* target-based colors */
+  --color-body: #0f1115;
+  --color-box-header: #1c1f27;
+  --color-box-body: #161920;
+  --color-box-body-highlight: #1c1f27;
+  --color-text-dark: #e6e7ea;
+  --color-text: #d3d5da;
+  --color-text-light: #a9aeb8;
+  --color-text-light-1: #8b919c;
+  --color-text-light-2: #8b919c;
+  --color-text-light-3: #8b919c;
+  --color-footer: #0f1115;
+  --color-timeline: #2a2e37;
+  --color-input-text: var(--color-text-dark);
+  --color-input-background: #161920;
+  --color-input-toggle-background: color-mix(in srgb, var(--color-secondary) 78%, black);
+  --color-input-border: #2a2e37;
+  --color-light: #0b0b0c28;
+  --color-light-border: #2a2e37;
+  --color-hover: #1c1f27;
+  --color-hover-opaque: #1c1f27;
+  --color-active: #f3f3f424;
+  --color-menu: #161920;
+  --color-card: #161920;
+  --color-markup-table-row: #1c1f27;
+  --color-markup-code-block: #1c1f27;
+  --color-markup-code-inline: #1c1f27;
+  --color-button: #1c1f27;
+  --color-code-bg: #161920;
+  --color-shadow: transparent;
+  --color-secondary-bg: #1c1f27;
+  --color-expand-button: color-mix(in srgb, var(--color-secondary) 80%, black);
+  --color-placeholder-text: #8b919c;
+  --color-editor-line-highlight: var(--color-secondary-alpha-40);
+  --color-editor-selection: var(--color-primary-alpha-50);
+  --color-project-column-bg: var(--color-secondary-light-2);
+  --color-caret: var(--color-text); /* should ideally be --color-text-dark, see #15651 */
+  --color-reaction-bg: #f3f3f412;
+  --color-reaction-hover-bg: var(--color-primary-light-4);
+  --color-reaction-active-bg: var(--color-primary-light-5);
+  --color-tooltip-text: #fafafa;
+  --color-tooltip-bg: color-mix(in srgb, var(--color-secondary) 70%, black);
+  --color-nav-bg: #16181d;
+  --color-nav-hover-bg: #262a32;
+  --color-nav-text: #e6e7ea;
+  --color-secondary-nav-bg: #161920;
+  --color-label-text: #a9aeb8;
+  --color-label-bg: #1c1f27;
+  --color-label-hover-bg: #2a2e37;
+  --color-label-active-bg: #2a2e37;
+  --color-accent: #7eaaf0;
+  --color-small-accent: #1b2a40;
+  --color-highlight-fg: #87651e;
+  --color-highlight-bg: #443a27;
+  --color-overlay-backdrop: #080808c0;
+  --color-danger: var(--color-red);
+  --color-transparency-grid-light: #2a2a2a;
+  --color-transparency-grid-dark: #1a1a1a;
+  --color-syntax-keyword: #ff8854;
+  --color-syntax-bool: #25bbc9;
+  --color-syntax-control: #dd9e17;
+  --color-syntax-name: #fabd2f;
+  --color-syntax-type: #eb8cb3;
+  --color-syntax-number: #63b2dd;
+  --color-syntax-operator: #ff8854;
+  --color-syntax-regexp: #b89de4;
+  --color-syntax-string: #95b62a;
+  --color-syntax-comment: #8898b0;
+  --color-syntax-invalid: #ff8686;
+  --color-syntax-link: var(--color-primary);
+  --color-syntax-tag: #ff8854;
+  --color-syntax-attribute: #c792ff;
+  --color-syntax-property: #55afff;
+  --color-syntax-variable: #e29b33;
+  --color-syntax-string-special: #dd9e17;
+  --color-syntax-escape: #c7a618;
+  --color-syntax-entity: #c792ff;
+  --color-syntax-preproc: #4cbe7a;
+  --color-syntax-preproc-file: #63b2dd;
+  --color-syntax-decorator: #4cbe7a;
+  --color-syntax-namespace: #c9d1d9;
+  --color-syntax-name-pseudo: #c792ff;
+  --color-syntax-comment-special: #b89de4;
+  --color-syntax-text: #c9d1d9;
+  --color-syntax-text-alt: color-mix(in srgb, var(--color-syntax-whitespace) 55%, white);
+  --color-syntax-punctuation: color-mix(in srgb, var(--color-syntax-whitespace) 35%, white);
+  --color-syntax-whitespace: #7f8699;
+  --color-syntax-diff-fg: #ffffff;
+  --color-syntax-deleted-bg: #5f3737;
+  --color-syntax-inserted-bg: #3a523a;
+  --color-syntax-emph: #d1a242;
+  --color-syntax-strong: #e29b33;
+  --color-syntax-heading: #dd9e17;
+  --color-syntax-subheading: #95b62a;
+  --color-syntax-output: #8898b0;
+  --color-syntax-prompt: #e29b33;
+  --color-syntax-traceback: #ff8686;
+  --color-syntax-matching-bracket-bg: color-mix(in srgb, var(--color-teal) 28%, transparent);
+  --color-syntax-nonmatching-bracket-bg: color-mix(in srgb, var(--color-red) 28%, transparent);
+  --branchroom-primary-button: #2f64b5;
+  --branchroom-primary-border: #3f74c4;
+  --branchroom-row-border: #2a2e37;
+  --branchroom-restricted-bg: #2a2312;
+  --branchroom-restricted-border: #5a4620;
+  --branchroom-restricted-text: #e8c77a;
+  --branchroom-restricted-label: #f3dca4;
+  --branchroom-hatch-bg: #2a2312;
+  --branchroom-topic-text: #a6c4f5;
+  --branchroom-topic-bg: #1b2a40;
+  accent-color: var(--color-accent);
+  color-scheme: dark;
+}
+
+/* invert emojis that are hard to read otherwise */
+.emoji[data-alias="heavy_check_mark"],
+.emoji[data-alias="currency_exchange"],
+.emoji[data-alias="top"],
+.emoji[data-alias="end"],
+.emoji[data-alias="on"],
+.emoji[data-alias="soon"],
+.emoji[data-alias="heavy_dollar_sign"],
+.emoji[data-alias="copyright"],
+.emoji[data-alias="registered"],
+.emoji[data-alias="tm"],
+.emoji[data-alias="heavy_multiplication_x"],
+.emoji[data-alias="heavy_plus_sign"],
+.emoji[data-alias="heavy_minus_sign"],
+.emoji[data-alias="heavy_division_sign"],
+.emoji[data-alias="curly_loop"],
+.emoji[data-alias="loop"],
+.emoji[data-alias="wavy_dash"],
+.emoji[data-alias="feet"],
+.emoji[data-alias="musical_note"],
+.emoji[data-alias="notes"] {
+  filter: invert(100%) hue-rotate(180deg);
+}
