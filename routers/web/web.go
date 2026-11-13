@@ -1525,6 +1525,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		}, ctxDataSet(reqctx.ContextData{"EnableFeed": setting.Other.EnableFeed}))
 		m.Get("/releases/attachments/{uuid}", webAuth.AllowBasic, webAuth.AllowOAuth2, repo.GetAttachment)
 		m.Get("/releases/download/{vTag}/{fileName}", webAuth.AllowBasic, webAuth.AllowOAuth2, repo.RedirectDownload)
+		m.Get("/releases/latest/download/{fileName}", webAuth.AllowBasic, webAuth.AllowOAuth2, repo.RedirectLatestDownload)
 		m.Post("/releases/{id}/reactions/{action}", reqSignIn, context.RepoMustNotBeArchived(), repo.ChangeReleaseReaction)
 		m.Group("/releases", func() {
 			m.Get("/new", repo.NewRelease)

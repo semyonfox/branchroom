@@ -291,6 +291,12 @@ func handleRepoActionError(ctx *context.Context, err error) {
 }
 
 // RedirectDownload return a file based on the following infos:
+// RedirectLatestDownload serves GitHub's /releases/latest/download/{fileName} form
+func RedirectLatestDownload(ctx *context.Context) {
+	ctx.SetPathParam("vTag", "latest")
+	RedirectDownload(ctx)
+}
+
 func RedirectDownload(ctx *context.Context) {
 	var (
 		vTag     = ctx.PathParam("vTag")

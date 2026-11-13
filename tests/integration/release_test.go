@@ -242,6 +242,10 @@ func TestDownloadReleaseAttachment(t *testing.T) {
 	req = NewRequest(t, "GET", url)
 	session := loginUser(t, "user2")
 	session.MakeRequest(t, req, http.StatusOK)
+
+	// GitHub's stable link to the latest release's asset
+	session.MakeRequest(t, NewRequest(t, "GET", repo.Link()+"/releases/latest/download/README.md"), http.StatusOK)
+	session.MakeRequest(t, NewRequest(t, "GET", repo.Link()+"/releases/latest/download/missing.txt"), http.StatusNotFound)
 }
 
 func TestEditReleaseAttachmentRejectsForbiddenRename(t *testing.T) {
