@@ -5,6 +5,7 @@ import octiconKebabHorizontal from '../../../public/assets/img/svg/octicon-kebab
 window.customElements.define('overflow-menu', class extends HTMLElement {
   popup!: HTMLDivElement;
   overflowItems: Array<HTMLElement> = [];
+  originalItems: Array<HTMLElement> = [];
   button: HTMLButtonElement | null = null;
   menuItemsEl!: HTMLElement;
   resizeObserver!: ResizeObserver;
@@ -100,11 +101,16 @@ window.customElements.define('overflow-menu', class extends HTMLElement {
     const itemOverFlowMenuButton = this.querySelector<HTMLButtonElement>('.overflow-menu-button');
 
     // move items in popup back into the menu items for subsequent measurement
-    for (const item of this.overflowItems) {
-      if (!itemFlexSpace || item.getAttribute('data-after-flex-space')) {
-        this.menuItemsEl.append(item);
-      } else {
-        itemFlexSpace.insertAdjacentElement('beforebegin', item);
+    if (this.closest('.repository')) {
+      if (!this.originalItems.length) this.originalItems = [...this.menuItemsEl.querySelectorAll<HTMLElement>('.item, .item-flex-space')];
+      for (const item of this.originalItems) this.menuItemsEl.append(item);
+    } else {
+      for (const item of this.overflowItems) {
+        if (!itemFlexSpace || item.getAttribute('data-after-flex-space')) {
+          this.menuItemsEl.append(item);
+        } else {
+          itemFlexSpace.insertAdjacentElement('beforebegin', item);
+        }
       }
     }
 
@@ -129,6 +135,18 @@ window.customElements.define('overflow-menu', class extends HTMLElement {
         const moveToPopup = !onlyLastItem || !lastItemFit;
         if (moveToPopup) this.overflowItems.push(item);
       }
+    }
+    const activeItem = this.menuItemsEl.querySelector<HTMLElement>('.item.active');
+    if (activeItem && this.closest('.repository') && this.overflowItems.includes(activeItem)) {
+      this.overflowItems = this.overflowItems.filter((item) => item !== activeItem);
+      let visibleWidth = [...menuItems].filter((item) => !this.overflowItems.includes(item)).reduce((width, item) => width + item.offsetWidth, 0);
+      for (const item of [...menuItems].reverse()) {
+        if (visibleWidth + 38 <= this.offsetWidth) break;
+        if (item === activeItem || item.classList.contains('item-flex-space') || this.overflowItems.includes(item)) continue;
+        this.overflowItems.push(item);
+        visibleWidth -= item.offsetWidth;
+      }
+      this.overflowItems = [...menuItems].filter((item) => this.overflowItems.includes(item));
     }
     itemFlexSpace?.style.removeProperty('display');
     itemOverFlowMenuButton?.style.removeProperty('display');

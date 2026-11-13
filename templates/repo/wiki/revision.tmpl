@@ -23,7 +23,7 @@
 			<h4 class="ui top attached header">
 				<div class="ui stackable grid">
 					<div class="sixteen wide column">
-						{{.CommitCount}} {{ctx.Locale.Tr "repo.commits.commits"}}
+						{{ctx.Locale.PrettyNumber .CommitCount}} {{ctx.Locale.TrN .CommitCount "repo.commit" "repo.commits"}}
 					</div>
 				</div>
 			</h4>
