@@ -2205,7 +2205,7 @@
   "repo.settings.branchroom.grant_source_write": "Allow pushing",
   "repo.settings.branchroom.revoke_source_write_grant": "Revoke",
   "repo.settings.branchroom.source_write_help": "Allows HTTPS pushes with clone access and Read on the repository. Only fast-forward updates to branchroom/* are allowed. SSH, LFS, tags and deletions are unavailable.",
-  "repo.settings.branchroom.source_write_grant_created": "Branchroom push access grant created. It takes effect only with active source-read access and ordinary repository code-write permission.",
+  "repo.settings.branchroom.source_write_grant_created": "Branchroom push access grant created. It takes effect only with active source-read access and ordinary repository code-read permission.",
   "repo.settings.branchroom.source_write_grant_create_failed": "Could not create the Branchroom push access grant.",
   "repo.settings.branchroom.source_write_grant_exists": "That user already has an active Branchroom push access grant.",
   "repo.settings.branchroom.source_write_grant_revoked": "Branchroom push access grant revoked.",
