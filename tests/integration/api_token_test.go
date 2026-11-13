@@ -18,10 +18,13 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/queue"
+	repo_module "gitea.dev/modules/repository"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
+	repo_service "gitea.dev/services/repository"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
@@ -535,6 +538,35 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 			response := MakeRequest(t, NewRequest(t, "GET", "/login/oauth/userinfo").AddTokenAuth(token.Token), http.StatusOK)
 			info := DecodeJSON(t, response, &map[string]any{})
 			assert.NotContains(t, *info, "groups")
+		})
+
+		t.Run("revoked push credential", func(t *testing.T) {
+			pushToken := create("user2", "queued-push")
+			source := unittest.AssertExistsAndLoadBean(t, &auth_model.AccessToken{ID: pushToken.ID})
+			credential := user_model.NewAccessTokenExtDoerData(source).EncodeToString()
+			request := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/contents/queued.txt", api.CreateFileOptions{
+				FileOptions: api.FileOptions{Message: "reopen user2/repo2#1"}, ContentBase64: "eA==",
+			}).AddTokenAuth(pushToken.Token)
+			response := DecodeJSON(t, MakeRequest(t, request, http.StatusCreated), &api.FileResponse{})
+			require.NoError(t, queue.GetManager().FlushAll(t.Context(), 10*time.Second))
+			deleteAPIAccessToken(t, *pushToken, doer)
+			issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 4})
+			comments := issue.NumComments
+			countActions := func() int64 {
+				count, err := db.GetEngine(t.Context()).Count(&activities_model.Action{RepoID: 1})
+				require.NoError(t, err)
+				return count
+			}
+			before := countActions()
+			require.NoError(t, repo_service.PushUpdates(&repo_module.PushUpdateOptions{
+				PusherID: 2, PusherName: "user2", RepoUserName: "user2", RepoName: "repo1", UserExtDoerData: credential,
+				RefFullName: git.RefNameFromBranch("master"), OldCommitID: git.Sha1ObjectFormat.EmptyObjectID().String(), NewCommitID: response.Commit.SHA,
+			}))
+			require.NoError(t, queue.GetManager().FlushAll(t.Context(), 10*time.Second))
+			assert.Greater(t, countActions(), before)
+			issue = unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 4})
+			assert.True(t, issue.IsClosed)
+			assert.Equal(t, comments, issue.NumComments)
 		})
 
 		t.Run("auto merge credential", func(t *testing.T) {
