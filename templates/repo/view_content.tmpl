@@ -133,8 +133,8 @@
 	{{if $isTreePathRoot}}
 		{{template "repo/code/upstream_diverging_info" .}}
 	{{end}}
-	{{template "repo/view_list" .}}
 	{{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
 		{{template "repo/view_file" .}}
 	{{end}}
+	{{template "repo/view_list" .}}
 {{end}}
