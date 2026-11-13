@@ -304,6 +304,7 @@ gitea-theme-meta-info {
   --color-syntax-matching-bracket-bg: color-mix(in srgb, var(--color-teal) 22%, transparent);
   --color-syntax-nonmatching-bracket-bg: color-mix(in srgb, var(--color-red) 22%, transparent);
   --branchroom-primary-button: #1f58a8;
+  --branchroom-primary-hover: #174580;
   --branchroom-primary-border: #1a4d93;
   --branchroom-row-border: #ecece8;
   --branchroom-restricted-bg: #fbf6ea;

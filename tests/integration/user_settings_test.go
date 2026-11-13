@@ -12,6 +12,7 @@ import (
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/container"
+	"gitea.dev/modules/public"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
 	"gitea.dev/modules/translation"
@@ -29,6 +30,7 @@ func TestUserSettings(t *testing.T) {
 	t.Run("DeleteEmail", testUserSettingsDeleteEmail)
 	t.Run("Delete", testUserSettingsDelete)
 	t.Run("Pages", testUserSettingsPages)
+	t.Run("Themes", testUserSettingsThemes)
 	t.Run("Security", testUserSettingsSecurity)
 	t.Run("Applications", testUserSettingsApplications)
 	t.Run("Keys", testUserSettingsKeys)
@@ -231,6 +233,26 @@ func testUserSettingsPages(t *testing.T) {
 			doc := NewHTMLParser(t, resp.Body)
 
 			assertNavbar(t, doc)
+		})
+	}
+}
+
+func testUserSettingsThemes(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	session := loginUser(t, "user2")
+	for _, theme := range []string{"branchroom-auto", "branchroom-light", "branchroom-dark", "gitea-auto"} {
+		t.Run(theme, func(t *testing.T) {
+			resp := session.MakeRequest(t, NewRequest(t, "GET", "/user/settings/appearance"), http.StatusOK)
+			doc := NewHTMLParser(t, resp.Body)
+			assert.Equal(t, 1, doc.Find(`.item[data-value="`+theme+`"]`).Length())
+			req := NewRequestWithValues(t, "POST", "/user/settings/appearance/theme", map[string]string{
+				"theme": theme,
+			})
+			session.MakeRequest(t, req, http.StatusSeeOther)
+			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+			assert.Equal(t, theme, user.Theme)
+			resp = session.MakeRequest(t, NewRequest(t, "GET", "/user/settings/appearance"), http.StatusOK)
+			assert.Contains(t, resp.Body.String(), public.AssetURI("web_src/css/themes/theme-"+theme+".css"))
 		})
 	}
 }

@@ -16,6 +16,7 @@
 
 :root {
   --branchroom-primary-button: #1f58a8;
+  --branchroom-primary-hover: #174580;
   --branchroom-primary-border: #1a4d93;
   --branchroom-row-border: #ecece8;
   --branchroom-restricted-bg: #fbf6ea;
@@ -97,7 +98,7 @@ h1, h2, h3, h4, h5, h6, .ui.header {
 }
 
 .ui.primary.button:hover, .ui.primary.buttons .button:hover {
-  background: color-mix(in srgb, var(--branchroom-primary-button) 80%, black);
+  background: var(--branchroom-primary-hover);
   color: var(--color-white);
 }
 
@@ -237,4 +238,112 @@ h1, h2, h3, h4, h5, h6, .ui.header {
 #repo-files-table .repo-file-cell, #repo-files-table .repo-file-line {
   min-height: 40px;
   border-color: var(--branchroom-row-border);
+}
+
+.ui.secondary.pointing.menu .active.item {
+  border-bottom-color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.repo-header .ui.button > .label {
+  background: transparent;
+  color: var(--color-text-light-1);
+  padding: 0;
+  font-weight: var(--font-weight-normal);
+}
+
+.ui.top.attached.header.branchroom-restricted, .ui.message.branchroom-restricted {
+  background-image: repeating-linear-gradient(135deg, var(--branchroom-hatch) 0 6px, var(--branchroom-hatch-bg) 6px 12px);
+  background-size: 100% 4px;
+  background-repeat: no-repeat;
+}
+
+.ui.ui.ui.green.label:not(.basic) { background: var(--branchroom-open); }
+.ui.ui.ui.red.label:not(.basic) { background: var(--branchroom-closed); }
+.ui.ui.ui.purple.label:not(.basic) { background: var(--branchroom-merged); }
+.ui.ui.ui.primary.label:not(.basic) { background: var(--branchroom-primary-button); }
+
+.ui.primary.button:not(.basic):is(:hover, :focus, :active),
+.ui.primary.buttons .button:is(:hover, :focus, :active) {
+  background: var(--branchroom-primary-hover);
+  color: var(--color-white);
+}
+
+.issue-title-header .issue-title h1 {
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+.ui.top.attached.header.branchroom-restricted {
+  background-color: var(--branchroom-restricted-bg);
+  color: var(--branchroom-restricted-text);
+  border-color: var(--branchroom-restricted-border);
+}
+
+#readme.non-diff-file-content {
+  border-radius: 8px;
+}
+
+.branchroom .ui.primary.button {
+  background-color: var(--branchroom-primary-button);
+}
+
+.branchroom .ui.primary.button:is(:hover, :focus, :active) {
+  background-color: var(--branchroom-primary-hover);
+}
+
+.branchroom .ui.form input:not([type="hidden"]),
+.branchroom .ui.form select, .branchroom-source-handoffs input {
+  min-height: 32px;
+}
+
+.form .help {
+  color: var(--color-text-light-1);
+}
+
+.repo-header .tw-text-18 > a {
+  color: var(--color-text-light);
+}
+
+.repo-header .tw-text-18 > a:last-of-type {
+  color: var(--color-text-dark);
+  font-weight: var(--font-weight-semibold);
+}
+
+.repository.view.issue .issue-title h1 {
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+.ui.attached.segment.branchroom-restricted {
+  background: var(--branchroom-restricted-bg);
+  color: var(--branchroom-restricted-text);
+  border-color: var(--branchroom-restricted-border);
+  background-image: repeating-linear-gradient(135deg, var(--branchroom-hatch) 0 6px, var(--branchroom-hatch-bg) 6px 12px);
+  background-size: 100% 4px;
+  background-repeat: no-repeat;
+}
+
+.ui.ui.ui:is(.yellow, .orange).label:not(.basic) {
+  background: var(--branchroom-restricted-bg);
+  color: var(--branchroom-restricted-label);
+  border: 1px solid var(--branchroom-restricted-border);
+}
+
+.ui.tabular.menu .active.item, .ui.tabular.menu .active.item:hover {
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 2px solid var(--color-primary);
+  border-radius: 0 !important; /* the framework sets tab corners with !important */
+}
+
+.repository.view.issue .issue-title-buttons > .ui.button {
+  height: 32px;
+}
+
+#release-list .release-list-title {
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
 }
