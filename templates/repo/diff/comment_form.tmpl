@@ -14,6 +14,7 @@
 		<div class="field">
 		{{template "shared/combomarkdowneditor" (dict
 			"CustomInit" true
+			"ReviewSuggestion" (not $replyReviewComment)
 			"MarkdownEditorContext" (ctx.MiscUtils.MarkdownEditorComment $root.Repository)
 			"TextareaName" "content"
 			"TextareaPlaceholder" (ctx.Locale.Tr "repo.diff.comment.placeholder")

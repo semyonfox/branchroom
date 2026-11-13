@@ -451,3 +451,54 @@ func testIssueClose(t *testing.T, session *TestSession, owner, repo, issueNumber
 	req := NewRequestWithValues(t, "POST", closeURL, options)
 	return session.MakeRequest(t, req, http.StatusOK)
 }
+
+func TestPullReviewApplySuggestion(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		ctx := t.Context()
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		_, err := files_service.ChangeRepoFiles(ctx, repo, doer, &files_service.ChangeRepoFilesOptions{
+			OldBranch: "master", NewBranch: "review-suggestion",
+			Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "suggestion.txt", ContentReader: strings.NewReader("original\nuntouched\n")}},
+		})
+		require.NoError(t, err)
+		session := loginUser(t, "user2")
+		testPullCreate(t, session, "user2", "repo1", false, "master", "review-suggestion", "Suggested change")
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "review-suggestion"})
+		require.NoError(t, pr.LoadIssue(ctx))
+		gitRepo, err := git.OpenRepository(ctx, repo)
+		require.NoError(t, err)
+		defer gitRepo.Close()
+		comment, err := pull_service.CreateCodeComment(ctx, doer, gitRepo, pr.Issue, 1, "Try this:\n```suggestion\nreplacement\nsecond line\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		stale, err := pull_service.CreateCodeComment(ctx, doer, gitRepo, pr.Issue, 1, "```suggestion\nstale replacement\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "-original")
+		assert.Contains(t, page.Body.String(), "Apply suggestion")
+		apply := func(id int64) {
+			req := NewRequestWithValues(t, "POST", "/user2/repo1/issues/apply_suggestion", map[string]string{"comment_id": strconv.FormatInt(id, 10)})
+			session.MakeRequest(t, req, http.StatusOK)
+		}
+		apply(comment.ID)
+		head, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, "Apply suggestion from review", head.MessageTitle())
+		assert.Equal(t, doer.NewGitSig().Name, head.Author.Name)
+		blob, err := head.GetBlobByPath(ctx, gitRepo, "suggestion.txt")
+		require.NoError(t, err)
+		content, err := blob.GetBlobContent(ctx, 1024)
+		require.NoError(t, err)
+		assert.Equal(t, "replacement\nsecond line\nuntouched\n", content)
+		saved := unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: comment.ID})
+		require.NotNil(t, saved.CommentMetaData)
+		assert.Equal(t, head.ID.String(), saved.CommentMetaData.AppliedSuggestionCommit)
+		apply(stale.ID)
+		after, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, head.ID, after.ID)
+		page = session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "This suggestion is stale")
+		assert.Contains(t, page.Body.String(), "Suggestion applied")
+	})
+}

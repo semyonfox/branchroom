@@ -246,8 +246,10 @@ const (
 	SpecialDoerNameProjectWorkflow SpecialDoerNameType = "ProjectWorkflow"
 )
 
-// CommentMetaData stores metadata for a comment, these data will not be changed once inserted into database
+// CommentMetaData stores non-indexed metadata for a comment.
 type CommentMetaData struct {
+	AppliedSuggestionCommit string `json:"applied_suggestion_commit,omitempty"`
+
 	ProjectColumnID    int64  `json:"project_column_id,omitempty"`
 	ProjectColumnTitle string `json:"project_column_title,omitempty"`
 	ProjectTitle       string `json:"project_title,omitempty"`

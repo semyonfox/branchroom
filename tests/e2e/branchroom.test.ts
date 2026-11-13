@@ -6,9 +6,10 @@ import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {test, expect} from '@playwright/test';
 import type {Browser, Locator, Page} from '@playwright/test';
-import {apiCreateRepo, apiCreateUser, apiHeaders, baseUrl, login, loginUser, randomString, testUserPassword, timeoutFactor} from './utils.ts';
+import {apiCreateRepo, apiCreateUser, apiHeaders, baseUrl, login, loginUser, randomString, testUserPassword} from './utils.ts';
 
 const run = promisify(execFile);
+const timeoutFactor = Number(env.GITEA_TEST_E2E_TIMEOUT_FACTOR) || 1;
 
 async function git(cwd: string, ...args: Array<string>) {
   return run('git', args, {cwd, env: {...process.env, GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1'}});
