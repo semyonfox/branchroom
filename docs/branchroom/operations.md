@@ -141,13 +141,14 @@ Suspected disclosure of restricted source:
    chain verification. Each export is recorded in the audit trail. Decisions whose audit event is
    missing have sequence zero and empty hash fields in the export.
    Run the doctor check to confirm the chain is intact.
+   Usernames are resolved when exporting. The recorded actor ID remains the identity
+   in the hash chain.
    Permission decisions describe access at request time. Their `expires_unix` equals
    `created_unix` because the decision cannot be reused. Grant creation and renewal
    events carry `not_before_unix` and `expires_unix` in `details`.
    Receive outcome events distinguish `receive_accepted` from `receive_rejected`
-   and include ref names and old/new object IDs. `receive_unconfirmed` means refs
-   did not match after Git exited, for example after a concurrent push. It does
-   not prove acceptance or rejection. Treat exports as restricted information.
+   and include ref names and old/new object IDs. `receive_unconfirmed` means Git did not return a complete status report. It
+   does not prove acceptance or rejection. Treat exports as restricted information.
 5. Retire the workspace if it should no longer be used, then purge it when its source
    is no longer needed. Repository deletion keeps the audit chain.
 
