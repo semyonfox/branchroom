@@ -61,6 +61,7 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 			ScopeID:     scope.ID,
 			SubjectType: branchroom_model.SubjectTypeUser,
 			SubjectID:   request.Actor.ID,
+			ExpiresUnix: timeutil.TimeStampNow().AddDuration(setting.Branchroom.GrantDuration()),
 			Action:      branchroom_model.ActionDiscover,
 			CreatedByID: request.Actor.ID,
 		}); err != nil {

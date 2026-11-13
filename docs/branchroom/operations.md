@@ -163,3 +163,23 @@ Not done, so not supported:
 - SSH and LFS for restricted workspaces.
 - An audit viewer, an audit retention period and per-user rate limits.
 - Environment materialization and key management.
+
+## Grant lifetimes and offboarding
+
+`[branchroom] DEFAULT_GRANT_DURATION` defaults to `2160h` (90 days). New user
+and team grants without an expiry, including the scope creator's discovery grant,
+expire after this duration. It must be positive. `MAX_GRANT_DURATION` defaults to
+`0`, meaning no cap. Both settings use Go durations, for example `168h` for seven
+days. Explicit expiries beyond the maximum, and non-expiring grants when a maximum
+is set, are rejected. The default lifetime is capped at the maximum.
+
+Repository owners can renew active grants from Branchroom settings. Renewal sets
+the expiry to the default duration from now, capped at the maximum, and is audited.
+Expiries within seven days are highlighted. Existing grants keep their expiry
+until renewed or revoked.
+
+Site administrators can inspect direct and team grants on the user edit page and
+revoke all active direct grants. Each revocation is audited. Team access remains
+until membership or the team's grant is removed. Prohibiting login blocks access
+on the next request. Deleting an account also blocks access, while grant rows
+remain as audit history.

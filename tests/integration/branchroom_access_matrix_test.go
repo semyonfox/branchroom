@@ -82,6 +82,7 @@ func TestBranchroomAccessMatrices(t *testing.T) {
 			{name: "PAT public only", userID: 4, actions: []branchroom_model.Action{discover, read, write}, credential: publicPAT, statuses: [5]int{404, 404, 404, 404, 404}},
 			{name: "PAT write", userID: 4, actions: []branchroom_model.Action{discover, read, write}, credential: writePAT, statuses: [5]int{200, 200, 200, 200, 404}},
 			{name: "password with 2FA", userID: 4, actions: []branchroom_model.Action{discover, read, write}, statuses: [5]int{401, 401, 401, 401, 200}},
+			{name: "prohibited", userID: 4, actions: []branchroom_model.Action{discover, read, write}, statuses: [5]int{401, 401, 401, 401, 404}},
 			{name: "deactivated", userID: 4, actions: []branchroom_model.Action{discover, read, write}, statuses: [5]int{404, 404, 404, 404, 404}},
 		}
 		gateway := u.JoinPath("_branchroom", "org3", "repo3", workspace.RouteKey+".git")
@@ -124,6 +125,12 @@ func TestBranchroomAccessMatrices(t *testing.T) {
 					defer func() {
 						_, err := db.GetEngine(t.Context()).Where("uid = ?", 4).Delete(new(auth_model.TwoFactor))
 						require.NoError(t, err)
+					}()
+				}
+				if row.name == "prohibited" {
+					require.NoError(t, user_model.UpdateUserCols(t.Context(), &user_model.User{ID: 4, ProhibitLogin: true}, "prohibit_login"))
+					defer func() {
+						require.NoError(t, user_model.UpdateUserCols(t.Context(), &user_model.User{ID: 4, ProhibitLogin: false}, "prohibit_login"))
 					}()
 				}
 				if row.name == "deactivated" {

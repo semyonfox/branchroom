@@ -36,12 +36,12 @@ func TestLoadBranchroom(t *testing.T) {
 
 	t.Run("DisabledByDefault", func(t *testing.T) {
 		require.NoError(t, loadConfig(t, ""))
-		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10, MaxGitRequestSize: 32 << 20, GitRequestTimeout: 2 * time.Minute}, Branchroom)
+		assert.Equal(t, BranchroomConfig{DefaultGrantDuration: 90 * 24 * time.Hour, MaxWorkspacesPerOwner: 10, MaxGitRequestSize: 32 << 20, GitRequestTimeout: 2 * time.Minute}, Branchroom)
 	})
 
 	t.Run("DisabledRetainsRestrictedRootForBackupExclusion", func(t *testing.T) {
 		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = false\nRESTRICTED_ROOT = public-repositories\n"))
-		assert.Equal(t, BranchroomConfig{MaxWorkspacesPerOwner: 10, MaxGitRequestSize: 32 << 20, GitRequestTimeout: 2 * time.Minute, RestrictedRepoRootPath: publicRoot}, Branchroom)
+		assert.Equal(t, BranchroomConfig{DefaultGrantDuration: 90 * 24 * time.Hour, MaxWorkspacesPerOwner: 10, MaxGitRequestSize: 32 << 20, GitRequestTimeout: 2 * time.Minute, RestrictedRepoRootPath: publicRoot}, Branchroom)
 	})
 
 	if !branchroomRestrictedStoreIntegritySupported() {
@@ -68,6 +68,7 @@ func TestLoadBranchroom(t *testing.T) {
 
 		require.NoError(t, loadConfig(t, "[branchroom]\nENABLED = true\nRESTRICTED_ROOT = restricted-repositories\n"))
 		assert.Equal(t, BranchroomConfig{
+			DefaultGrantDuration:   90 * 24 * time.Hour,
 			Enabled:                true,
 			RestrictedRepoRootPath: restrictedRoot,
 			MaxWorkspacesPerOwner:  10,

@@ -15,6 +15,8 @@ import (
 
 // BranchroomConfig contains the static configuration for Branchroom foundations.
 type BranchroomConfig struct {
+	DefaultGrantDuration   time.Duration
+	MaxGrantDuration       time.Duration
 	Enabled                bool
 	RestrictedRepoRootPath string
 	MaxWorkspacesPerOwner  int
@@ -43,16 +45,33 @@ func (c BranchroomConfig) GitRequestTimeLimit() time.Duration {
 	return defaultBranchroomGitRequestTimeout
 }
 
+// GrantDuration returns the default lifetime, bounded by the instance maximum.
+func (c BranchroomConfig) GrantDuration() time.Duration {
+	duration := c.DefaultGrantDuration
+	if duration <= 0 {
+		duration = 90 * 24 * time.Hour
+	}
+	if c.MaxGrantDuration > 0 && duration > c.MaxGrantDuration {
+		duration = c.MaxGrantDuration
+	}
+	return duration
+}
+
 // Branchroom stores the static Branchroom configuration.
 var Branchroom BranchroomConfig
 
 func loadBranchroomFrom(rootCfg ConfigProvider) error {
 	sec := rootCfg.Section("branchroom")
 	Branchroom = BranchroomConfig{
+		DefaultGrantDuration:  sec.Key("DEFAULT_GRANT_DURATION").MustDuration(90 * 24 * time.Hour),
+		MaxGrantDuration:      sec.Key("MAX_GRANT_DURATION").MustDuration(0),
 		Enabled:               sec.Key("ENABLED").MustBool(false),
 		MaxWorkspacesPerOwner: sec.Key("MAX_WORKSPACES_PER_OWNER").MustInt(10),
 		MaxGitRequestSize:     sec.Key("MAX_GIT_REQUEST_SIZE").MustInt64(defaultBranchroomMaxGitRequestSize),
 		GitRequestTimeout:     sec.Key("GIT_REQUEST_TIMEOUT").MustDuration(defaultBranchroomGitRequestTimeout),
+	}
+	if Branchroom.DefaultGrantDuration <= 0 || Branchroom.MaxGrantDuration < 0 {
+		return errors.New("[branchroom] DEFAULT_GRANT_DURATION must be positive and MAX_GRANT_DURATION must not be negative")
 	}
 	if !Branchroom.Enabled {
 		configured := strings.TrimSpace(sec.Key("RESTRICTED_ROOT").String())

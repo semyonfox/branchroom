@@ -13,6 +13,7 @@ import (
 
 	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	org_model "gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
@@ -30,6 +31,7 @@ import (
 	user_setting "gitea.dev/routers/web/user/setting"
 	"gitea.dev/services/audit"
 	auth_service "gitea.dev/services/auth"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
@@ -407,11 +409,20 @@ func editUserCommon(ctx *context.Context) {
 // EditUser show editing user page
 func EditUser(ctx *context.Context) {
 	editUserCommon(ctx)
-	prepareUserInfo(ctx)
+	u := prepareUserInfo(ctx)
 	if ctx.Written() {
 		return
 	}
 
+	if setting.Branchroom.Enabled {
+		access, err := branchroom_model.FindUserAccess(ctx, u.ID)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		ctx.Data["BranchroomAccess"] = access
+		ctx.Data["BranchroomEnabled"] = true
+	}
 	ctx.HTML(http.StatusOK, tplUserEdit)
 }
 
@@ -714,4 +725,22 @@ func DeleteAvatar(ctx *context.Context) {
 	}
 
 	ctx.JSONRedirect(setting.AppSubURL + "/-/admin/users/" + strconv.FormatInt(u.ID, 10))
+}
+
+// RevokeBranchroomAccess removes a user's direct grants without changing team membership.
+func RevokeBranchroomAccess(ctx *context.Context) {
+	if !setting.Branchroom.Enabled {
+		ctx.NotFound()
+		return
+	}
+	user := prepareUserInfo(ctx)
+	if ctx.Written() {
+		return
+	}
+	if err := branchroom_service.RevokeAllDirectUserGrants(ctx, user.ID, branchroom_service.ActorFromUser(ctx.Doer)); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	ctx.Flash.Success(ctx.Tr("admin.users.branchroom_revoked"))
+	ctx.Redirect(setting.AppSubURL + "/-/admin/users/" + strconv.FormatInt(user.ID, 10) + "/edit")
 }
