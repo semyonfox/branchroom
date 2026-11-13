@@ -251,3 +251,20 @@ after looking at the commit, pushes it once with the option above. The sync
 engine opens an issue in the affected repository when Branchroom refuses the
 update. The issue does not include the hook message, which contains the start
 of the match.
+
+## PR factory labels
+
+Import the **Branchroom** label template into each repository. The scoped
+`pr/in-progress`, `pr/needs-review` and `pr/ready` labels are exclusive. Applying
+one replaces the other labels in the `pr/` scope. The `land` label is independent.
+
+An agent marks work `pr/in-progress` while changing code or fixing checks, then
+`pr/needs-review` when it needs a person's decision. After review, mark it
+`pr/ready`. A maintainer adds `land` when they intend to merge and enables
+**merge when checks succeed** on the PR. Labels describe intent. They do not
+schedule a merge or bypass checks, reviews, permissions or branch protection.
+
+If new changes need review, move back to `pr/needs-review`, remove `land` and
+cancel the scheduled merge. Agents should read readiness again after a new head
+commit and before asking to land. When using MCP `set_labels`, preserve unrelated
+label names because it replaces the full label set.
