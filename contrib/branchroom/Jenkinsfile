@@ -8,6 +8,12 @@ pipeline {
   }
   triggers { githubPush() }
   stages {
+    stage('Record revision') {
+      steps {
+        // a checkout is what lets the GitHub hook see later commits; without it the hook returns and builds nothing
+        checkout scm
+      }
+    }
     stage('Deploy') {
       steps {
         sh '''
