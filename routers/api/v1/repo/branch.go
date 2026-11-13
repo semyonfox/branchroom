@@ -243,6 +243,8 @@ func CreateBranch(ctx *context.APIContext) {
 			ctx.APIError(http.StatusConflict, "The branch already exists.")
 		} else if git_model.IsErrBranchNameConflict(err) {
 			ctx.APIError(http.StatusConflict, "The branch with the same name already exists.")
+		} else if rejected, ok := err.(*git.ErrPushRejected); ok {
+			ctx.APIError(http.StatusForbidden, rejected.Message)
 		} else {
 			ctx.APIErrorInternal(err)
 		}
