@@ -92,7 +92,7 @@ func SearchIssuesRepoIDs(ctx context.Context, opts SearchIssuesRepoIDsOptions) (
 	}
 
 	// SearchRepoOptions.AllPublic and AllLimited only apply under an owner filter, so the indexer covers them
-	allPublic = opts.OwnerName == ""
+	allPublic = opts.OwnerName == "" && len(user_model.GetDoerRepositoryIDs(opts.Doer)) == 0
 	cond := repo_model.SearchRepositoryCondition(searchOpts)
 	if allPublic {
 		if !user_model.DoerCanViewPrivate(opts.Doer) {

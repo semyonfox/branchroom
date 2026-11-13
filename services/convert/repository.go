@@ -13,9 +13,11 @@ import (
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	unit_model "gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
+	"gitea.dev/modules/web/middleware"
 )
 
 // ToRepo converts a Repository to api.Repository
@@ -48,7 +50,8 @@ func innerToRepo(ctx context.Context, repo *repo_model.Repository, permissionInR
 		if err != nil {
 			return nil
 		}
-		if repo.BaseRepo != nil {
+		doer, _ := middleware.GetContextData(ctx)[middleware.ContextDataKeySignedUser].(*user_model.User)
+		if repo.BaseRepo != nil && user_model.DoerTokenAllowsRepositoryID(doer, repo.BaseRepo.ID) {
 			// FIXME: The permission of the parent repo is not correct.
 			//        It's the permission of the current repo, so it's probably different from the parent repo.
 			//        But there isn't a good way to get the permission of the parent repo, because the doer is not passed in.

@@ -22,6 +22,9 @@ func ResolveTokenRepositories(ctx context.Context, doer *user_model.User, names 
 			return nil, util.NewInvalidArgumentErrorf("invalid repository name: %s", name)
 		}
 		repo, err := repo_model.GetRepositoryByOwnerAndName(ctx, owner, repoName)
+		if repo_model.IsErrRepoNotExist(err) {
+			return nil, util.NewNotExistErrorf("repository not found")
+		}
 		if err != nil {
 			return nil, err
 		}

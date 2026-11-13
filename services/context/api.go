@@ -266,7 +266,7 @@ func RepoRefForAPI(next http.Handler) http.Handler {
 
 // IsUserSiteAdmin returns true if current user is a site admin
 func (ctx *APIContext) IsUserSiteAdmin() bool {
-	return ctx.IsSigned && ctx.Doer.IsAdmin
+	return ctx.IsSigned && ctx.Doer.IsAdmin && len(user_model.GetDoerRepositoryIDs(ctx.Doer)) == 0
 }
 
 // IsUserRepoAdmin returns true if current user is admin in current repo

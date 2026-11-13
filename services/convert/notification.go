@@ -9,8 +9,10 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	access_model "gitea.dev/models/perm/access"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
 	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/web/middleware"
 )
 
 // ToNotificationThread convert a Notification to api.NotificationThread
@@ -27,7 +29,11 @@ func ToNotificationThread(ctx context.Context, n *activities_model.Notification)
 	if n.Repository == nil {
 		return result
 	}
-	perm, err := access_model.GetIndividualUserRepoPermission(ctx, n.Repository, n.User)
+	doer := n.User
+	if requestDoer, ok := middleware.GetContextData(ctx)[middleware.ContextDataKeySignedUser].(*user_model.User); ok {
+		doer = requestDoer
+	}
+	perm, err := access_model.GetIndividualUserRepoPermission(ctx, n.Repository, doer)
 	if err != nil {
 		log.Error("GetIndividualUserRepoPermission failed: %v", err)
 		return result

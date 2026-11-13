@@ -10,6 +10,7 @@ import (
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/notifications"
@@ -107,7 +108,11 @@ func getThread(ctx *context.APIContext) *activities_model.Notification {
 		}
 		return nil
 	}
-	if n.UserID != ctx.Doer.ID && !ctx.Doer.IsAdmin {
+	if !user_model.DoerTokenAllowsRepositoryID(ctx.Doer, n.RepoID) {
+		ctx.APIErrorNotFound()
+		return nil
+	}
+	if n.UserID != ctx.Doer.ID && !ctx.IsUserSiteAdmin() {
 		ctx.APIError(http.StatusForbidden, fmt.Sprintf("only user itself and admin are allowed to read/change this thread %d", n.ID))
 		return nil
 	}

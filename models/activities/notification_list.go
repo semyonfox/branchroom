@@ -22,6 +22,7 @@ import (
 // FindNotificationOptions represent the filters for notifications. If an ID is 0 it will be ignored.
 type FindNotificationOptions struct {
 	db.ListOptions
+	Doer              *user_model.User
 	UserID            int64
 	RepoID            int64
 	IssueID           int64
@@ -34,6 +35,9 @@ type FindNotificationOptions struct {
 // ToCond will convert each condition into a xorm-Cond
 func (opts FindNotificationOptions) ToConds() builder.Cond {
 	cond := builder.NewCond()
+	if ids := user_model.GetDoerRepositoryIDs(opts.Doer); len(ids) > 0 {
+		cond = cond.And(builder.In("notification.repo_id", ids))
+	}
 	if opts.UserID != 0 {
 		cond = cond.And(builder.Eq{"notification.user_id": opts.UserID})
 	}
