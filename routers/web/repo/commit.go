@@ -40,6 +40,7 @@ const (
 	tplGraph      templates.TplName = "repo/graph"
 	tplGraphDiv   templates.TplName = "repo/graph/div"
 	tplCommitPage templates.TplName = "repo/commit_page"
+	tplCommitDiff templates.TplName = "repo/diff/box"
 )
 
 // RefCommits render commits page
@@ -418,6 +419,10 @@ func Diff(ctx *context.Context) {
 		ctx.Data["MergedPRIssueNumber"] = pr.Index
 	}
 
+	if fileOnly {
+		ctx.HTML(http.StatusOK, tplCommitDiff)
+		return
+	}
 	ctx.HTML(http.StatusOK, tplCommitPage)
 }
 

@@ -59,6 +59,7 @@ import (
 const (
 	tplPullCommits templates.TplName = "repo/pulls/commits"
 	tplPullFiles   templates.TplName = "repo/pulls/files"
+	tplPullDiffBox templates.TplName = "repo/diff/box"
 
 	pullRequestTemplateKey = "PullRequestTemplate"
 )
@@ -984,6 +985,11 @@ func viewPullFiles(ctx *context.Context, beforeCommitID, afterCommitID string) {
 		}
 	}
 
+	// file-only is the "load diff" and "show more" request. Return the boxes, not the whole page.
+	if fileOnly {
+		ctx.HTML(http.StatusOK, tplPullDiffBox)
+		return
+	}
 	ctx.HTML(http.StatusOK, tplPullFiles)
 }
 

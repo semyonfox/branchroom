@@ -140,6 +140,10 @@ const BlobExcerptChunkSize = 20
 const (
 	MaxFullFileHighlightSizeLimit = 256 * 1024
 	MaxFullFileHighlightTimeLimit = 2 * time.Second
+	// MaxExpandedDiffFiles is how many patches are written into the first response.
+	// The file list still includes the rest. Their bodies load when opened, so a large
+	// pull does not pay highlighting and HTML cost for files that are not on screen.
+	MaxExpandedDiffFiles = 8
 )
 
 func (d *DiffLine) IsDiffLinePlain() bool   { return d.Type == DiffLinePlain }
@@ -472,6 +476,7 @@ type DiffFile struct {
 	// will be filled by the extra loop in GitDiffForRender
 	IsGenerated       bool
 	IsVendored        bool
+	OmitRenderedBody  bool               // header only; the patch is fetched when the file is opened
 	SubmoduleDiffInfo *SubmoduleDiffInfo // IsSubmodule==true, then there must be a SubmoduleDiffInfo
 
 	// will be filled by route handler
@@ -483,6 +488,7 @@ type DiffFile struct {
 
 	// for render purpose only, will be filled by the extra loop in GitDiffForRender, the maps of lines are 0-based
 	language              diffVarMutable[string]
+	skipHighlight         bool
 	highlightRender       diffVarMutable[chroma.Lexer] // cache render (atm: lexer) for current file, only detect once for line-by-line mode
 	highlightedLeftLines  diffVarMutable[map[int]template.HTML]
 	highlightedRightLines diffVarMutable[map[int]template.HTML]
@@ -593,8 +599,66 @@ func (diffFile *DiffFile) GetDiffFileBaseName() string {
 	return path.Base(diffFile.Name)
 }
 
+// markOmittedDiffBodies keeps the first few reviewable patches in the response.
+// Generated and vendored files stay as headers and do not take one of those slots.
+// A file-only load is targeted and renders every requested file.
+func markOmittedDiffBodies(files []*DiffFile, targeted bool) {
+	if targeted {
+		return
+	}
+	expanded := 0
+	for _, file := range files {
+		if file.IsGenerated || file.IsVendored || expanded >= MaxExpandedDiffFiles {
+			file.OmitRenderedBody = true
+			continue
+		}
+		expanded++
+	}
+}
+
 func (diffFile *DiffFile) ShouldBeHidden() bool {
-	return diffFile.IsGenerated || diffFile.IsViewed
+	return diffFile.IsGenerated || diffFile.IsViewed || diffFile.OmitRenderedBody
+}
+
+// LoadBodyQuery is the file-only request that renders this patch, including the page's diff style.
+func (diffFile *DiffFile) LoadBodyQuery(style, whitespace string) string {
+	query := url.Values{}
+	query.Set("file-only", "true")
+	if style != "" {
+		query.Set("style", style)
+	}
+	if whitespace != "" {
+		query.Set("whitespace", whitespace)
+	}
+	if diffFile.Name != "" {
+		query.Add("files", diffFile.Name)
+	}
+	if diffFile.OldName != "" {
+		query.Add("files", diffFile.OldName)
+	}
+	return "?" + query.Encode()
+}
+
+// HiddenCommentIDsAttr lists review comments on a file whose patch was not rendered,
+// wrapped in commas so a deep link can open the file. Empty when the body is present.
+func (diffFile *DiffFile) HiddenCommentIDsAttr() string {
+	if !diffFile.OmitRenderedBody {
+		return ""
+	}
+	var ids []string
+	for _, section := range diffFile.Sections {
+		for _, line := range section.Lines {
+			for _, comment := range line.Comments {
+				if comment != nil && comment.ID > 0 {
+					ids = append(ids, strconv.FormatInt(comment.ID, 10))
+				}
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	return "," + strings.Join(ids, ",") + ","
 }
 
 func (diffFile *DiffFile) TranslateDiffEntryMode(locale translation.Locale) string {
@@ -1404,6 +1468,14 @@ func GetDiffForRender(ctx context.Context, repoLink string, gitRepo *git.Reposit
 			isGenerated = optional.Some(analyze.IsGenerated(diffFile.Name))
 		}
 		diffFile.IsGenerated = isGenerated.Value()
+		diffFile.skipHighlight = attrDiff.Value() != ""
+	}
+	markOmittedDiffBodies(diff.Files, len(files) > 0)
+
+	for _, diffFile := range diff.Files {
+		if diffFile.OmitRenderedBody {
+			continue
+		}
 
 		// prepare more details for the rendering, e.g.: blob (file) size, type, limited content to highlight, etc
 		renderDetail := diffFile.prepareDiffRenderDetail(ctx, gitRepo, beforeCommit, afterCommit)
@@ -1412,7 +1484,7 @@ func GetDiffForRender(ctx context.Context, repoLink string, gitRepo *git.Reposit
 		}
 
 		// only do highlight for text files which have no custom diff command
-		shouldFullFileHighlight := !diffFile.IsBin && !diffFile.IsLFSFile && attrDiff.Value() == ""
+		shouldFullFileHighlight := !diffFile.IsBin && !diffFile.IsLFSFile && !diffFile.skipHighlight
 		shouldFullFileHighlight = shouldFullFileHighlight && time.Since(startTime) < MaxFullFileHighlightTimeLimit
 		if shouldFullFileHighlight {
 			if renderDetail.leftContent != nil {

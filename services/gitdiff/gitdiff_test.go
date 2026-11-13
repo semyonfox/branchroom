@@ -1147,3 +1147,39 @@ func TestGetDiffShortStatWithOptions(t *testing.T) {
 		assert.Equal(t, &DiffShortStat{NumFiles: 1, TotalAddition: 3, TotalDeletion: 2}, stat)
 	})
 }
+
+func TestMarkOmittedDiffBodies(t *testing.T) {
+	files := []*DiffFile{{Name: "app.min.js", IsGenerated: true}, {Name: "vendor/lib.go", IsVendored: true}}
+	for i := range MaxExpandedDiffFiles + 1 {
+		files = append(files, &DiffFile{Name: "f" + strconv.Itoa(i) + ".go"})
+	}
+	markOmittedDiffBodies(files, false)
+	assert.True(t, files[0].OmitRenderedBody)
+	assert.True(t, files[1].OmitRenderedBody)
+	for i := 2; i < 2+MaxExpandedDiffFiles; i++ {
+		assert.False(t, files[i].OmitRenderedBody, files[i].Name)
+	}
+	assert.True(t, files[len(files)-1].OmitRenderedBody)
+
+	targeted := []*DiffFile{{Name: "app.min.js", IsGenerated: true}, {Name: "main.go"}}
+	markOmittedDiffBodies(targeted, true)
+	assert.False(t, targeted[0].OmitRenderedBody)
+	assert.False(t, targeted[1].OmitRenderedBody)
+}
+
+func TestDiffFileLoadBodyQuery(t *testing.T) {
+	query := (&DiffFile{Name: "a b.go", OldName: "a.go"}).LoadBodyQuery("split", "ignore-all")
+	assert.Contains(t, query, "file-only=true")
+	assert.Contains(t, query, "style=split")
+	assert.Contains(t, query, "whitespace=ignore-all")
+	assert.Contains(t, query, "a+b.go")
+	assert.Contains(t, query, "files=a.go")
+
+	commented := &DiffFile{
+		OmitRenderedBody: true,
+		Sections:         []*DiffSection{{Lines: []*DiffLine{{Comments: []*issues_model.Comment{{ID: 12}, {ID: 4}}}}}},
+	}
+	assert.Equal(t, ",12,4,", commented.HiddenCommentIDsAttr())
+	commented.OmitRenderedBody = false
+	assert.Empty(t, commented.HiddenCommentIDsAttr())
+}
