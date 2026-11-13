@@ -452,15 +452,16 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 
 		t.Run("admin and sudo", func(t *testing.T) {
 			admin := create("user1", "limited-admin")
-			for _, path := range []string{"/admin/users", "/admin/emails", "/admin/actions/runs", "/admin/actions/jobs", "/orgs/org3/hooks", "/repos/user2/repo1?sudo=user2"} {
+			MakeRequest(t, NewRequest(t, "GET", "/api/v1/users/user1").AddTokenAuth(admin.Token), http.StatusOK)
+			for _, path := range []string{"/admin/users", "/admin/emails", "/admin/actions/runs", "/admin/actions/jobs", "/orgs/org3/hooks", "/repos/user2/repo1?sudo=user2", "/users/user2", "/users/user31"} {
 				MakeRequest(t, NewRequest(t, "GET", "/api/v1"+path).AddTokenAuth(admin.Token), http.StatusForbidden)
 			}
 		})
 
 		t.Run("repository creation", func(t *testing.T) {
-			for _, route := range []string{"forks", "generate"} {
+			for _, route := range []string{"forks", "generate", "transfer", "transfer/accept", "transfer/reject"} {
 				for _, owner := range []string{"user2", "org3"} {
-					req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/"+route, map[string]string{"name": "must-not-exist", "owner": owner, "organization": owner}).AddTokenAuth(token.Token)
+					req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/"+route, map[string]string{"name": "must-not-exist", "owner": owner, "organization": owner, "new_owner": owner}).AddTokenAuth(token.Token)
 					MakeRequest(t, req, http.StatusForbidden)
 				}
 			}
@@ -468,7 +469,7 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 		})
 
 		t.Run("account reads", func(t *testing.T) {
-			for _, path := range []string{"/user/emails", "/user/keys", "/user/gpg_keys", "/user/teams", "/orgs/org3/teams", "/orgs/org3/actions/runners", "/orgs/org3/actions/variables", "/orgs/org3/actions/secrets", "/users/user2/tokens"} {
+			for _, path := range []string{"/user/emails", "/user/keys", "/user/gpg_keys", "/user/teams", "/orgs/org3/teams", "/orgs/org3/actions/runners", "/orgs/org3/actions/variables", "/orgs/org3/actions/secrets", "/users/user2/tokens", "/users/user4", "/teams/1/repos/org3/repo3", "/teams/1/repos/org3/nope"} {
 				MakeRequest(t, NewRequest(t, "GET", "/api/v1"+path).AddTokenAuth(token.Token), http.StatusForbidden)
 			}
 			for _, path := range []string{"/user", "/version", "/users/user2", "/settings/api", "/repos/search"} {
@@ -503,6 +504,31 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 			fork := DecodeJSON(t, response, &api.Repository{})
 			assert.True(t, fork.Fork)
 			assert.Nil(t, fork.Parent)
+		})
+
+		t.Run("reserved path names", func(t *testing.T) {
+			for _, name := range []string{"forks", "generate"} {
+				request := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/contents/scripts/"+name, api.CreateFileOptions{ContentBase64: "eA=="}).AddTokenAuth(token.Token)
+				MakeRequest(t, request, http.StatusCreated)
+				request = NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/branches", api.CreateBranchRepoOption{BranchName: "feature/" + name}).AddTokenAuth(token.Token)
+				MakeRequest(t, request, http.StatusCreated)
+				MakeRequest(t, NewRequest(t, "DELETE", "/api/v1/repos/user2/repo1/branches/feature/"+name).AddTokenAuth(token.Token), http.StatusNoContent)
+				MakeRequest(t, NewRequest(t, "PUT", "/api/v1/repos/user2/repo1/topics/"+name).AddTokenAuth(token.Token), http.StatusNoContent)
+			}
+		})
+
+		t.Run("team repository writes", func(t *testing.T) {
+			request := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", api.CreateAccessTokenOption{Name: "team-repo", Scopes: []string{"all"}, Repositories: []string{"org3/repo3"}}).AddBasicAuth("user2")
+			teamToken := DecodeJSON(t, MakeRequest(t, request, http.StatusCreated), &api.AccessToken{})
+			for _, method := range []string{"PUT", "DELETE"} {
+				MakeRequest(t, NewRequest(t, method, "/api/v1/teams/2/repos/org3/repo3").AddTokenAuth(teamToken.Token), http.StatusForbidden)
+			}
+		})
+
+		t.Run("userinfo memberships", func(t *testing.T) {
+			response := MakeRequest(t, NewRequest(t, "GET", "/login/oauth/userinfo").AddTokenAuth(token.Token), http.StatusOK)
+			info := DecodeJSON(t, response, &map[string]any{})
+			assert.NotContains(t, *info, "groups")
 		})
 
 		t.Run("auto merge credential", func(t *testing.T) {

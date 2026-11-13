@@ -212,12 +212,15 @@ Both changes are audited. Team membership must be removed separately.
 
 A token limited to selected repositories can only access those repositories,
 including their issues, pull requests and Git data. It cannot create, fork or
-generate repositories, use site administrator powers or impersonate another user.
+generate or transfer repositories, accept or reject transfers, use site administrator
+powers or impersonate another user.
 Account and organisation resources, including emails, keys, teams, runners,
 variables, secrets and token lists, return `403 Forbidden`.
 
 The API also permits `GET /user` for identity, `GET /version`, `GET /settings/*`,
-public user profiles at `GET /users/{username}`, and repository and issue searches.
+the token owner's profile at `GET /users/{username}`, and repository and issue searches.
+Other user profiles return `403 Forbidden`. OAuth userinfo omits organisation and
+team memberships.
 Search results include only allowed repositories. Account notification and activity
 API endpoints are blocked. Repository notification endpoints and RSS/Atom feeds
 respect the repository list. Container catalog listing is unavailable.

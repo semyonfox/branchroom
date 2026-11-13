@@ -89,7 +89,7 @@ type userInfoResponse struct {
 	PreferredUsername string   `json:"preferred_username"`
 	Email             string   `json:"email"`
 	Picture           string   `json:"picture"`
-	Groups            []string `json:"groups"`
+	Groups            []string `json:"groups,omitempty"`
 }
 
 // InfoOAuth manages request for userinfo endpoint
@@ -121,12 +121,14 @@ func InfoOAuth(ctx *context.Context) {
 		Picture:           ctx.Doer.AvatarLink(ctx),
 	}
 
-	groups, err := oauth2_provider.GetOAuthGroupsForUser(ctx, ctx.Doer, user_model.IsPublicOnlyDoer(ctx.Doer))
-	if err != nil {
-		ctx.ServerErrorAuto(err)
-		return
+	if len(user_model.GetDoerRepositoryIDs(ctx.Doer)) == 0 {
+		groups, err := oauth2_provider.GetOAuthGroupsForUser(ctx, ctx.Doer, user_model.IsPublicOnlyDoer(ctx.Doer))
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		response.Groups = groups
 	}
-	response.Groups = groups
 
 	ctx.JSON(http.StatusOK, response)
 }

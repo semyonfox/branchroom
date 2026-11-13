@@ -260,6 +260,14 @@ func rejectPublicOnly() func(ctx *context.APIContext) {
 	}
 }
 
+func rejectRepositoryLimited() func(ctx *context.APIContext) {
+	return func(ctx *context.APIContext) {
+		if len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 {
+			ctx.APIError(http.StatusForbidden, "this endpoint is not available for repository-limited tokens")
+		}
+	}
+}
+
 func authenticatedUserAsContextUser(allowSystemUser bool) func(ctx *context.APIContext) {
 	return func(ctx *context.APIContext) {
 		if !user_model.DoerTokenAllowsOwner(ctx.Doer, ctx.Doer) {
@@ -865,10 +873,9 @@ func buildAuthGroup() *auth.Group {
 	return group
 }
 
-func limitedTokenRouteAllowed(ctx *context.APIContext) bool {
-	if ctx.PathParam("reponame") != "" {
-		path := strings.TrimRight(ctx.Req.URL.Path, "/")
-		return (!strings.HasSuffix(path, "/forks") && !strings.HasSuffix(path, "/generate")) || ctx.Req.Method == http.MethodGet
+func limitedTokenRouteAllowed(ctx *context.APIContext, doer *user_model.User) bool {
+	if ctx.PathParam("reponame") != "" && strings.HasPrefix(ctx.Req.URL.Path, "/api/v1/repos/") {
+		return true
 	}
 	if ctx.Req.Method != http.MethodGet {
 		return false
@@ -880,7 +887,7 @@ func limitedTokenRouteAllowed(ctx *context.APIContext) bool {
 	if strings.HasPrefix(ctx.Req.URL.Path, "/api/v1/settings/") {
 		return true
 	}
-	return ctx.PathParam("username") != "" && ctx.Req.URL.Path == "/api/v1/users/"+ctx.PathParam("username")
+	return doer != nil && strings.EqualFold(ctx.PathParam("username"), doer.Name) && ctx.Req.URL.Path == "/api/v1/users/"+ctx.PathParam("username")
 }
 
 func apiAuth(authMethod auth.Method) func(*context.APIContext) {
@@ -893,7 +900,7 @@ func apiAuth(authMethod auth.Method) func(*context.APIContext) {
 			return
 		}
 
-		if len(user_model.GetDoerRepositoryIDs(ar.Doer)) > 0 && !limitedTokenRouteAllowed(ctx) {
+		if len(user_model.GetDoerRepositoryIDs(ar.Doer)) > 0 && !limitedTokenRouteAllowed(ctx, ar.Doer) {
 			ctx.APIError(http.StatusForbidden, "repository-limited tokens cannot access account or organisation resources or create repositories")
 			return
 		}
@@ -1275,12 +1282,12 @@ func Routes() *web.Router {
 				m.Combo("").Get(reqAnyRepoReader(), repo.Get).
 					Delete(reqToken(), reqRepoDangerZone(), repo.Delete).
 					Patch(reqToken(), reqAdmin(), bind(api.EditRepoOption{}), repo.Edit)
-				m.Post("/generate", reqToken(), rejectPublicOnly(), reqRepoReader(unit.TypeCode), bind(api.GenerateRepoOption{}), repo.Generate)
+				m.Post("/generate", reqToken(), rejectPublicOnly(), rejectRepositoryLimited(), reqRepoReader(unit.TypeCode), bind(api.GenerateRepoOption{}), repo.Generate)
 				m.Group("/transfer", func() {
 					m.Post("", reqRepoDangerZone(), bind(api.TransferRepoOption{}), repo.Transfer)
 					m.Post("/accept", repo.AcceptTransfer)
 					m.Post("/reject", repo.RejectTransfer)
-				}, reqToken(), rejectPublicOnly())
+				}, reqToken(), rejectPublicOnly(), rejectRepositoryLimited())
 
 				// Adds the routes for secrets/variables and runner management
 				addActionsRoutes(m, reqRepoReader(unit.TypeActions), reqRepoAdmin(), repo.NewAction())
@@ -1343,7 +1350,7 @@ func Routes() *web.Router {
 				m.Get("/media/*", context.ReferencesGitRepo(), context.RepoRefForAPI, reqRepoReader(unit.TypeCode), repo.GetRawFileOrLFS)
 				m.Methods("HEAD,GET", "/archive/*", reqRepoReader(unit.TypeCode), context.ReferencesGitRepo(true), repo.GetArchive)
 				m.Combo("/forks").Get(repo.ListForks).
-					Post(reqToken(), reqRepoReader(unit.TypeCode), bind(api.CreateForkOption{}), repo.CreateFork)
+					Post(reqToken(), rejectRepositoryLimited(), reqRepoReader(unit.TypeCode), bind(api.CreateForkOption{}), repo.CreateFork)
 				m.Post("/merge-upstream", reqToken(), mustNotBeArchived, reqRepoWriter(unit.TypeCode), bind(api.MergeUpstreamRequest{}), repo.MergeUpstream)
 				m.Group("/branches", func() {
 					m.Get("", repo.ListBranches)
