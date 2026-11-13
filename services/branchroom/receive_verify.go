@@ -192,6 +192,9 @@ func FinalizeReceiveAdmission(ctx context.Context, credential *ReceiveAdmissionC
 	defer clear(bearerHashHex)
 
 	err = db.WithTx(ctx, func(txCtx context.Context) error {
+		if err := lockRepositoryLifecycleForRead(txCtx, initial.RepoID); err != nil {
+			return err
+		}
 		session, err := branchroom_model.GetReceiveSessionByIDForUpdate(txCtx, initial.ID)
 		if err != nil || session.Validate() != nil || session.SessionKey != credential.SessionKey ||
 			subtle.ConstantTimeCompare([]byte(session.BearerSecretHash), bearerHashHex) != 1 {
