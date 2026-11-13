@@ -15,7 +15,6 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	branchroom_module "gitea.dev/modules/branchroom"
-
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
