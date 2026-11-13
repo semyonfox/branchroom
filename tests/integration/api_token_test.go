@@ -525,6 +525,12 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 			}
 		})
 
+		t.Run("sudo file commit", func(t *testing.T) {
+			admin := getUserToken(t, "user1", auth_model.AccessTokenScopeAll)
+			request := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/contents/sudo.txt?sudo=user2", api.CreateFileOptions{ContentBase64: "eA=="}).AddTokenAuth(admin)
+			MakeRequest(t, request, http.StatusCreated)
+		})
+
 		t.Run("userinfo memberships", func(t *testing.T) {
 			response := MakeRequest(t, NewRequest(t, "GET", "/login/oauth/userinfo").AddTokenAuth(token.Token), http.StatusOK)
 			info := DecodeJSON(t, response, &map[string]any{})

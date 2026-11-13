@@ -130,7 +130,9 @@ func sudo() func(ctx *context.APIContext) {
 
 				audit.Record(ctx, audit_model.UserImpersonation, user)
 
-				user.ExtDoerData = ctx.Doer.ExtDoerData
+				if scope, hasScope := user_model.GetDoerTokenScope(ctx.Doer); hasScope {
+					user.ExtDoerData = user_model.NewTokenExtDoerData("", 0, scope)
+				}
 				ctx.Doer = user
 				// keep the audit actor in step with the effective doer, and keep the admin attached to it
 				ctx.Data[middleware.ContextDataKeyImpersonator] = ctx.Data[middleware.ContextDataKeySignedUser]
