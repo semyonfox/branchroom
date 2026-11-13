@@ -122,3 +122,9 @@
 .flex-divided-list + .divider {
   margin-top: 0;
 }
+
+.items-with-main > .item .repo-list-title {
+  font-weight: var(--font-weight-medium);
+  line-height: 24px;
+  margin-block: -2px;
+}
