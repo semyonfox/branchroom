@@ -851,3 +851,10 @@ table th[data-sortt-desc] .svg {
 .svg.octicon-file-directory-symlink {
   color: var(--color-secondary-dark-7);
 }
+
+@media (max-width: 767.98px) {
+  .page-content:has(#issue-list, #release-list, .repo-list-title) > .ui.container {
+    width: calc(100% - 32px) !important; /* override the mobile framework container width */
+    margin-inline: 16px !important; /* override the mobile framework container margins */
+  }
+}

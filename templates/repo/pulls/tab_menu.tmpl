@@ -3,12 +3,12 @@
 		<a class="item {{if .PageIsPullConversation}}active{{end}}" href="{{.Issue.Link}}">
 			{{svg "octicon-comment-discussion"}}
 			{{template "shared/misc/tabtitle" (ctx.Locale.Tr "repo.pulls.tab_conversation")}}
-			<span class="ui small label">{{.Issue.NumComments}}</span>
+			{{if .Issue.NumComments}}<span class="ui small label">{{ctx.Locale.PrettyNumber .Issue.NumComments}}</span>{{end}}
 		</a>
 		<a class="item {{if .PageIsPullCommits}}active{{end}}" {{if .NumCommits}}href="{{.Issue.Link}}/commits"{{end}}>
 			{{svg "octicon-git-commit"}}
 			{{template "shared/misc/tabtitle" (ctx.Locale.Tr "repo.pulls.tab_commits")}}
-			<span class="ui small label">{{if .NumCommits}}{{.NumCommits}}{{else}}-{{end}}</span>
+			<span class="ui small label">{{if .NumCommits}}{{ctx.Locale.PrettyNumber .NumCommits}}{{else}}-{{end}}</span>
 		</a>
 		<a class="item {{if .PageIsPullFiles}}active{{end}}" href="{{.Issue.Link}}/files">
 			{{svg "octicon-diff"}}
