@@ -4,6 +4,7 @@
 package branchroom
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -206,7 +207,10 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 
 	_, err = db.GetEngine(ctx).ID(first.ID).Cols("reason_code").Update(&AuditEvent{ReasonCode: "rewritten"})
 	require.NoError(t, err)
-	assert.ErrorContains(t, VerifyScopeAuditChain(ctx, storedScope), "audit event 1 does not match its hash")
+	chainErr, ok := errors.AsType[*AuditChainError](VerifyScopeAuditChain(ctx, storedScope))
+	require.True(t, ok)
+	assert.EqualValues(t, 1, chainErr.Sequence)
+	assert.Contains(t, chainErr.Error(), "audit event 1 does not match its hash")
 	_, err = db.GetEngine(ctx).ID(first.ID).Cols("reason_code").Update(&AuditEvent{ReasonCode: first.ReasonCode})
 	require.NoError(t, err)
 	_, err = db.GetEngine(ctx).ID(second.ID).Delete(new(AuditEvent))

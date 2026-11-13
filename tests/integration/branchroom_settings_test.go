@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"bytes"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitrepo"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
 	"gitea.dev/modules/timeutil"
@@ -426,4 +428,65 @@ func TestBranchroomWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testi
 	require.NoDirExists(t, store)
 	testDeleteRepository(t, owner, "user4", repository.Name)
 	unittest.AssertNotExistsBean(t, &repo_model.Repository{ID: repository.ID})
+}
+
+func TestBranchroomAuditEvidence(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	defer test.MockVariableValue(&setting.Branchroom)()
+	setting.Branchroom = setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t)}
+	owner := loginUser(t, "user2")
+	collaborator := loginUser(t, "user4")
+	base := "/user2/repo1/settings/branchroom"
+	owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, base, map[string]string{"name": "audit-evidence"}), http.StatusSeeOther)
+	scopes, err := branchroom_model.FindScopesByRepoID(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, scopes, 1)
+	scope := scopes[0]
+	auditURL := base + "/scopes/" + strconv.FormatInt(scope.ID, 10) + "/audit"
+	workspace := &branchroom_model.Workspace{
+		WorkspaceKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		StoreID:      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		ScopeID:      scope.ID, RepoID: 1, CreatedByID: 2,
+		PublicBaseSHA:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ObjectFormatName: "sha1", State: branchroom_model.WorkspaceStateReady,
+	}
+	require.NoError(t, branchroom_model.InsertWorkspace(t.Context(), workspace))
+	_, err = branchroom_model.RecordDecisionAndAudit(t.Context(), scope, &branchroom_model.Decision{
+		ScopeID: scope.ID, RepoID: 1, ActorType: branchroom_model.ActorTypeUser, ActorID: 2,
+		Action: branchroom_model.ActionMaterialize, ResourceType: branchroom_model.ResourceTypeWorkspace,
+		ResourceID: "workspace/" + workspace.WorkspaceKey, Surface: branchroom_model.SurfaceWeb,
+		Result: branchroom_model.DecisionResultAllow, ReasonCode: "workspace_created",
+	})
+	require.NoError(t, err)
+	resp := owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL), http.StatusOK)
+	pageBody := resp.Body.String()
+	doc := NewHTMLParser(t, resp.Body)
+	assert.Contains(t, doc.Find("#branchroom-chain-status").Text(), "Audit chain verified")
+	assert.Contains(t, doc.Find("tbody").Text(), "workspace_created")
+	assert.NotContains(t, pageBody, workspace.RouteKey)
+	collaborator.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL), http.StatusNotFound)
+	collaborator.MakeRequest(t, NewRequest(t, http.MethodPost, auditURL+"/export"), http.StatusNotFound)
+	owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL+"/export"), http.StatusMethodNotAllowed)
+	resp = owner.MakeRequest(t, NewRequest(t, http.MethodPost, auditURL+"/export"), http.StatusOK)
+	assert.Contains(t, resp.Header().Get("Content-Disposition"), ".jsonl")
+	assert.NotContains(t, resp.Body.String(), workspace.RouteKey)
+	assert.NotContains(t, resp.Body.String(), workspace.StoreID)
+	lines := bytes.Split(bytes.TrimSpace(resp.Body.Bytes()), []byte("\n"))
+	require.Greater(t, len(lines), 2)
+	var summary struct {
+		Type      string `json:"type"`
+		Verified  bool   `json:"verified"`
+		Events    int    `json:"events"`
+		Decisions int    `json:"decisions"`
+	}
+	require.NoError(t, json.Unmarshal(lines[len(lines)-1], &summary))
+	assert.Equal(t, "summary", summary.Type)
+	assert.True(t, summary.Verified)
+	assert.Equal(t, summary.Events, summary.Decisions)
+	assert.Len(t, lines, summary.Events*2+1)
+	resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL), http.StatusOK)
+	assert.Contains(t, resp.Body.String(), "evidence_exported")
+	resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL+"?actor=user4"), http.StatusOK)
+	assert.Contains(t, resp.Body.String(), "No audit events match")
+	owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL+"?from=invalid"), http.StatusBadRequest)
 }

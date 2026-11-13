@@ -245,6 +245,13 @@ func Branchroom(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings.branchroom")
 	ctx.Data["PageIsSettingsBranchroom"] = true
 	ctx.Data["BranchroomScopes"] = scopeData
+	auditScopes := make([]*branchroom_model.Scope, 0, len(scopes))
+	for _, scope := range scopes {
+		if scope.Kind == branchroom_model.ScopeKindRepository {
+			auditScopes = append(auditScopes, scope)
+		}
+	}
+	ctx.Data["BranchroomAuditScopes"] = auditScopes
 	ctx.HTML(http.StatusOK, tplBranchroom)
 }
 
