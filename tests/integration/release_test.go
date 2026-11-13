@@ -6,6 +6,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"gitea.dev/models/db"
@@ -70,7 +71,22 @@ func TestViewReleases(t *testing.T) {
 
 	session := loginUser(t, "user2")
 	req := NewRequest(t, "GET", "/user2/repo1/releases")
-	session.MakeRequest(t, req, http.StatusOK)
+	resp := session.MakeRequest(t, req, http.StatusOK)
+	doc := NewHTMLParser(t, resp.Body)
+
+	withFile := doc.Find("#release-list > li").FilterFunction(func(_ int, s *goquery.Selection) bool {
+		return s.Find(".detail h4 a").Text() == "testing-release"
+	})
+	assert.Equal(t, 1, withFile.Length())
+	assert.Equal(t, "attach1", strings.TrimSpace(withFile.Find(".download > .attachment-list span.gt-ellipsis").Text()))
+	assert.Equal(t, 0, withFile.Find("details.source-archive[open]").Length())
+	assert.Contains(t, withFile.Find("details.source-archive a.archive-link").AttrOr("href", ""), "/archive/v1.1.zip")
+
+	sourceOnly := doc.Find("#release-list > li").FilterFunction(func(_ int, s *goquery.Selection) bool {
+		return s.Find(".detail h4 a").Text() == "pre-release"
+	})
+	assert.Equal(t, 1, sourceOnly.Length())
+	assert.Equal(t, 1, sourceOnly.Find("details.source-archive[open]").Length())
 }
 
 func TestViewReleasesNoLogin(t *testing.T) {

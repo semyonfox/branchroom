@@ -74,40 +74,48 @@
 							<button type="button" class="ui small basic button tw-mt-3 tw-hidden" aria-expanded="false" data-show-more="{{ctx.Locale.Tr "repo.release.show_more"}}" data-show-less="{{ctx.Locale.Tr "repo.release.show_less"}}">{{ctx.Locale.Tr "repo.release.show_more"}}</button>
 						</div>
 						<div class="divider"></div>
-						<details class="download" {{if or $info.IsLatest (eq $idx 0)}}open{{end}}>
-							<summary>
-								{{ctx.Locale.Tr "repo.release.downloads"}}
-							</summary>
-							<ul class="ui divided list attachment-list">
-								{{range $att := $release.Attachments}}
-									<li class="item">
-										<a target="_blank" class="release-asset-name tw-grow gt-ellipsis" rel="nofollow" download href="{{$att.DownloadURL ctx}}">
-											<strong class="flex-text-inline">{{svg "octicon-package" 16 "download-icon"}}<span class="gt-ellipsis">{{$att.Name}}</span></strong>
-										</a>
-										<div class="attachment-right-info flex-text-inline tw-flex-wrap">
-											<span>{{$att.Size | FormatByteSizeDecimal}}</span>
-											<span>{{ctx.Locale.TrN $att.DownloadCount "repo.release.download_count_one" "repo.release.download_count_other" (ctx.Locale.PrettyNumber $att.DownloadCount)}}</span>
-											<a class="ui mini basic icon button" download href="{{$att.DownloadURL ctx}}" aria-label="{{ctx.Locale.Tr "repo.release.download_asset" $att.Name}}">{{svg "octicon-download"}}</a>
-											{{$copyURL := printf "%s/releases/download/%s/%s" $.Repository.HTMLURL ($release.TagName | PathEscape) ($att.Name | PathEscape)}}
-											{{if $info.IsLatest}}{{$copyURL = printf "%s/releases/latest/download/%s" $.Repository.HTMLURL ($att.Name | PathEscape)}}{{end}}
-											<button type="button" class="ui mini basic icon button" data-clipboard-text="{{$copyURL}}" aria-label="{{ctx.Locale.Tr "copy_link"}}: {{$att.Name}}" data-tooltip-content="{{ctx.Locale.Tr "copy_link"}}">{{svg "octicon-copy"}}</button>
-										</div>
-									</li>
+						{{$showSource := and (not $.DisableDownloadSourceArchives) (not $release.IsDraft) ($.Permission.CanRead ctx.Consts.RepoUnitTypeCode)}}
+						{{if or $release.Attachments $showSource}}
+							<div class="download">
+								{{if $release.Attachments}}
+									<div class="tw-font-semibold tw-mb-2">{{ctx.Locale.Tr "repo.release.downloads"}}</div>
+									<ul class="ui divided list attachment-list">
+										{{range $att := $release.Attachments}}
+											<li class="item">
+												<a target="_blank" class="release-asset-name tw-grow gt-ellipsis" rel="nofollow" download href="{{$att.DownloadURL ctx}}">
+													<strong class="flex-text-inline">{{svg "octicon-package" 16 "download-icon"}}<span class="gt-ellipsis">{{$att.Name}}</span></strong>
+												</a>
+												<div class="attachment-right-info flex-text-inline tw-flex-wrap">
+													<span>{{$att.Size | FormatByteSizeDecimal}}</span>
+													<span>{{ctx.Locale.TrN $att.DownloadCount "repo.release.download_count_one" "repo.release.download_count_other" (ctx.Locale.PrettyNumber $att.DownloadCount)}}</span>
+													<a class="ui mini basic icon button" download href="{{$att.DownloadURL ctx}}" aria-label="{{ctx.Locale.Tr "repo.release.download_asset" $att.Name}}">{{svg "octicon-download"}}</a>
+													{{$copyURL := printf "%s/releases/download/%s/%s" $.Repository.HTMLURL ($release.TagName | PathEscape) ($att.Name | PathEscape)}}
+													{{if $info.IsLatest}}{{$copyURL = printf "%s/releases/latest/download/%s" $.Repository.HTMLURL ($att.Name | PathEscape)}}{{end}}
+													<button type="button" class="ui mini basic icon button" data-clipboard-text="{{$copyURL}}" aria-label="{{ctx.Locale.Tr "copy_link"}}: {{$att.Name}}" data-tooltip-content="{{ctx.Locale.Tr "copy_link"}}">{{svg "octicon-copy"}}</button>
+												</div>
+											</li>
+										{{end}}
+									</ul>
 								{{end}}
-								{{if and (not $.DisableDownloadSourceArchives) (not $release.IsDraft) ($.Permission.CanRead ctx.Consts.RepoUnitTypeCode)}}
-									<li class="item">
-										<a class="archive-link" download href="{{$.RepoLink}}/archive/{{$release.TagName | PathEscapeSegments}}.zip" rel="nofollow">
-											<strong class="flex-text-inline">{{svg "octicon-file-zip" 16 "download-icon"}}{{ctx.Locale.Tr "repo.release.source_code"}} (ZIP)</strong>
-										</a>
-									</li>
-									<li class="item">
-										<a class="archive-link" download href="{{$.RepoLink}}/archive/{{$release.TagName | PathEscapeSegments}}.tar.gz" rel="nofollow">
-											<strong class="flex-text-inline">{{svg "octicon-file-zip" 16 "download-icon"}}{{ctx.Locale.Tr "repo.release.source_code"}} (TAR.GZ)</strong>
-										</a>
-									</li>
+								{{if $showSource}}
+									<details class="source-archive" {{if not $release.Attachments}}open{{end}}>
+										<summary>{{ctx.Locale.Tr "repo.release.source_for_developers"}}</summary>
+										<ul class="ui divided list attachment-list">
+											<li class="item">
+												<a class="archive-link" download href="{{$.RepoLink}}/archive/{{$release.TagName | PathEscapeSegments}}.zip" rel="nofollow">
+													<strong class="flex-text-inline">{{svg "octicon-file-zip" 16 "download-icon"}}{{ctx.Locale.Tr "repo.release.source_code"}} (ZIP)</strong>
+												</a>
+											</li>
+											<li class="item">
+												<a class="archive-link" download href="{{$.RepoLink}}/archive/{{$release.TagName | PathEscapeSegments}}.tar.gz" rel="nofollow">
+													<strong class="flex-text-inline">{{svg "octicon-file-zip" 16 "download-icon"}}{{ctx.Locale.Tr "repo.release.source_code"}} (TAR.GZ)</strong>
+												</a>
+											</li>
+										</ul>
+									</details>
 								{{end}}
-							</ul>
-						</details>
+							</div>
+						{{end}}
 						{{if not (or $release.IsTag $release.IsDraft)}}
 							{{template "shared/reactions" dict
 								"ActionURL" (printf "%s/releases/%d/reactions" $.RepoLink $release.ID)

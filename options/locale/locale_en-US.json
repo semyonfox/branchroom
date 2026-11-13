@@ -2815,6 +2815,7 @@
   "repo.tag.ahead.target": "to %s since this tag",
   "repo.release.all_assets": "All %d assets",
   "repo.release.source_code": "Source Code",
+  "repo.release.source_for_developers": "Source code, for developers",
   "repo.release.new_subheader": "Releases organize project versions.",
   "repo.release.edit_subheader": "Releases organize project versions.",
   "repo.release.tag_name": "Tag name",
