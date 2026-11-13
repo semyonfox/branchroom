@@ -199,6 +199,10 @@ func AuthenticateNotImplemented(ctx *context.Context) {
 
 // https://docs.docker.com/registry/spec/api/#listing-repositories
 func GetRepositoryList(ctx *context.Context) {
+	if len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 {
+		ctx.Status(http.StatusNotFound)
+		return
+	}
 	n := ctx.FormInt("n")
 	if n <= 0 || n > 100 {
 		n = 100

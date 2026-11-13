@@ -116,7 +116,7 @@ func sudo() func(ctx *context.APIContext) {
 		}
 
 		if len(sudo) > 0 {
-			if ctx.IsSigned && ctx.Doer.IsAdmin {
+			if ctx.IsUserSiteAdmin() {
 				user, err := user_model.GetUserByName(ctx, sudo)
 				if err != nil {
 					if user_model.IsErrUserNotExist(err) {
@@ -865,6 +865,24 @@ func buildAuthGroup() *auth.Group {
 	return group
 }
 
+func limitedTokenRouteAllowed(ctx *context.APIContext) bool {
+	if ctx.PathParam("reponame") != "" {
+		path := strings.TrimRight(ctx.Req.URL.Path, "/")
+		return (!strings.HasSuffix(path, "/forks") && !strings.HasSuffix(path, "/generate")) || ctx.Req.Method == http.MethodGet
+	}
+	if ctx.Req.Method != http.MethodGet {
+		return false
+	}
+	switch ctx.Req.URL.Path {
+	case "/api/v1/user", "/api/v1/version", "/api/v1/repos/search", "/api/v1/repos/issues/search":
+		return true
+	}
+	if strings.HasPrefix(ctx.Req.URL.Path, "/api/v1/settings/") {
+		return true
+	}
+	return ctx.PathParam("username") != "" && ctx.Req.URL.Path == "/api/v1/users/"+ctx.PathParam("username")
+}
+
 func apiAuth(authMethod auth.Method) func(*context.APIContext) {
 	return func(ctx *context.APIContext) {
 		ar, err := common.AuthShared(ctx.Base, nil, authMethod)
@@ -875,8 +893,8 @@ func apiAuth(authMethod auth.Method) func(*context.APIContext) {
 			return
 		}
 
-		if len(user_model.GetDoerRepositoryIDs(ar.Doer)) > 0 && ctx.Req.Method != http.MethodGet && ctx.Req.Method != http.MethodHead && ctx.Req.Method != http.MethodOptions && ctx.PathParam("reponame") == "" && (ctx.PathParam("type") == "" || ctx.PathParam("name") == "") {
-			ctx.APIError(http.StatusForbidden, "repository-limited tokens cannot change account or organisation resources")
+		if len(user_model.GetDoerRepositoryIDs(ar.Doer)) > 0 && !limitedTokenRouteAllowed(ctx) {
+			ctx.APIError(http.StatusForbidden, "repository-limited tokens cannot access account or organisation resources or create repositories")
 			return
 		}
 		ctx.Doer = ar.Doer
