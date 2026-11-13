@@ -17,6 +17,7 @@ import (
 type AutoMerge struct {
 	ID                     int64                 `xorm:"pk autoincr"`
 	PullID                 int64                 `xorm:"UNIQUE"`
+	UserExtDoerData        string                `xorm:"TEXT"`
 	DoerID                 int64                 `xorm:"INDEX NOT NULL"`
 	Doer                   *user_model.User      `xorm:"-"`
 	MergeStyle             repo_model.MergeStyle `xorm:"varchar(30)"`
@@ -59,7 +60,12 @@ func ScheduleAutoMerge(ctx context.Context, doer *user_model.User, pullID int64,
 		return ErrAlreadyScheduledToAutoMerge{PullID: pullID}
 	}
 
+	extData := ""
+	if doer.ExtDoerData != nil {
+		extData = doer.ExtDoerData.EncodeToString()
+	}
 	_, err := db.GetEngine(ctx).Insert(&AutoMerge{
+		UserExtDoerData:        extData,
 		DoerID:                 doer.ID,
 		PullID:                 pullID,
 		MergeStyle:             style,
