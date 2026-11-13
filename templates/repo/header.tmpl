@@ -62,18 +62,20 @@
 							<button type="button" class="ui compact small basic red button" disabled>{{ctx.Locale.Tr "repo.transfer.is_transferring"}}</button>
 						</div>
 					{{end}}
-					{{if $.EnableFeed}}
-					{{/* An extra div-element is not necessary here, as this button does not secretly contain two buttons. */}}
-					<a class="ui compact small basic button" href="{{$.RepoLink}}.rss" data-tooltip-content="{{ctx.Locale.Tr "rss_feed"}}">
-						{{svg "octicon-rss" 16}}
-					</a>
-					{{end}}
-					{{template "repo/header/watch" $}}
-					{{if not $.DisableStars}}
-					{{template "repo/header/star" $}}
-					{{end}}
-					{{if and (not .IsEmpty) ($.Permission.CanRead ctx.Consts.RepoUnitTypeCode)}}
-						{{template "repo/header/fork" $}}
+					{{if $.PageIsViewCode}}
+						{{if $.EnableFeed}}
+						{{/* An extra div-element is not necessary here, as this button does not secretly contain two buttons. */}}
+						<a class="ui compact small basic button" href="{{$.RepoLink}}.rss" data-tooltip-content="{{ctx.Locale.Tr "rss_feed"}}">
+							{{svg "octicon-rss" 16}}
+						</a>
+						{{end}}
+						{{template "repo/header/watch" $}}
+						{{if not $.DisableStars}}
+						{{template "repo/header/star" $}}
+						{{end}}
+						{{if and (not .IsEmpty) ($.Permission.CanRead ctx.Consts.RepoUnitTypeCode)}}
+							{{template "repo/header/fork" $}}
+						{{end}}
 					{{end}}
 				</div>
 			{{end}}
