@@ -9,12 +9,13 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"strconv"
 	"strings"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	branchroom_module "gitea.dev/modules/branchroom"
-	"gitea.dev/modules/git/gitcmd"
+
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
@@ -151,8 +152,7 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 			workspace.RepoID != session.RepoID {
 			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
-		// quarantine facts are judged only once the session is fully authenticated and bound,
-		// so an invalid or missing quarantine terminates the claim without any evaluator trace
+		// quarantine facts are judged only after the session is authenticated and bound
 		quarantine, err := branchroom_module.ValidateReceiveQuarantine(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID, request.Quarantine)
 		if err != nil {
 			return completeReceiveSessionDenied(txCtx, session.ID)
@@ -175,7 +175,7 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 }
 
 // FinalizeReceiveAdmission records the receive outcome after Git exits.
-// a ref changed by a concurrent push is reported as unconfirmed, never accepted.
+// only Git's status report can confirm acceptance, independently of later pushes.
 func FinalizeReceiveAdmission(ctx context.Context, credential *ReceiveAdmissionCredential) {
 	ctx = context.WithoutCancel(ctx)
 	if credential == nil || credential.SessionKey == "" || len(credential.BearerSecret) == 0 || db.InTransaction(ctx) {
@@ -208,26 +208,12 @@ func FinalizeReceiveAdmission(ctx context.Context, credential *ReceiveAdmissionC
 		if session.Outcome != branchroom_model.ReceiveSessionOutcomeAdmitted {
 			return nil
 		}
-		workspace, err := branchroom_model.GetWorkspaceByID(txCtx, session.WorkspaceID)
-		if err != nil {
-			return err
-		}
-		restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
-		if err != nil {
-			return err
-		}
+
 		updates, err := branchroom_module.ParseReceiveUpdates([]byte(session.Updates))
 		if err != nil {
 			return err
 		}
-		reason, explanation := "receive_accepted", ""
-		for _, update := range updates {
-			oid, _, err := gitcmd.NewCommand("rev-parse", "--verify").AddDynamicArguments(update.Ref).WithRepo(restricted).RunStdString(txCtx)
-			if err != nil || strings.TrimSpace(oid) != update.NewOID {
-				reason, explanation = "receive_unconfirmed", "refs did not match the admitted update after receive-pack exited"
-				break
-			}
-		}
+		reason, explanation := receiveReportOutcome(credential.Report, updates)
 		outcome := branchroom_model.ReceiveSessionOutcomeAccepted
 		if reason != "receive_accepted" {
 			outcome = branchroom_model.ReceiveSessionOutcomeFailed
@@ -267,4 +253,57 @@ func recordReceiveOutcome(ctx context.Context, session *branchroom_model.Receive
 		Result: result, ReasonCode: reason, OrdinaryAllowed: true, Details: string(details),
 	})
 	return err
+}
+
+func receiveReportOutcome(report []byte, updates []branchroom_module.ReceiveRefUpdate) (string, string) {
+	// sideband frames can split an inner status packet anywhere
+	var sideband, plain []byte
+	for len(report) >= 4 {
+		size, err := strconv.ParseUint(string(report[:4]), 16, 16)
+		if err != nil {
+			return "receive_unconfirmed", "invalid Git status report"
+		}
+		report = report[4:]
+		if size <= 2 {
+			continue
+		}
+		if size < 4 || int(size)-4 > len(report) {
+			return "receive_unconfirmed", "incomplete Git status report"
+		}
+		payload := report[:int(size)-4]
+		report = report[int(size)-4:]
+		if len(payload) != 0 && payload[0] == 1 {
+			sideband = append(sideband, payload[1:]...)
+		} else if len(payload) != 0 && payload[0] > 3 {
+			plain = append(plain, payload...)
+		}
+	}
+	if len(report) != 0 {
+		return "receive_unconfirmed", "incomplete Git status report"
+	}
+	if len(sideband) != 0 {
+		return receiveReportOutcome(sideband, updates)
+	}
+	accepted := make(map[string]bool, len(updates))
+	unpacked := false
+	for line := range strings.SplitSeq(string(plain), "\n") {
+		if line == "unpack ok" {
+			unpacked = true
+		}
+		if strings.HasPrefix(line, "ng ") || strings.HasPrefix(line, "unpack ") && line != "unpack ok" {
+			return "receive_rejected", "Git rejected the received objects or a ref update"
+		}
+		if ref, ok := strings.CutPrefix(line, "ok "); ok {
+			accepted[ref] = true
+		}
+	}
+	if unpacked && len(updates) != 0 {
+		for _, update := range updates {
+			if !accepted[update.Ref] {
+				return "receive_unconfirmed", "Git did not confirm every ref update"
+			}
+		}
+		return "receive_accepted", ""
+	}
+	return "receive_unconfirmed", "Git did not return a complete status report"
 }

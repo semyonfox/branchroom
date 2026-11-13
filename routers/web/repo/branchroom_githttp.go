@@ -4,6 +4,7 @@
 package repo
 
 import (
+	"bytes"
 	"compress/gzip"
 	"errors"
 	"io"
@@ -155,7 +156,11 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		return
 	}
 	defer credential.Clear()
-	defer branchroom_service.FinalizeReceiveAdmission(ctx, credential)
+	var receiveReport bytes.Buffer
+	defer func() {
+		credential.Report = receiveReport.Bytes()
+		branchroom_service.FinalizeReceiveAdmission(ctx, credential)
+	}()
 
 	environ := branchroomGitHTTPEnvironment(ctx)
 	environ = append(environ,
@@ -174,7 +179,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		WithEnv(environ).
 		WithRepo(restricted).
 		WithStdinBytes(body).
-		WithStdoutCopy(ctx.Resp).
+		WithStdoutCopy(io.MultiWriter(ctx.Resp, &receiveReport)).
 		WithTimeout(rpcTimeout).
 		RunWithStderr(ctx)
 	if err != nil && !gitcmd.IsErrorCanceledOrKilled(err) {

@@ -34,6 +34,7 @@ type IssueReceiveAdmissionRequest struct {
 }
 
 type ReceiveAdmissionCredential struct {
+	Report       []byte
 	SessionKey   string
 	BearerSecret []byte
 }
@@ -44,6 +45,8 @@ func (credential *ReceiveAdmissionCredential) Clear() {
 	if credential == nil {
 		return
 	}
+	clear(credential.Report)
+	credential.Report = nil
 	clear(credential.BearerSecret)
 	credential.SessionKey = ""
 	credential.BearerSecret = nil
