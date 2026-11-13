@@ -42,7 +42,13 @@
   --font-weight-bold: 600;
 }
 
-body {
+/* tabular figures only where numbers line up: Inter's tnum also widens "-" and "%" in prose */
+table,
+relative-time,
+.ui.label,
+.repo-header .ui.label,
+.commit-list,
+.repository.file.list .repo-file-cell.age {
   font-feature-settings: "tnum";
 }
 
