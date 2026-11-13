@@ -33,7 +33,8 @@ type ReviewRequestNotifier struct {
 	ReviewTeam *org_model.Team
 }
 
-var codeOwnerFiles = []string{"CODEOWNERS", "docs/CODEOWNERS", ".gitea/CODEOWNERS"}
+// .github/CODEOWNERS is last so repositories migrated from GitHub work unchanged
+var codeOwnerFiles = []string{"CODEOWNERS", "docs/CODEOWNERS", ".gitea/CODEOWNERS", ".github/CODEOWNERS"}
 
 // codeOwnerMatchBudget caps the total wall-clock time spent evaluating all
 // CODEOWNERS rules against all changed files for a single PR.
