@@ -623,10 +623,18 @@ func TestMarkdownCodeBlock(t *testing.T) {
 func TestReviewSuggestion(t *testing.T) {
 	content := "Text\n````suggestion\n<script>bad()</script>\n```\n````\n\n```suggestion:-1+1\nunsupported range\n```"
 	assert.Equal(t, []string{"<script>bad()</script>\n```\n"}, markdown.Suggestions(markup.NewTestRenderContext(), content))
-	original, ok := markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 11)
+	original, ok := markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 0, 11)
 	assert.True(t, ok)
-	assert.Equal(t, "last", original)
-	reviewed, ok := markdown.SuggestionContext("@@ -1,2 +1,3 @@\n a\r\n-b\n+c\r\n d", 3)
+	assert.Equal(t, []string{"last"}, original)
+	original, ok = markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 10, 11)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"new", "last"}, original)
+	original, ok = markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 8, -9)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"context", "old"}, original)
+	_, ok = markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 5, 11)
+	assert.False(t, ok, "a range starting outside the hunk is refused")
+	reviewed, ok := markdown.SuggestionContext("@@ -1,2 +1,3 @@\n a\r\n-b\n+c\r\n d", 3, 1)
 	assert.True(t, ok)
 	assert.Equal(t, []string{"a", "c", "d"}, reviewed)
 

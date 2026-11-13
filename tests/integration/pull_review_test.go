@@ -502,3 +502,99 @@ func TestPullReviewApplySuggestion(t *testing.T) {
 		assert.Contains(t, page.Body.String(), "Suggestion applied")
 	})
 }
+
+func TestPullReviewApplyRangeSuggestion(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		ctx := t.Context()
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		_, err := files_service.ChangeRepoFiles(ctx, repo, doer, &files_service.ChangeRepoFilesOptions{
+			OldBranch: "master", NewBranch: "review-range-suggestion",
+			Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "suggestion.txt", ContentReader: strings.NewReader("original\nlast original\nuntouched\n")}},
+		})
+		require.NoError(t, err)
+		session := loginUser(t, "user2")
+		testPullCreate(t, session, "user2", "repo1", false, "master", "review-range-suggestion", "Suggested change")
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "review-range-suggestion"})
+		require.NoError(t, pr.LoadIssue(ctx))
+		gitRepo, err := git.OpenRepository(ctx, repo)
+		require.NoError(t, err)
+		defer gitRepo.Close()
+		comment, err := pull_service.CreateCodeCommentRange(ctx, doer, gitRepo, pr.Issue, 1, 2, "Try this:\n```suggestion\nreplacement\nlast original\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		stale, err := pull_service.CreateCodeCommentRange(ctx, doer, gitRepo, pr.Issue, 1, 2, "```suggestion\nstale replacement\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "-original")
+		assert.Contains(t, page.Body.String(), "-last original")
+		assert.Contains(t, page.Body.String(), "lines 1 to 2")
+		assert.Contains(t, page.Body.String(), "Apply suggestion")
+		apply := func(id int64) {
+			req := NewRequestWithValues(t, "POST", "/user2/repo1/issues/apply_suggestion", map[string]string{"comment_id": strconv.FormatInt(id, 10)})
+			session.MakeRequest(t, req, http.StatusOK)
+		}
+		apply(comment.ID)
+		head, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, "Apply suggestion from review", head.MessageTitle())
+		assert.Equal(t, doer.NewGitSig().Name, head.Author.Name)
+		blob, err := head.GetBlobByPath(ctx, gitRepo, "suggestion.txt")
+		require.NoError(t, err)
+		content, err := blob.GetBlobContent(ctx, 1024)
+		require.NoError(t, err)
+		assert.Equal(t, "replacement\nlast original\nuntouched\n", content)
+		saved := unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: comment.ID})
+		require.NotNil(t, saved.CommentMetaData)
+		assert.Equal(t, head.ID.String(), saved.CommentMetaData.AppliedSuggestionCommit)
+		apply(stale.ID)
+		after, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, head.ID, after.ID)
+		page = session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "This suggestion is stale")
+		assert.Contains(t, page.Body.String(), "Suggestion applied")
+	})
+}
+
+func TestPullReviewRangeComment(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		ctx := t.Context()
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		_, err := files_service.ChangeRepoFiles(ctx, repo, doer, &files_service.ChangeRepoFilesOptions{
+			OldBranch: "master", NewBranch: "review-range",
+			Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "range.txt", ContentReader: strings.NewReader("first\nsecond\nthird\n")}},
+		})
+		require.NoError(t, err)
+		session := loginUser(t, "user2")
+		testPullCreate(t, session, "user2", "repo1", false, "master", "review-range", "Range review")
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "review-range"})
+		require.NoError(t, pr.LoadIssue(ctx))
+		require.NoError(t, pr.Issue.LoadRepo(ctx))
+		req := NewRequestWithValues(t, "POST", pr.Issue.Link()+"/files/reviews/comments", map[string]string{
+			"path": "range.txt", "line": "3", "start_line": "1", "side": "proposed", "content": "Range comment", "single_review": "true", "origin": "diff",
+		})
+		session.MakeRequest(t, req, http.StatusOK)
+		comment := unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: pr.IssueID, Content: "Range comment"})
+		assert.EqualValues(t, 1, comment.StartLine)
+		assert.EqualValues(t, 3, comment.Line)
+		assert.Contains(t, comment.Patch, "first")
+		assert.Contains(t, comment.Patch, "second")
+		assert.Contains(t, comment.Patch, "third")
+		reviewsURL := fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d/reviews", pr.Index)
+		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
+		apiReq := NewRequestWithJSON(t, "POST", reviewsURL, &api.CreatePullReviewOptions{
+			Event:    api.ReviewStateComment,
+			Comments: []api.CreatePullReviewComment{{Path: "range.txt", Body: "API range", StartLine: 1, NewLineNum: 2}},
+		}).AddTokenAuth(token)
+		review := DecodeJSON(t, MakeRequest(t, apiReq, http.StatusOK), &api.PullReview{})
+		apiReq = NewRequest(t, "GET", fmt.Sprintf("%s/%d/comments", reviewsURL, review.ID)).AddTokenAuth(token)
+		comments := DecodeJSON(t, MakeRequest(t, apiReq, http.StatusOK), &[]api.PullReviewComment{})
+		require.Len(t, *comments, 1)
+		assert.EqualValues(t, 1, (*comments)[0].StartLine)
+		assert.EqualValues(t, 2, (*comments)[0].LineNum)
+
+		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "lines 1 to 3")
+	})
+}

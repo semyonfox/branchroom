@@ -116,6 +116,7 @@ func ToPullReviewComment(ctx context.Context, comment *issues_model.Comment, doe
 		CommitID:     comment.CommitSHA,
 		OrigCommitID: comment.OldRef,
 		DiffHunk:     patch2diff(comment.Patch),
+		StartLine:    comment.StartLine,
 		HTMLURL:      comment.HTMLURL(ctx),
 		HTMLPullURL:  comment.Issue.HTMLURL(ctx),
 	}

@@ -35,6 +35,7 @@ import (
 	"gitea.dev/modules/htmlutil"
 	"gitea.dev/modules/lfs"
 	"gitea.dev/modules/log"
+	"gitea.dev/modules/markup/markdown"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/svg"
@@ -1596,15 +1597,24 @@ func CommentAsDiff(ctx context.Context, c *issues_model.Comment) (*Diff, error) 
 }
 
 // GetCodeCommentPatch returns the code snippet stored with a code comment
-func GetCodeCommentPatch(ctx context.Context, gitRepo *git.Repository, mergeBase, headCommitID, treePath string, line int64) (string, error) {
+func GetCodeCommentPatch(ctx context.Context, gitRepo *git.Repository, mergeBase, headCommitID, treePath string, line int64, startLines ...int64) (string, error) {
+	contextLines := setting.UI.CodeCommentLines
+	if len(startLines) > 0 && startLines[0] > 0 {
+		contextLines += int((&issues_model.Comment{Line: line}).UnsignedLine()) - int(startLines[0])
+	}
 	patch, err := git.GetFileDiffCutAroundLine(ctx, gitRepo, mergeBase, headCommitID, treePath,
-		int64((&issues_model.Comment{Line: line}).UnsignedLine()), line < 0, setting.UI.CodeCommentLines,
+		int64((&issues_model.Comment{Line: line}).UnsignedLine()), line < 0, contextLines,
 	)
 	contextCommitID := util.Iif(line < 0, mergeBase, headCommitID)
+	if err == nil && len(startLines) > 0 && startLines[0] > 0 {
+		if _, ok := markdown.SuggestionOriginal(patch, startLines[0], line); !ok {
+			return GeneratePatchForUnchangedLine(ctx, gitRepo, contextCommitID, treePath, line, contextLines)
+		}
+	}
 	if err != nil || patch != "" || contextCommitID == "" {
 		return patch, err
 	}
-	patch, err = GeneratePatchForUnchangedLine(ctx, gitRepo, contextCommitID, treePath, line, setting.UI.CodeCommentLines)
+	patch, err = GeneratePatchForUnchangedLine(ctx, gitRepo, contextCommitID, treePath, line, contextLines)
 	if err != nil {
 		log.Debug("Unable to generate patch for unchanged line (file=%s, line=%d, commit=%s): %v", treePath, line, contextCommitID, err)
 	}

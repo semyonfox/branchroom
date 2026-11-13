@@ -174,7 +174,9 @@ func (r *HTMLRenderer) renderCodeBlock(w util.BufWriter, source []byte, n ast.No
 		if original, ok := n.AttributeString("review-suggestion-original"); ok {
 			language = "diff"
 			var diff strings.Builder
-			fmt.Fprintf(&diff, "-%s\n", original)
+			for line := range strings.SplitSeq(fmt.Sprint(original), "\n") {
+				fmt.Fprintf(&diff, "-%s\n", line)
+			}
 			for line := range strings.SplitSeq(strings.TrimSuffix(string(code), "\n"), "\n") {
 				if len(code) != 0 {
 					fmt.Fprintf(&diff, "+%s\n", line)

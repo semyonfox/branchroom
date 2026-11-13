@@ -17,6 +17,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/log"
+	"gitea.dev/modules/markup/markdown"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/gitdiff"
@@ -96,6 +97,16 @@ func InvalidateCodeComments(ctx context.Context, prs issues_model.PullRequestLis
 // * replyReviewID is set: add the comment to the existing submitted review
 // When pendingReview=true: get current pending review or create a new one, and add the comment to it
 func CreateCodeComment(ctx context.Context, doer *user_model.User, gitRepo *git.Repository, issue *issues_model.Issue, line int64, content, treePath string, pendingReview bool, replyReviewID int64, latestCommitID string, attachments []string) (_ *issues_model.Comment, err error) {
+	return CreateCodeCommentRange(ctx, doer, gitRepo, issue, 0, line, content, treePath, pendingReview, replyReviewID, latestCommitID, attachments)
+}
+
+func CreateCodeCommentRange(ctx context.Context, doer *user_model.User, gitRepo *git.Repository, issue *issues_model.Issue, startLine, line int64, content, treePath string, pendingReview bool, replyReviewID int64, latestCommitID string, attachments []string) (_ *issues_model.Comment, err error) {
+	if startLine < 0 || (startLine > 0 && (line == 0 || startLine > int64((&issues_model.Comment{Line: line}).UnsignedLine()))) {
+		return nil, util.NewInvalidArgumentErrorf("invalid review comment range")
+	}
+	if startLine == int64((&issues_model.Comment{Line: line}).UnsignedLine()) {
+		startLine = 0
+	}
 	if err := checkReviewerNotBlocked(ctx, doer, issue); err != nil {
 		return nil, err
 	}
@@ -124,7 +135,7 @@ func CreateCodeComment(ctx context.Context, doer *user_model.User, gitRepo *git.
 			issue,
 			content,
 			treePath,
-			line,
+			startLine, line,
 			replyReviewID,
 			attachments,
 		)
@@ -167,7 +178,7 @@ func CreateCodeComment(ctx context.Context, doer *user_model.User, gitRepo *git.
 			issue,
 			content,
 			treePath,
-			line,
+			startLine, line,
 			curReview.ID,
 			attachments,
 		)
@@ -205,7 +216,7 @@ func checkReviewerNotBlocked(ctx context.Context, doer *user_model.User, issue *
 }
 
 // createCodeComment creates a plain code comment at the specified line / path
-func createCodeComment(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, issue *issues_model.Issue, content, treePath string, line, reviewID int64, attachments []string) (*issues_model.Comment, error) {
+func createCodeComment(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, issue *issues_model.Issue, content, treePath string, startLine, line, reviewID int64, attachments []string) (*issues_model.Comment, error) {
 	var commitID, patch string
 	if err := issue.LoadPullRequest(ctx); err != nil {
 		return nil, fmt.Errorf("LoadPullRequest: %w", err)
@@ -243,6 +254,7 @@ func createCodeComment(ctx context.Context, doer *user_model.User, repo *repo_mo
 				commitID = first[0].CommitSHA
 				invalidated = first[0].Invalidated
 				patch = first[0].Patch
+				startLine = first[0].StartLine
 			} else {
 				// otherwise, try to get the commitID from the review itself
 				review, err := issues_model.GetReviewByID(ctx, reviewID)
@@ -279,9 +291,14 @@ func createCodeComment(ctx context.Context, doer *user_model.User, repo *repo_mo
 			commitID = headCommitID
 		}
 
-		patch, err = gitdiff.GetCodeCommentPatch(ctx, gitRepo, pr.MergeBase, headCommitID, treePath, line)
+		patch, err = gitdiff.GetCodeCommentPatch(ctx, gitRepo, pr.MergeBase, headCommitID, treePath, line, startLine)
 		if err != nil {
 			return nil, err
+		}
+	}
+	if startLine > 0 {
+		if _, ok := markdown.SuggestionOriginal(patch, startLine, line); !ok {
+			return nil, util.NewInvalidArgumentErrorf("invalid review comment range")
 		}
 	}
 	return issues_model.CreateComment(ctx, &issues_model.CreateCommentOptions{
@@ -291,6 +308,7 @@ func createCodeComment(ctx context.Context, doer *user_model.User, repo *repo_mo
 		Issue:       issue,
 		Content:     content,
 		LineNum:     line,
+		StartLine:   startLine,
 		TreePath:    treePath,
 		CommitSHA:   commitID,
 		ReviewID:    reviewID,

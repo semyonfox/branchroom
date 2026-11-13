@@ -4575,6 +4575,12 @@
             "description": "the tree path",
             "type": "string",
             "x-go-name": "Path"
+          },
+          "start_line": {
+            "description": "first line of a range on the same side as old_position or new_position",
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "StartLine"
           }
         },
         "required": [
@@ -9445,6 +9451,11 @@
           },
           "resolver": {
             "$ref": "#/components/schemas/User"
+          },
+          "start_line": {
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "StartLine"
           },
           "updated_at": {
             "format": "date-time",

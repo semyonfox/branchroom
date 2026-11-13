@@ -28,7 +28,11 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 	if doer == nil || comment.Type != issues_model.CommentTypeCode || comment.Line <= 0 || comment.Invalidated || comment.ResolveDoerID != 0 || (comment.CommentMetaData != nil && comment.CommentMetaData.AppliedSuggestionCommit != "") {
 		return nil, ErrSuggestionUnavailable
 	}
-	reviewed, ok := markdown.SuggestionContext(comment.Patch, comment.Line)
+	count := markdown.SuggestionLineCount(comment.StartLine, comment.Line)
+	if count < 1 {
+		return nil, ErrSuggestionUnavailable
+	}
+	reviewed, ok := markdown.SuggestionContext(comment.Patch, comment.Line, count)
 	if !ok {
 		return nil, ErrSuggestionUnavailable
 	}
@@ -108,6 +112,7 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 			return nil, ErrSuggestionUnavailable
 		}
 	}
+	start := comment.Line - count // index of the first replaced line
 	target := lines[comment.Line-1]
 	ending := target[len(strings.TrimRight(target, "\r\n")):]
 	replacement := suggestions[0]
@@ -116,8 +121,7 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 	} else if ending == "\r\n" {
 		replacement = strings.ReplaceAll(replacement, "\n", "\r\n")
 	}
-	lines[comment.Line-1] = replacement
-	updated := strings.Join(lines, "")
+	updated := strings.Join(lines[:start], "") + replacement + strings.Join(lines[comment.Line:], "")
 	if updated == content {
 		return nil, ErrSuggestionUnavailable
 	}

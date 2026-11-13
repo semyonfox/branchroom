@@ -35,9 +35,9 @@ func Suggestions(rctx *markup.RenderContext, content string) []string {
 	return suggestions
 }
 
-// SuggestionContext reads the commented line and up to 4 lines above it on the same side
-// from its saved unified diff, oldest first, so the commented line is last
-func SuggestionContext(patch string, line int64) ([]string, bool) {
+// SuggestionContext reads the commented lines (count of them, ending at line) and up to 4
+// lines above them on the same side from the saved unified diff, oldest first
+func SuggestionContext(patch string, line, count int64) ([]string, bool) {
 	var oldLine, newLine int64
 	var seen []string
 	inHunk := false
@@ -62,7 +62,10 @@ func SuggestionContext(patch string, line int64) ([]string, bool) {
 			if onSide {
 				seen = append(seen, strings.TrimSuffix(s[1:], "\r"))
 				if (line > 0 && newLine == line) || (line < 0 && oldLine == -line) {
-					return seen[max(0, len(seen)-5):], true
+					if int64(len(seen)) < count {
+						return nil, false
+					}
+					return seen[max(0, len(seen)-int(count)-4):], true
 				}
 			}
 			if s[0] != '+' {
@@ -76,11 +79,28 @@ func SuggestionContext(patch string, line int64) ([]string, bool) {
 	return nil, false
 }
 
-// SuggestionOriginal reads the commented line from its saved unified diff.
-func SuggestionOriginal(patch string, line int64) (string, bool) {
-	lines, ok := SuggestionContext(patch, line)
-	if !ok {
-		return "", false
+// SuggestionOriginal reads the commented lines from the saved unified diff. startLine is 0
+// for a single-line comment and otherwise unsigned, line is negative on the old side
+func SuggestionOriginal(patch string, startLine, line int64) ([]string, bool) {
+	count := SuggestionLineCount(startLine, line)
+	if count < 1 {
+		return nil, false
 	}
-	return lines[len(lines)-1], true
+	lines, ok := SuggestionContext(patch, line, count)
+	if !ok {
+		return nil, false
+	}
+	return lines[len(lines)-int(count):], true
+}
+
+// SuggestionLineCount returns how many lines a comment covers, or 0 for an invalid range
+func SuggestionLineCount(startLine, line int64) int64 {
+	if startLine == 0 {
+		return 1
+	}
+	end := max(line, -line)
+	if startLine < 1 || startLine > end {
+		return 0
+	}
+	return end - startLine + 1
 }
