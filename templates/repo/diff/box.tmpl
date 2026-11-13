@@ -85,6 +85,7 @@
 					</div>
 				{{end}}
 				<div id="diff-file-boxes">
+				{{$diffStyle := "unified"}}{{if $.IsSplitStyle}}{{$diffStyle = "split"}}{{end}}
 				{{range $file := .Diff.Files}}
 					{{/*notice: the index of Diff.Files should not be used for element ID, because the index will be restarted from 0 when doing load-more for PRs with a lot of files*/}}
 					{{$isImage:= $file.IsBlobTypeImage}}
@@ -169,11 +170,16 @@
 						</div>
 						<div class="diff-file-body ui attached unstackable table segment" {{if and $file.IsViewed $.IsShowingAllCommits}}data-folded="true"{{end}}>
 							<div id="diff-source-{{$file.NameHash}}" class="file-body file-code unicode-escaped code-diff{{if $.IsSplitStyle}} code-diff-split{{else}} code-diff-unified{{end}}{{if $showFileViewToggle}} tw-hidden{{end}}">
-								{{if or $file.IsIncomplete $file.IsBin}}
+								{{if $file.OmitRenderedBody}}
+									<div class="tw-p-3">
+										{{ctx.Locale.Tr "repo.diff.not_loaded"}}
+										<a class="ui basic tiny button" data-global-click="diffLoadFileBody" data-href="{{$file.LoadBodyQuery $diffStyle $.WhitespaceBehavior}}"{{if $file.HiddenCommentIDsAttr}} data-hidden-comment-ids="{{$file.HiddenCommentIDsAttr}}"{{end}}>{{ctx.Locale.Tr "repo.diff.load"}}</a>
+									</div>
+								{{else if or $file.IsIncomplete $file.IsBin}}
 									<div class="tw-p-3">
 										{{if $file.IsIncomplete}}
 											{{ctx.Locale.Tr "repo.diff.file_suppressed"}}
-											<a class="ui basic tiny button" data-global-click="diffLoadFileBody" data-href="?file-only=true&files={{$file.Name}}&files={{$file.OldName}}">{{ctx.Locale.Tr "repo.diff.load"}}</a>
+											<a class="ui basic tiny button" data-global-click="diffLoadFileBody" data-href="{{$file.LoadBodyQuery $diffStyle $.WhitespaceBehavior}}">{{ctx.Locale.Tr "repo.diff.load"}}</a>
 										{{else}}
 											{{ctx.Locale.Tr "repo.diff.bin_not_shown"}}
 										{{end}}
@@ -226,7 +232,7 @@
 						<span id="diff-load-progress" class="tw-text-text-light-2" data-text-too-many-files="{{ctx.Locale.Tr "repo.diff.too_many_files"}}">
 							{{ctx.Locale.Tr "repo.diff.too_many_files" (len .Diff.Files) .DiffShortStat.NumFiles}}
 						</span>
-						<a class="ui basic tiny button" id="diff-show-more-files" data-global-click="diffLoadMoreFiles" data-href="?skip-to={{.Diff.End}}&file-only=true"
+						<a class="ui basic tiny button" id="diff-show-more-files" data-global-click="diffLoadMoreFiles" data-href="?skip-to={{.Diff.End}}&file-only=true&style={{$diffStyle}}&whitespace={{$.WhitespaceBehavior}}"
 							data-text-default="{{ctx.Locale.Tr "repo.diff.show_more"}}"
 							data-text-matching="{{ctx.Locale.Tr "repo.diff.show_more_matching"}}"
 						>{{ctx.Locale.Tr "repo.diff.show_more"}}</a>

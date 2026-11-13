@@ -8,7 +8,7 @@ import {queryElemSiblings, hideElem, showElem, animateOnce, addDelegatedEventLis
 import {errorMessage} from '../modules/errors.ts';
 import {POST, GET} from '../modules/fetch.ts';
 import {createTippy} from '../modules/tippy.ts';
-import {invertFileFolding} from './file-fold.ts';
+import {invertFileFolding, setFileFolding} from './file-fold.ts';
 import {parseDom} from '../utils.ts';
 import {registerGlobalEventFunc, registerGlobalInitFunc} from '../modules/observer.ts';
 import {performFetchActionRequest, performFetchActionTrigger} from '../modules/fetch-action.ts';
@@ -189,7 +189,12 @@ async function diffLoadFileBody(el: Element) {
     const respDoc = parseDom(respText, 'text/html');
     const respFileBody = respDoc.querySelector('#diff-file-boxes .diff-file-body .file-body')!;
     const respFileBodyChildren = Array.from(respFileBody.children); // "children:HTMLCollection" will be empty after replaceWith
+    const box = el.closest<HTMLElement>('.diff-file-box');
     el.parentElement!.replaceWith(...respFileBodyChildren);
+    if (box) {
+      const arrow = box.querySelector<HTMLElement>('.fold-file');
+      if (arrow) setFileFolding(box, arrow, false);
+    }
     onDiffFileBodyChange();
   } catch (error) {
     console.error('Error:', error);
@@ -224,14 +229,18 @@ async function onLocationHashChange() {
     const issueCommentPrefix = '#issuecomment-';
     if (currentHash.startsWith(issueCommentPrefix)) {
       const commentId = currentHash.substring(issueCommentPrefix.length);
-      const expandButton = document.querySelector<HTMLElement>(`.code-expander-button[data-hidden-comment-ids*=",${CSS.escape(commentId)},"]`);
+      const expandButton = document.querySelector<HTMLElement>(`[data-hidden-comment-ids*=",${CSS.escape(commentId)},"]`);
       if (expandButton) {
         // avoid infinite loop, do not re-click the button if already clicked
         const attrAutoLoadClicked = 'data-auto-load-clicked';
         if (expandButton.hasAttribute(attrAutoLoadClicked)) return;
         expandButton.setAttribute(attrAutoLoadClicked, 'true');
-        // trigger the fetch action to load the hidden comments, after loading, it will try to find the target element again
-        await performFetchActionTrigger(expandButton, 'load');
+        if (expandButton.getAttribute('data-global-click') === 'diffLoadFileBody') {
+          await diffLoadFileBody(expandButton);
+        } else {
+          // trigger the fetch action to load the hidden comments, after loading, it will try to find the target element again
+          await performFetchActionTrigger(expandButton, 'load');
+        }
         continue; // Try again to find the element
       }
     }
@@ -261,7 +270,15 @@ export function initRepoDiffView() {
   initRepoDiffConversationForm(); // such form appears on the "conversation" page and "diff" page
   registerGlobalEventFunc('click', 'diffLoadMoreFiles', (el) => { diffLoadMoreFiles(el) });
   registerGlobalEventFunc('click', 'diffLoadFileBody', diffLoadFileBody);
-  registerGlobalEventFunc('click', 'diffFileViewFold', (el) => invertFileFolding(el.closest('.file-content')!, el));
+  registerGlobalEventFunc('click', 'diffFileViewFold', (el) => {
+    const box = el.closest<HTMLElement>('.file-content')!;
+    const load = box.querySelector<HTMLElement>('[data-global-click="diffLoadFileBody"]');
+    if (load && box.getAttribute('data-folded') === 'true') {
+      void diffLoadFileBody(load);
+      return;
+    }
+    invertFileFolding(box, el);
+  });
   registerGlobalInitFunc('initDiffHeaderPopupMenu', initDiffHeaderPopupMenu);
   registerGlobalInitFunc('initDiffFileViewedForm', initDiffFileViewedForm);
   registerGlobalInitFunc('initDiffFileImageDiff', initImageDiff);

@@ -13,6 +13,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
+	"gitea.dev/services/gitdiff"
 	"gitea.dev/tests"
 
 	"github.com/PuerkitoBio/goquery"
@@ -98,6 +99,33 @@ func testPullDiffAssertPage(t *testing.T, prDiffURL string, reviewBtnDisabled bo
 	btn := doc.Find(".review-box-button")
 	require.Equal(t, 1, btn.Length())
 	assert.Equal(t, reviewBtnDisabled, btn.Is("[disabled]"))
+}
+
+func TestPullDiffLoadsLaterFilesOnDemand(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	session := loginUser(t, "user2")
+	resp := session.MakeRequest(t, NewRequest(t, "GET", "/user2/commitsonpr/pulls/1/files"), http.StatusOK)
+	doc := NewHTMLParser(t, resp.Body)
+	boxes := doc.Find(".diff-file-box")
+	require.Equal(t, 10, boxes.Length())
+	boxes.Each(func(i int, s *goquery.Selection) {
+		loaded := s.Find(`[data-global-click="diffLoadFileBody"]`)
+		if i < gitdiff.MaxExpandedDiffFiles {
+			assert.Zero(t, loaded.Length())
+			assert.Positive(t, s.Find("table.chroma").Length())
+			return
+		}
+		assert.Equal(t, 1, loaded.Length())
+		assert.Zero(t, s.Find("table.chroma").Length())
+	})
+
+	loadURL := boxes.Eq(gitdiff.MaxExpandedDiffFiles).Find(`[data-global-click="diffLoadFileBody"]`).AttrOr("data-href", "")
+	require.NotEmpty(t, loadURL)
+	resp = session.MakeRequest(t, NewRequest(t, "GET", "/user2/commitsonpr/pulls/1/files"+loadURL), http.StatusOK)
+	body := resp.Body.String()
+	assert.NotContains(t, body, "page-content repository")
+	assert.Contains(t, body, "table")
+	assert.Contains(t, body, boxes.Eq(gitdiff.MaxExpandedDiffFiles).AttrOr("data-new-filename", ""))
 }
 
 func TestLongLineDiffRendering(t *testing.T) {

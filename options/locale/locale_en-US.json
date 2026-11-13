@@ -2755,6 +2755,7 @@
   "repo.diff.too_many_files": "Loaded %[1]d of %[2]d files, more files were not shown because too many files have changed in this diff.",
   "repo.diff.show_more": "Show more",
   "repo.diff.load": "Load diff",
+  "repo.diff.not_loaded": "Diff not loaded.",
   "repo.diff.generated": "Generated",
   "repo.diff.vendored": "Vendored",
   "repo.diff.comment.add_line_comment": "Add line comment",
