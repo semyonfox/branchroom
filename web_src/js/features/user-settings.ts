@@ -18,12 +18,13 @@ export function initUserSettings() {
     async function searchRepositories() {
       searchButton.disabled = true;
       try {
-        const response = await GET(`${window.config.appSubUrl}/api/v1/repos/search?q=${encodeURIComponent(search.value)}&limit=20`);
+        const response = await GET(`${window.config.appSubUrl}/repo/search?q=${encodeURIComponent(search.value)}&limit=20`);
         if (!response.ok) return;
         const data: unknown = await response.json();
         if (!data || typeof data !== 'object' || !('data' in data) || !Array.isArray(data.data)) return;
         results.replaceChildren();
-        for (const repo of data.data) {
+        for (const item of data.data) {
+          const repo: unknown = item && typeof item === 'object' && 'repository' in item ? item.repository : null;
           if (!repo || typeof repo !== 'object' || !('full_name' in repo) || typeof repo.full_name !== 'string') continue;
           const name = repo.full_name;
           const button = document.createElement('button');
