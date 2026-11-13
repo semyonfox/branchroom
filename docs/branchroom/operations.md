@@ -73,6 +73,12 @@ file modes that an ordinary Gitea push accepts. While Branchroom is enabled, the
 ordinary repository refuses updates to `branchroom/*`. Use the restricted clone URL.
 Existing branches with this prefix are kept.
 
+Give contractors **Read only** on the ordinary repository, then grant discovery,
+source read and source write in Branchroom. Restricted pushes need ordinary code
+Read because the store is separate and only accepts `refs/heads/branchroom/*`.
+Repository Write would also let them push embargoed commits to public branches.
+Team grants still support discovery and source read only.
+
 ## Monitoring
 
 - The `branchroom_integrity` cron task runs at start and every six hours. A failure
@@ -145,7 +151,9 @@ Suspected disclosure of restricted source:
    in the hash chain.
    Permission decisions describe access at request time. Their `expires_unix` equals
    `created_unix` because the decision cannot be reused. Grant creation and renewal
-   events carry `not_before_unix` and `expires_unix` in `details`.
+   events carry `not_before_unix` and `expires_unix` in `details`. Grant creation,
+   renewal and revocation also store the grantee username or team name at the time
+   of the change. Later renames do not change this evidence.
    Receive outcome events distinguish `receive_accepted` from `receive_rejected`
    and include ref names and old/new object IDs. `receive_unconfirmed` means Git did not return a complete status report. It
    does not prove acceptance or rejection. Treat exports as restricted information.
@@ -184,8 +192,9 @@ expire after this duration. It must be positive. `MAX_GRANT_DURATION` defaults t
 days. Explicit expiries beyond the maximum, and non-expiring grants when a maximum
 is set, are rejected. The default lifetime is capped at the maximum.
 
-Repository owners can renew active grants from Branchroom settings. Renewal sets
-the expiry to the default duration from now, capped at the maximum, and is audited.
+Repository owners can renew active grants from Branchroom settings. Choose the new
+expiry in the renewal dialog. It starts at the default duration from now, capped at
+the maximum. Renewal is audited.
 Expiries within seven days are highlighted. Existing grants keep their expiry
 until renewed or revoked.
 
@@ -194,6 +203,10 @@ revoke all active direct grants. Each revocation is audited. Team access remains
 until membership or the team's grant is removed. Prohibiting login blocks access
 on the next request. Deleting an account also blocks access, while grant rows
 remain as audit history.
+
+Use **Remove person** to revoke all direct grants in this repository at once.
+The checked collaborator option also removes their repository collaboration.
+Both changes are audited. Team membership must be removed separately.
 
 ## Repository-limited tokens
 

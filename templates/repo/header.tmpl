@@ -1,4 +1,5 @@
 <div class="secondary-nav">
+    {{if .BranchroomDiscoverable}}<div class="ui container tw-py-2"><a href="{{.RepoLink}}/-/branchroom">{{ctx.Locale.Tr "repo.branchroom.entry"}}</a></div>{{end}}
 	{{with .Repository}}
 	<div class="ui container">
 		<div class="repo-header flex-left-right">

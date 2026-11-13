@@ -28,6 +28,7 @@ import (
 	"gitea.dev/modules/svg"
 	"gitea.dev/modules/util"
 	"gitea.dev/routers/web/feed"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 	repo_service "gitea.dev/services/repository"
 )
@@ -423,6 +424,15 @@ func prepareRepoViewContent(ctx *context.Context, refTypeNameSubURL string) {
 
 // Home render repository home page
 func Home(ctx *context.Context) {
+	if setting.Branchroom.Enabled && isEligibleBranchroomDoer(ctx) {
+		discover, err := branchroom_service.CanDiscoverRepository(ctx, ctx.Repo.Repository.ID, branchroom_service.ActorFromUser(ctx.Doer))
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		ctx.Data["BranchroomDiscoverable"] = discover
+		setBranchroomSourceHandoffHeaders(ctx)
+	}
 	if handleRepoHomeFeed(ctx) {
 		return
 	}

@@ -1217,6 +1217,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		m.Group("/branchroom", func() {
 			m.Combo("").Get(repo_setting.Branchroom).
 				Post(web.Bind[*forms.BranchroomScopeForm](), repo_setting.BranchroomPost)
+			m.Post("/people/{userID}/remove", repo_setting.BranchroomRemovePersonPost)
 			m.Get("/scopes/{scopeID}/audit", repo_setting.BranchroomAudit)
 			m.Post("/scopes/{scopeID}/audit/export", repo_setting.BranchroomEvidence)
 			m.Post("/workspaces", web.Bind[*forms.BranchroomWorkspaceForm](), repo_setting.BranchroomWorkspacePost)

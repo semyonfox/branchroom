@@ -47,7 +47,7 @@
 		</form>
 	</div>
 	<div class="ui attached segment tw-overflow-x-auto">
-		<table class="ui unstackable table">
+		<table class="ui unstackable table tw-table-fixed tw-w-full tw-break-all">
 			<thead><tr>
 				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.time"}}</th>
 				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.actor"}}</th>
@@ -61,7 +61,7 @@
 						<td>{{DateUtils.FullTime $row.Event.CreatedUnix}}</td>
 						<td>{{if $row.ActorLink}}<a href="{{$row.ActorLink}}">{{$row.Actor}}</a>{{else}}{{$row.Actor}}{{end}}</td>
 						<td>{{$row.Event.Action}}</td>
-						<td>{{$row.Event.Result}}<br><code>{{$row.Event.ReasonCode}}</code>{{if $row.Event.Details}}<pre class="tw-whitespace-pre-wrap">{{$row.Event.Details}}</pre>{{end}}</td>
+						<td>{{$row.Event.Result}}<br><code>{{$row.Event.ReasonCode}}</code>{{if $row.Event.Details}}<pre class="tw-whitespace-pre-wrap tw-break-all">{{$row.Event.Details}}</pre>{{end}}</td>
 						<td>{{$row.Event.ResourceType}}: {{$row.Event.ResourceID}}{{if $row.Event.GrantID}}<br>{{$row.Event.GrantID}}{{end}}</td>
 					</tr>
 				{{else}}

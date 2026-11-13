@@ -141,3 +141,31 @@ func userHasSourceHandoffAuthorization(ctx context.Context, orgID, scopeID, user
 	}
 	return true, nil
 }
+
+// CanDiscoverRepository checks discovery without recording a page-view decision.
+func CanDiscoverRepository(ctx context.Context, repoID int64, actor Actor) (bool, error) {
+	if !setting.Branchroom.Enabled {
+		return false, nil
+	}
+	ceiling, active, err := resolveDirectUserRepositoryCeiling(ctx, repoID, actor)
+	if err != nil || !active || !ceiling.CodeRead {
+		return false, err
+	}
+	scopes, err := branchroom_model.FindScopesByRepoID(ctx, repoID)
+	if err != nil {
+		return false, err
+	}
+	for _, scope := range scopes {
+		if scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
+			continue
+		}
+		grant, _, err := findMatchingGrant(ctx, scope, Request{Actor: actor, Action: branchroom_model.ActionDiscover}, timeutil.TimeStampNow())
+		if err != nil {
+			return false, err
+		}
+		if grant != nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
