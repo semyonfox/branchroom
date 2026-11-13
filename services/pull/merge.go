@@ -733,6 +733,14 @@ func CheckPullBranchProtections(ctx context.Context, pr *issues_model.PullReques
 		return util.ErrorWrap(ErrNotReadyToMerge, "There are missing code owner reviews")
 	}
 
+	pathReviews, err := HasRequiredPathReviews(ctx, pb, pr)
+	if err != nil {
+		return err
+	}
+	if !pathReviews {
+		return util.ErrorWrap(ErrNotReadyToMerge, "There are missing path reviewer approvals")
+	}
+
 	if skipProtectedFilesCheck {
 		return nil
 	}

@@ -1364,6 +1364,8 @@ func Routes() *web.Router {
 					m.Patch("/*", reqToken(), reqRepoWriter(unit.TypeCode), mustNotBeArchived, bind(api.RenameBranchRepoOption{}), repo.RenameBranch)
 				}, context.ReferencesGitRepo(), reqRepoReader(unit.TypeCode))
 				m.Group("/branch_protections", func() {
+					m.Get("/path_reviewers/*", repo.GetPathReviewerRules)
+					m.Put("/path_reviewers/*", bind(api.SetPathReviewerRulesOptions{}), mustNotBeArchived, repo.SetPathReviewerRules)
 					m.Get("", repo.ListBranchProtections)
 					m.Post("", bind(api.CreateBranchProtectionOption{}), mustNotBeArchived, repo.CreateBranchProtection)
 					m.Group("/*", func() {
