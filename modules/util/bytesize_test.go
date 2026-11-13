@@ -25,3 +25,18 @@ func TestFormatByteSize(t *testing.T) {
 	size *= 4
 	assert.Equal(t, "2.0 EiB", FormatByteSize(size))
 }
+
+func TestFormatByteSizeDecimal(t *testing.T) {
+	for _, tc := range []struct {
+		size int64
+		want string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1024, "1.0 KiB"},
+		{13002342, "12.4 MiB"},
+		{512 * 1024 * 1024, "512.0 MiB"},
+	} {
+		assert.Equal(t, tc.want, FormatByteSizeDecimal(tc.size))
+	}
+}

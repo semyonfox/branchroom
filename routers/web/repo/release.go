@@ -72,6 +72,7 @@ func calReleaseNumCommitsBehind(ctx stdCtx.Context, repoCtx *context.Repository,
 }
 
 type ReleaseInfo struct {
+	IsLatest       bool
 	Release        *repo_model.Release
 	CommitStatus   *git_model.CommitStatus
 	CommitStatuses []*git_model.CommitStatus
@@ -130,6 +131,15 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 		}
 	}
 
+	latestRelease, err := repo_model.GetLatestRelease(ctx, ctx.Repo.Repository)
+	if err != nil && !repo_model.IsErrReleaseNotExist(err) {
+		return nil, err
+	}
+	var latestReleaseID int64
+	if latestRelease != nil {
+		latestReleaseID = latestRelease.ID
+	}
+
 	releaseInfos := make([]*ReleaseInfo, 0, len(releases))
 	for _, r := range releases {
 		if r.Publisher, ok = cacheUsers[r.PublisherID]; !ok {
@@ -156,6 +166,7 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 
 		info := &ReleaseInfo{
 			Release:   r,
+			IsLatest:  r.ID == latestReleaseID,
 			Reactions: reactionsByRelease[r.ID],
 		}
 
