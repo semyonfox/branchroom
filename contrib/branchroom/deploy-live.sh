@@ -45,6 +45,37 @@ fi
 	TAGS=bindata make build
 )
 
+# make does not relink when Go sources are unchanged, so a docs-only commit keeps the previous version stamp
+short="g${sha:0:10}"
+ver=$("$build/gitea" --version 2>/dev/null || true)
+if [[ "$ver" != *"$short"* ]]; then
+	embedded=$(printf '%s\n' "$ver" | grep -oE 'g[0-9a-f]{10}' | head -1 || true)
+	old=
+	if [ -n "$embedded" ]; then
+		old=$(git -C "$build" rev-parse --verify "${embedded#g}^{commit}" 2>/dev/null || true)
+	fi
+	needs=1
+	if [ -n "$old" ]; then
+		needs=0
+		while IFS= read -r f; do
+			case "$f" in
+			contrib/*|docs/*|README.md|AGENTS.md|LICENSE|.github/*|.gitignore) ;;
+			*) needs=1; break ;;
+			esac
+		done < <(git -C "$build" diff --name-only "$old" "$sha")
+	fi
+	if [ "$needs" = 0 ]; then
+		echo "no server change since ${old:0:12}, leaving the live binary"
+		exit 0
+	fi
+	echo "stale binary, linking again"
+	rm -f "$build/gitea"
+	(
+		cd "$build"
+		TAGS=bindata make build
+	)
+fi
+
 avail=$(df -B1 --output=avail "$live" | tail -1)
 if [ "$avail" -lt $((40 * 1024 * 1024 * 1024)) ]; then
 	echo "refusing to stop Branchroom, less than 40 GiB free" >&2
@@ -53,7 +84,6 @@ fi
 
 stamp=$(date +%Y%m%d-%H%M)
 backup="${HOME}/.local/share/branchroom-backups/${stamp}-${sha:0:12}"
-short="g${sha:0:10}"
 
 rollback() {
 	echo "deploy failed, rolling back" >&2
