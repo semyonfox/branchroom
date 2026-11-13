@@ -13,6 +13,11 @@ supported shape below. Anything outside it is unsupported, not merely untested.
 - A TLS-terminating reverse proxy when the server is reachable over a network.
 - No Gitea Actions runner on the same host or under the same account. A runner there
   can read the restricted root.
+- A dedicated service account. Anything else running as that account, such as another
+  CI runner or agent, can read the restricted root.
+- Git over SSH through Gitea's built-in server (`START_SSH_SERVER = true` on its own
+  port) unless the service account is dedicated. The default mode writes users' keys
+  into the service account's `~/.ssh/authorized_keys`.
 
 Site administrators, host administrators and database operators are trusted. Branchroom
 does not protect restricted source from them. An internet-facing or multi-tenant
