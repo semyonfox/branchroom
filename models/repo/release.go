@@ -370,6 +370,19 @@ func GetLatestReleaseByRepoID(ctx context.Context, repoID int64) (*Release, erro
 	return rel, nil
 }
 
+// GetNewestPublishedRelease returns the newest non-draft release including pre-releases, for
+// repositories that only publish pre-releases
+func GetNewestPublishedRelease(ctx context.Context, repoID int64) (*Release, error) {
+	rel := new(Release)
+	has, err := db.GetEngine(ctx).Desc("created_unix", "id").Where(FindReleasesOptions{RepoID: repoID}.ToConds()).Get(rel)
+	if err != nil {
+		return nil, err
+	} else if !has {
+		return nil, ErrReleaseNotExist{0, "newest"}
+	}
+	return rel, nil
+}
+
 func SetLatestReleaseID(ctx context.Context, repo *Repository, releaseID int64) error {
 	repo.LatestReleaseID = releaseID
 	_, err := db.GetEngine(ctx).ID(repo.ID).Where(builder.Neq{"latest_release_id": releaseID}).

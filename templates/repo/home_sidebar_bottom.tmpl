@@ -12,14 +12,14 @@
 				<div>{{svg "octicon-tag"}}</div>
 				<a class="gt-ellipsis muted" href="{{.LatestRelease.Link}}" title="{{.LatestRelease.Title}}"><strong>{{.LatestRelease.Title}}</strong></a>
 				<div class="tw-shrink-0">
-					{{template "repo/release/label" (dict "Release" .LatestRelease "IsLatest" true)}}
+					{{template "repo/release/label" (dict "Release" .LatestRelease "IsLatest" (not .LatestRelease.IsPrerelease))}}
 				</div>
 			</div>
 			<div class="tw-ml-[24px] tw-text-12">{{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</div>
 			<div class="flex-items-block tw-mt-3">
 				{{range $index, $asset := .LatestRelease.Attachments}}
 					{{if lt $index 6}}
-						<a class="flex-text-block" href="{{$.RepoLink}}/releases/latest/download/{{PathEscape $asset.Name}}" title="{{$asset.Name}}">
+						<a class="flex-text-block" href="{{$.RepoLink}}/releases/{{if $.LatestRelease.IsPrerelease}}download/{{PathEscape $.LatestRelease.TagName}}{{else}}latest/download{{end}}/{{PathEscape $asset.Name}}" title="{{$asset.Name}}">
 							{{svg "octicon-download" 16 "tw-shrink-0"}}
 							<span class="gt-ellipsis tw-flex-1">{{$asset.Name}}</span>
 							<span class="tw-text-12 tw-text-text-light tw-shrink-0">{{FormatByteSize $asset.Size}}</span>

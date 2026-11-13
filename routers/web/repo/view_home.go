@@ -211,6 +211,14 @@ func prepareHomeSidebarLatestRelease(ctx *context.Context) {
 		ctx.ServerErrorAuto(err)
 		return
 	}
+	if release == nil {
+		// like GitHub, show the newest pre-release when there is no stable one
+		release, err = repo_model.GetNewestPublishedRelease(ctx, ctx.Repo.Repository.ID)
+		if err != nil && !repo_model.IsErrReleaseNotExist(err) {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+	}
 
 	if release != nil {
 		if err = release.LoadAttributes(ctx); err != nil {
