@@ -7,6 +7,9 @@ set -euo pipefail
 umask 077
 
 export PATH="${HOME}/.local/bin:${HOME}/.local/share/pnpm/bin:${PATH}"
+# a shared GOCACHE has gone missing mid-compile; keep this build's cache to itself
+export GOCACHE="${HOME}/.cache/go-build-branchroom"
+mkdir -p "$GOCACHE"
 
 repo=/home/semyon/code/owned/labs/gitea
 live=/home/semyon/.local/share/branchroom
@@ -29,7 +32,13 @@ else
 fi
 
 # the next run should be this copy, including fixes made after the previous deploy
-install -m 0755 "$build/contrib/branchroom/deploy-live.sh" "${HOME}/.local/bin/branchroom-deploy"
+installed="${HOME}/.local/bin/branchroom-deploy"
+before=$(sha256sum "$0" | awk '{print $1}')
+install -m 0755 "$build/contrib/branchroom/deploy-live.sh" "$installed"
+after=$(sha256sum "$installed" | awk '{print $1}')
+if [ "$before" != "$after" ]; then
+	exec "$installed"
+fi
 
 (
 	cd "$build"
