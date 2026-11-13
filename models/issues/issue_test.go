@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/commitstatus"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
@@ -463,4 +465,38 @@ func TestMigrate_CreateIssuesIsPullFalse(t *testing.T) {
 
 func TestMigrate_CreateIssuesIsPullTrue(t *testing.T) {
 	assertCreateIssues(t, true)
+}
+
+func TestIssuesPullFilters(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+
+	find := func(opts issues_model.IssuesOptions) []int64 {
+		opts.RepoIDs, opts.IsPull, opts.SortType = []int64{1}, optional.Some(true), "oldest"
+		issues, err := issues_model.Issues(t.Context(), &opts)
+		assert.NoError(t, err)
+		ids := make([]int64, len(issues))
+		for i, issue := range issues {
+			ids[i] = issue.ID
+		}
+		return ids
+	}
+
+	// pull 2 (issue 3) heads branch2; its status lives on the base repo
+	summary := &git_model.CommitStatusSummary{RepoID: 1, SHA: "985f0301dba5e7b34be866819cd15ad3d8f508ee", State: commitstatus.CommitStatusFailure}
+	assert.NoError(t, db.Insert(t.Context(), summary))
+	assert.Equal(t, []int64{3}, find(issues_model.IssuesOptions{PullChecks: issues_model.PullChecksFailure}))
+	assert.Empty(t, find(issues_model.IssuesOptions{PullChecks: issues_model.PullChecksSuccess}))
+
+	stats, err := issues_model.GetIssueStats(t.Context(), &issues_model.IssuesOptions{RepoIDs: []int64{1}, IsPull: optional.Some(true), PullChecks: issues_model.PullChecksFailure})
+	assert.NoError(t, err)
+	assert.EqualValues(t, 1, stats.OpenCount+stats.ClosedCount)
+
+	// issue 3 has an official rejection, issue 2 only an unofficial approval
+	assert.Equal(t, []int64{3}, find(issues_model.IssuesOptions{PullReview: issues_model.PullReviewChangesRequested}))
+	assert.Empty(t, find(issues_model.IssuesOptions{PullReview: issues_model.PullReviewApproved}))
+	assert.NotContains(t, find(issues_model.IssuesOptions{PullReview: issues_model.PullReviewRequired}), int64(3))
+
+	_, err = db.GetEngine(t.Context()).ID(1).Cols("official").Update(&issues_model.Review{Official: true})
+	assert.NoError(t, err)
+	assert.Equal(t, []int64{2}, find(issues_model.IssuesOptions{PullReview: issues_model.PullReviewApproved}))
 }

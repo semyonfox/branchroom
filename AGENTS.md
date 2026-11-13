@@ -1,4 +1,4 @@
-attribution: off
+attribution: on
 
 - Never assume, verify before claiming
 - List development targets with `make help`

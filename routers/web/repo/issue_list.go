@@ -415,6 +415,12 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 	posterUsername := ctx.FormString("poster")
 	posterUserID := shared_user.GetFilterUserIDByName(ctx, posterUsername)
 	var mentionedID, reviewRequestedID, reviewedID int64
+	var pullChecks issues_model.PullChecksFilter
+	var pullReview issues_model.PullReviewFilter
+	if isPullOption.Value() {
+		pullChecks = issues_model.ParsePullChecksFilter(ctx.FormString("checks"))
+		pullReview = issues_model.ParsePullReviewFilter(ctx.FormString("review"))
+	}
 
 	if ctx.IsSigned {
 		switch viewType {
@@ -463,6 +469,8 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 		ReviewedID:        reviewedID,
 		IsPull:            isPullOption,
 		IssueIDs:          nil,
+		PullChecks:        pullChecks,
+		PullReview:        pullReview,
 	}
 
 	if keyword != "" {
@@ -542,6 +550,8 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 			LabelIDs:          preparedLabelFilter.SelectedLabelIDs,
 			SortType:          sortType,
 			IssueIDs:          keywordMatchedIssueIDs,
+			PullChecks:        pullChecks,
+			PullReview:        pullReview,
 		})
 		if err != nil {
 			ctx.ServerErrorAuto(err)
@@ -642,6 +652,8 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 	ctx.Data["ProjectIDs"] = projectIDs
 	ctx.Data["AssigneeID"] = assigneeID
 	ctx.Data["PosterUsername"] = posterUsername
+	ctx.Data["ChecksFilter"] = string(pullChecks)
+	ctx.Data["ReviewFilter"] = string(pullReview)
 	ctx.Data["Keyword"] = keyword
 	ctx.Data["IsShowClosed"] = isShowClosed
 	switch {

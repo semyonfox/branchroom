@@ -108,6 +108,16 @@ func SearchIssues(ctx *context.APIContext) {
 	//   in: query
 	//   description: Filter by team (requires organization owner parameter)
 	//   type: string
+	// - name: checks
+	//   in: query
+	//   description: Filter pull requests by the combined status of the head commit
+	//   type: string
+	//   enum: [success, failure, pending]
+	// - name: review
+	//   in: query
+	//   description: Filter pull requests by official reviews. approved means at least one approval and no requested changes
+	//   type: string
+	//   enum: [approved, changes_requested, review_required]
 	// - name: page
 	//   in: query
 	//   description: Page number of results to return (1-based)
@@ -228,6 +238,12 @@ func SearchIssues(ctx *context.APIContext) {
 			searchOpt.ReviewedID = optional.Some(ctxUserID)
 		}
 	}
+
+	checks, review, ok := parsePullFilters(ctx)
+	if !ok {
+		return
+	}
+	searchOpt.PullChecks, searchOpt.PullReview = string(checks), string(review)
 
 	ids, total, err := issue_indexer.SearchIssues(ctx, searchOpt)
 	if err != nil {

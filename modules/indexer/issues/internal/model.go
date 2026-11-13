@@ -109,6 +109,9 @@ type SearchOptions struct {
 
 	SubscriberID optional.Option[int64] // subscriber of the issues
 
+	PullChecks string // only the db indexer supports it
+	PullReview string // only the db indexer supports it
+
 	UpdatedAfterUnix  optional.Option[int64]
 	UpdatedBeforeUnix optional.Option[int64]
 

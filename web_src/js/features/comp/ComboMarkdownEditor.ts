@@ -1,6 +1,6 @@
 import '@github/markdown-toolbar-element';
 import '@github/text-expander-element';
-import {hideElem, showElem, autosize, isElemVisible, generateElemId} from '../../utils/dom.ts';
+import {hideElem, showElem, toggleElem, autosize, isElemVisible, generateElemId} from '../../utils/dom.ts';
 import {
   EventUploadStateChanged,
   initEasyMDEPaste,
@@ -12,7 +12,7 @@ import {renderPreviewPanelContent} from '../repo-editor.ts';
 import {toggleTasklistCheckbox} from '../../markup/tasklist.ts';
 import {easyMDEToolbarActions, type EasyMdeToolbarAction} from './EasyMDEToolbarActions.ts';
 import {showErrorToast} from '../../modules/toast.ts';
-import {ExclusiveFetch} from '../../modules/fetch.ts';
+import {ExclusiveFetch, GET} from '../../modules/fetch.ts';
 import {
   EventEditorContentChanged,
   initTextareaMarkdown,
@@ -178,6 +178,7 @@ export class ComboMarkdownEditor {
     }
 
     this.initMarkdownButtonTableAdd();
+    this.initMarkdownButtonSavedReplies();
 
     initTextareaMarkdown(this.textarea);
     initTextareaEvents(this.textarea, this.dropzone);
@@ -307,6 +308,45 @@ export class ComboMarkdownEditor {
       cols = Math.max(1, Math.min(100, cols));
       replaceTextareaSelection(this.textarea, `\n${this.generateMarkdownTable(rows, cols)}\n\n`);
       addTablePanelTippy.hide();
+    });
+  }
+
+  initMarkdownButtonSavedReplies() {
+    const button = this.container.querySelector('.markdown-button-saved-replies');
+    const panel = this.container.querySelector<HTMLElement>('.markdown-saved-replies-panel');
+    if (!button || !panel) return;
+    // the button already owns a tippy for its tooltip, so this one attaches to the panel
+    const panelTippy = createTippy(panel, {
+      content: panel,
+      trigger: 'manual',
+      placement: 'bottom-start',
+      hideOnClick: true,
+      interactive: true,
+      getReferenceClientRect: () => button.getBoundingClientRect(),
+    });
+    const items = panel.querySelector('.saved-replies-items')!;
+    button.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        const resp = await GET(panel.getAttribute('data-url')!);
+        if (!resp.ok) throw new Error(resp.statusText);
+        const replies: Array<{title: string, content: string}> = await resp.json();
+        items.replaceChildren(...replies.map((reply) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'item tw-block tw-w-full tw-text-left tw-p-2 interact-bg';
+          item.textContent = reply.title;
+          item.addEventListener('click', () => {
+            replaceTextareaSelection(this.textarea, reply.content);
+            panelTippy.hide();
+          });
+          return item;
+        }));
+        toggleElem(panel.querySelector('.saved-replies-empty')!, replies.length === 0);
+        panelTippy.show();
+      } catch (error) {
+        showErrorToast(String(error));
+      }
     });
   }
 

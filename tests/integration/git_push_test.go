@@ -76,6 +76,34 @@ func TestGitPush(t *testing.T) {
 			assert.True(t, unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: forcedRepo.ID}).IsPrivate)
 		})
 
+		t.Run("SecretPushProtection", func(t *testing.T) {
+			defer tests.PrintCurrentTest(t)()
+			defer test.MockVariableValue(&setting.SecretScanning.PushProtection, true)()
+			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+			repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{Name: "repo-secret-push", DefaultBranch: "master"})
+			require.NoError(t, err)
+
+			gitPath := t.TempDir()
+			doGitInitTestRepository(gitPath)(t)
+			oldPath, oldUser := u.Path, u.User
+			defer func() { u.Path, u.User = oldPath, oldUser }()
+			u.Path = repo.FullName() + ".git"
+			u.User = url.UserPassword(user.LowerName, userPassword)
+			doGitAddRemote(gitPath, "origin", u)(t)
+			doGitPushTestRepository(gitPath, "origin", "master")(t)
+
+			doGitCreateBranch(gitPath, "leak")(t)
+			doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
+				LocalRepoPath: gitPath, CheckoutBranch: "leak", TreeFilePath: ".env",
+				TreeFileContent: "AWS_ACCESS_KEY_ID=AKIA" + "Q3EGRKMT2OQ5VY7Z\n",
+			})(t)
+			doGitPushTestRepositoryFail(gitPath, "origin", "leak")(t)
+			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
+
+			doGitPushTestRepository(gitPath, "origin", "leak", "-o", "secret_scanning.allow=true")(t)
+			unittest.AssertExistsAndLoadBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
+		})
+
 		t.Run("PullRefs", func(t *testing.T) {
 			baseAPITestContext := NewAPITestContext(t, "user2", "repo1", auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
 

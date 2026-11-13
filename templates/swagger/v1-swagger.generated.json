@@ -1455,6 +1455,18 @@
             "in": "query"
           },
           {
+            "enum": [
+              "review_requested",
+              "assign",
+              "mention",
+              "author"
+            ],
+            "type": "string",
+            "description": "filter notifications by why the user gets them",
+            "name": "reason",
+            "in": "query"
+          },
+          {
             "type": "string",
             "format": "date-time",
             "description": "Only show notifications updated after the given time. This is a timestamp in RFC 3339 format",
@@ -1576,6 +1588,31 @@
         "responses": {
           "200": {
             "$ref": "#/responses/NotificationThread"
+          },
+          "default": {
+            "$ref": "#/responses/error"
+          }
+        }
+      },
+      "delete": {
+        "description": "The thread leaves every list until it has new activity.",
+        "tags": [
+          "notification"
+        ],
+        "summary": "Mark a notification thread as done",
+        "operationId": "notifyDoneThread",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "id of notification thread",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/responses/empty"
           },
           "default": {
             "$ref": "#/responses/error"
@@ -5150,6 +5187,28 @@
             "type": "string",
             "description": "Filter by team (requires organization owner parameter)",
             "name": "team",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "success",
+              "failure",
+              "pending"
+            ],
+            "type": "string",
+            "description": "Filter pull requests by the combined status of the head commit",
+            "name": "checks",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "approved",
+              "changes_requested",
+              "review_required"
+            ],
+            "type": "string",
+            "description": "Filter pull requests by official reviews. approved means at least one approval and no requested changes",
+            "name": "review",
             "in": "query"
           },
           {
@@ -14772,6 +14831,18 @@
             "in": "query"
           },
           {
+            "enum": [
+              "review_requested",
+              "assign",
+              "mention",
+              "author"
+            ],
+            "type": "string",
+            "description": "filter notifications by why the user gets them",
+            "name": "reason",
+            "in": "query"
+          },
+          {
             "type": "string",
             "format": "date-time",
             "description": "Only show notifications updated after the given time. This is a timestamp in RFC 3339 format",
@@ -16063,6 +16134,28 @@
             "in": "query"
           },
           {
+            "enum": [
+              "success",
+              "failure",
+              "pending"
+            ],
+            "type": "string",
+            "description": "Filter by the combined status of the head commit",
+            "name": "checks",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "approved",
+              "changes_requested",
+              "review_required"
+            ],
+            "type": "string",
+            "description": "Filter by official reviews. approved means at least one approval and no requested changes",
+            "name": "review",
+            "in": "query"
+          },
+          {
             "minimum": 1,
             "type": "integer",
             "default": 1,
@@ -16796,6 +16889,54 @@
         "responses": {
           "204": {
             "$ref": "#/responses/empty"
+          },
+          "default": {
+            "$ref": "#/responses/error"
+          }
+        }
+      }
+    },
+    "/repos/{owner}/{repo}/pulls/{index}/readiness": {
+      "get": {
+        "description": "Send the last fingerprint as If-None-Match to get 304 when nothing changed.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "repository"
+        ],
+        "summary": "Get whether a pull request can merge and everything that blocks it",
+        "operationId": "repoGetPullRequestReadiness",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "owner of the repo",
+            "name": "owner",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "name of the repo",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "description": "index of the pull request",
+            "name": "index",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/PullRequestReadiness"
+          },
+          "304": {
+            "description": "unchanged since the fingerprint sent in If-None-Match"
           },
           "default": {
             "$ref": "#/responses/error"
@@ -30670,6 +30811,18 @@
           "type": "boolean",
           "x-go-name": "Pinned"
         },
+        "reason": {
+          "description": "Reason is why the user gets the notification, the strongest when there are several",
+          "type": "string",
+          "enum": [
+            "review_requested",
+            "assign",
+            "mention",
+            "author",
+            "subscribed"
+          ],
+          "x-go-name": "Reason"
+        },
         "repository": {
           "$ref": "#/definitions/Repository"
         },
@@ -31722,6 +31875,80 @@
         "url": {
           "type": "string",
           "x-go-name": "URL"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "PullRequestReadiness": {
+      "description": "PullRequestReadiness reports whether a pull request can merge and every reason it can't yet",
+      "type": "object",
+      "properties": {
+        "blockers": {
+          "description": "any of closed, draft, mergeability_checking, conflict, checks_failing, checks_pending, changes_requested,\napprovals_missing, review_requests_pending, code_owner_reviews_missing, branch_outdated, protected_files_changed and dependencies_open",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Blockers"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CommitStatus"
+          },
+          "x-go-name": "Checks"
+        },
+        "checks_state": {
+          "description": "combined state of the required checks, or of all checks when none are required. empty when there are none",
+          "type": "string",
+          "enum": [
+            "",
+            "success",
+            "failure",
+            "pending"
+          ],
+          "x-go-name": "ChecksState"
+        },
+        "draft": {
+          "type": "boolean",
+          "x-go-name": "Draft"
+        },
+        "fingerprint": {
+          "description": "changes whenever the head, a check, a review or the conversation does. also sent as the ETag",
+          "type": "string",
+          "x-go-name": "Fingerprint"
+        },
+        "head_sha": {
+          "type": "string",
+          "x-go-name": "HeadSHA"
+        },
+        "mergeable": {
+          "type": "boolean",
+          "x-go-name": "Mergeable"
+        },
+        "ready": {
+          "description": "true when nothing blocks the merge. merge permission is checked separately when merging",
+          "type": "boolean",
+          "x-go-name": "Ready"
+        },
+        "required_checks": {
+          "description": "status context patterns branch protection requires",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "RequiredChecks"
+        },
+        "review_decision": {
+          "description": "empty when no review is required or given",
+          "type": "string",
+          "enum": [
+            "",
+            "approved",
+            "changes_requested",
+            "review_required"
+          ],
+          "x-go-name": "ReviewDecision"
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
@@ -34430,6 +34657,12 @@
         "items": {
           "$ref": "#/definitions/PullRequest"
         }
+      }
+    },
+    "PullRequestReadiness": {
+      "description": "PullRequestReadiness",
+      "schema": {
+        "$ref": "#/definitions/PullRequestReadiness"
       }
     },
     "PullReview": {

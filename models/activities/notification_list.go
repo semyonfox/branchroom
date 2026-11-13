@@ -28,6 +28,7 @@ type FindNotificationOptions struct {
 	IssueID           int64
 	Status            []NotificationStatus
 	Source            []NotificationSource
+	Reason            NotificationReason
 	UpdatedAfterUnix  int64
 	UpdatedBeforeUnix int64
 }
@@ -62,6 +63,9 @@ func (opts FindNotificationOptions) ToConds() builder.Cond {
 	}
 	if opts.UpdatedBeforeUnix != 0 {
 		cond = cond.And(builder.Lte{"notification.updated_unix": opts.UpdatedBeforeUnix})
+	}
+	if opts.Reason != "" {
+		cond = cond.And(notificationReasonCond(opts.Reason))
 	}
 	return cond
 }

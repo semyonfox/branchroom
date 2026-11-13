@@ -1,6 +1,6 @@
 {{$projectIDs := $.ProjectIDs}}
 {{$projectIDsQuery := SliceUtils.JoinInt64 $projectIDs}}
-{{$queryLink := QueryBuild "?" "q" $.Keyword "type" $.ViewType "sort" $.SortType "state" $.State "labels" $.SelectLabels "milestone" $.MilestoneID "project" $projectIDsQuery "assignee" $.AssigneeID "poster" $.PosterUsername "archived_labels" (Iif $.ShowArchivedLabels "true")}}
+{{$queryLink := QueryBuild "?" "q" $.Keyword "type" $.ViewType "sort" $.SortType "state" $.State "labels" $.SelectLabels "milestone" $.MilestoneID "project" $projectIDsQuery "assignee" $.AssigneeID "poster" $.PosterUsername "checks" $.ChecksFilter "review" $.ReviewFilter "archived_labels" (Iif $.ShowArchivedLabels "true")}}
 {{$showAllProjects := not $projectIDs}}
 {{$showNoProjectSelected := and (eq (len $projectIDs) 1) (eq (index $projectIDs 0) -1)}}
 
@@ -75,6 +75,10 @@
 	"TextFilterMatchNone" (ctx.Locale.Tr "repo.issues.filter_assignee_no_assignee")
 	"TextFilterMatchAny" (ctx.Locale.Tr "repo.issues.filter_assignee_any_assignee")
 }}
+
+{{if .PageIsPullList}}
+	{{template "repo/issue/filter_item_pull_status" dict "QueryLink" $queryLink "ChecksFilter" $.ChecksFilter "ReviewFilter" $.ReviewFilter}}
+{{end}}
 
 {{if .IsSigned}}
 	<!-- Type -->

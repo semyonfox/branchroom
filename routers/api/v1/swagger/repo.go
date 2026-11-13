@@ -154,6 +154,13 @@ type swaggerResponsePullRequest struct {
 	Body api.PullRequest `json:"body"`
 }
 
+// PullRequestReadiness
+// swagger:response PullRequestReadiness
+type swaggerResponsePullRequestReadiness struct {
+	// in:body
+	Body api.PullRequestReadiness `json:"body"`
+}
+
 // PullRequestList
 // swagger:response PullRequestList
 type swaggerResponsePullRequestList struct {

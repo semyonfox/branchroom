@@ -30,6 +30,8 @@ type PullRequestsOptions struct {
 	MilestoneID int64
 	PosterID    int64
 	BaseBranch  string
+	Checks      PullChecksFilter
+	Review      PullReviewFilter
 }
 
 func listPullRequestStatement(ctx context.Context, baseRepoID int64, opts *PullRequestsOptions) db.Session {
@@ -56,6 +58,8 @@ func listPullRequestStatement(ctx context.Context, baseRepoID int64, opts *PullR
 	if opts.PosterID > 0 {
 		sess.And("issue.poster_id=?", opts.PosterID)
 	}
+
+	applyPullFilterConditions(sess, &IssuesOptions{PullChecks: opts.Checks, PullReview: opts.Review})
 
 	return sess
 }

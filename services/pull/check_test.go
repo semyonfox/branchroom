@@ -15,6 +15,8 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/commitstatus"
+	"gitea.dev/modules/git"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/queue"
 	"gitea.dev/modules/setting"
@@ -144,4 +146,36 @@ func TestMarkPullRequestAsMergeable(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		assert.FailNow(t, "Timeout: nothing was added to automergequeue")
 	}
+}
+
+func TestGetReadiness(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: 2}) // official rejection in the fixtures
+
+	r, err := GetReadiness(t.Context(), pr)
+	require.NoError(t, err)
+	assert.Equal(t, issues_model.PullReviewChangesRequested, r.ReviewDecision)
+	assert.Empty(t, r.ChecksState)
+	assert.Empty(t, r.Blockers, "an unprotected branch only blocks on conflicts, drafts and dependencies")
+
+	require.NoError(t, db.Insert(t.Context(), &git_model.ProtectedBranch{
+		RepoID: 1, RuleName: "master", RequiredApprovals: 1, BlockOnRejectedReviews: true,
+		EnableStatusCheck: true, StatusCheckContexts: []string{"ci"},
+	}))
+	r, err = GetReadiness(t.Context(), pr)
+	require.NoError(t, err)
+	assert.Equal(t, commitstatus.CommitStatusPending, r.ChecksState)
+	assert.Equal(t, []ReadinessBlocker{BlockerChecksPending, BlockerChangesRequested, BlockerApprovals}, r.Blockers)
+	before := r.Fingerprint
+
+	require.NoError(t, git_model.NewCommitStatus(t.Context(), git_model.NewCommitStatusOptions{
+		Repo:         unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1}),
+		Creator:      unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2}),
+		SHA:          git.MustIDFromString(r.HeadSHA),
+		CommitStatus: &git_model.CommitStatus{State: commitstatus.CommitStatusFailure, Context: "ci"},
+	}))
+	r, err = GetReadiness(t.Context(), pr)
+	require.NoError(t, err)
+	assert.Equal(t, []ReadinessBlocker{BlockerChecksFailing, BlockerChangesRequested, BlockerApprovals}, r.Blockers)
+	assert.NotEqual(t, before, r.Fingerprint)
 }

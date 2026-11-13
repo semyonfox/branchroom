@@ -191,6 +191,23 @@ func TestAPIViewPulls(t *testing.T) {
 		ctx.Session.MakeRequest(t, req, http.StatusNotFound)
 	})
 
+	t.Run("ReadinessAndFilters", func(t *testing.T) {
+		url := fmt.Sprintf("/api/v1/repos/%s/%s/pulls/3/readiness", owner.Name, repo.Name)
+		resp := ctx.Session.MakeRequest(t, NewRequest(t, "GET", url).AddTokenAuth(ctx.Token), http.StatusOK)
+		readiness := DecodeJSON(t, resp, &api.PullRequestReadiness{})
+		assert.Equal(t, "changes_requested", readiness.ReviewDecision)
+		assert.Equal(t, []string{"closed"}, readiness.Blockers) // DefaultState closed it
+		assert.False(t, readiness.Ready)
+		assert.Equal(t, `"`+readiness.Fingerprint+`"`, resp.Header().Get("ETag"))
+		ctx.Session.MakeRequest(t, NewRequest(t, "GET", url).AddTokenAuth(ctx.Token).SetHeader("If-None-Match", resp.Header().Get("ETag")), http.StatusNotModified)
+
+		var filtered []*api.PullRequest
+		DecodeJSON(t, ctx.Session.MakeRequest(t, NewRequestf(t, "GET", "/api/v1/repos/%s/%s/pulls?state=all&review=changes_requested", owner.Name, repo.Name).AddTokenAuth(ctx.Token), http.StatusOK), &filtered)
+		require.Len(t, filtered, 1)
+		assert.EqualValues(t, 3, filtered[0].Index)
+		ctx.Session.MakeRequest(t, NewRequestf(t, "GET", "/api/v1/repos/%s/%s/pulls?checks=green", owner.Name, repo.Name).AddTokenAuth(ctx.Token), http.StatusUnprocessableEntity)
+	})
+
 	t.Run("HeadRepoHiddenWhenInaccessible", func(t *testing.T) {
 		session := loginUser(t, "user31")
 		forkToken := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)

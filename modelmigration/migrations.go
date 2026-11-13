@@ -470,6 +470,7 @@ func prepareBranchroomMigrationTasks() []*migration {
 		newMigration(9, "Add access token expiry and repositories", v29.AddAccessTokenRestrictions),
 		newMigration(10, "Add Branchroom audit details", v29.AddBranchroomAuditDetails),
 		newMigration(11, "Preserve auto merge credentials", v29.AddAutoMergeCredentials),
+		newMigration(12, "Add saved replies", v29.AddSavedReplies),
 	}
 }
 

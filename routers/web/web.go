@@ -675,6 +675,11 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/regenerate", user_setting.ApplicationsRegenerateToken)
 		})
 
+		m.Group("/replies", func() {
+			m.Combo("").Get(user_setting.SavedReplies).Post(user_setting.SavedRepliesPost)
+			m.Get("/list", user_setting.SavedRepliesList)
+			m.Post("/delete", user_setting.SavedRepliesDelete)
+		})
 		m.Combo("/keys").Get(user_setting.Keys).
 			Post(web.Bind[*forms.AddKeyForm](), user_setting.KeysPost)
 		m.Post("/keys/delete", user_setting.DeleteKey)

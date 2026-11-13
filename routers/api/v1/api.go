@@ -1086,7 +1086,8 @@ func Routes() *web.Router {
 			m.Get("/new", reqToken(), notify.NewAvailable)
 			m.Combo("/threads/{id}").
 				Get(reqToken(), notify.GetThread).
-				Patch(reqToken(), notify.ReadThread)
+				Patch(reqToken(), notify.ReadThread).
+				Delete(reqToken(), notify.DoneThread)
 		}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryNotification), rejectPublicOnly())
 
 		// Users (requires user scope)
@@ -1493,6 +1494,7 @@ func Routes() *web.Router {
 						m.Post("/update", reqToken(), repo.UpdatePullRequest)
 						m.Get("/commits", repo.GetPullRequestCommits)
 						m.Get("/files", repo.GetPullRequestFiles)
+						m.Get("/readiness", repo.GetPullRequestReadiness)
 						m.Combo("/merge").Get(repo.IsPullRequestMerged).
 							Post(reqToken(), mustNotBeArchived, bind(forms.MergePullRequestForm{}), repo.MergePullRequest).
 							Delete(reqToken(), mustNotBeArchived, repo.CancelScheduledAutoMerge)

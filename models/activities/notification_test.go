@@ -269,3 +269,34 @@ func TestSetIssueReadBy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, activities_model.NotificationStatusRead, nt.Status)
 }
+
+func TestNotificationReasons(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	find := func(reason activities_model.NotificationReason) activities_model.NotificationList {
+		nl, err := db.Find[activities_model.Notification](t.Context(), activities_model.FindNotificationOptions{UserID: 2, Reason: reason})
+		require.NoError(t, err)
+		return nl
+	}
+
+	// user 2 wrote issues 5 and 4, behind notifications 4 and 5. issue 2 is someone else's
+	nl := find("")
+	reasons, err := nl.LoadReasons(t.Context(), 2)
+	require.NoError(t, err)
+	assert.Equal(t, activities_model.NotificationReasonAuthor, reasons[4])
+	assert.Equal(t, activities_model.NotificationReasonSubscribed, reasons[2])
+	if author := find(activities_model.NotificationReasonAuthor); assert.Len(t, author, 2) {
+		assert.ElementsMatch(t, []int64{4, 5}, []int64{author[0].ID, author[1].ID})
+	}
+
+	// a review request outranks authorship
+	require.NoError(t, db.Insert(t.Context(), &issues_model.Review{Type: issues_model.ReviewTypeRequest, ReviewerID: 2, IssueID: 5}))
+	reasons, err = find("").LoadReasons(t.Context(), 2)
+	require.NoError(t, err)
+	assert.Equal(t, activities_model.NotificationReasonReviewRequested, reasons[4])
+	assert.Len(t, find(activities_model.NotificationReasonReviewRequested), 1)
+
+	require.NoError(t, activities_model.DeleteNotification(t.Context(), 1, 4), "another user's id deletes nothing")
+	unittest.AssertExistsAndLoadBean(t, &activities_model.Notification{ID: 4})
+	require.NoError(t, activities_model.DeleteNotification(t.Context(), 2, 4))
+	unittest.AssertNotExistsBean(t, &activities_model.Notification{ID: 4})
+}

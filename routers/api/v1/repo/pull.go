@@ -93,6 +93,16 @@ func ListPullRequests(ctx *context.APIContext) {
 	//   in: query
 	//   description: Filter by pull request author
 	//   type: string
+	// - name: checks
+	//   in: query
+	//   description: Filter by the combined status of the head commit
+	//   type: string
+	//   enum: [success, failure, pending]
+	// - name: review
+	//   in: query
+	//   description: Filter by official reviews. approved means at least one approval and no requested changes
+	//   type: string
+	//   enum: [approved, changes_requested, review_required]
 	// - name: page
 	//   in: query
 	//   description: Page number of results to return (1-based)
@@ -128,6 +138,10 @@ func ListPullRequests(ctx *context.APIContext) {
 		}
 		posterID = poster.ID
 	}
+	checks, review, ok := parsePullFilters(ctx)
+	if !ok {
+		return
+	}
 	listOptions := utils.GetListOptions(ctx)
 	prs, maxResults, err := issues_model.PullRequests(ctx, ctx.Repo.Repository.ID, &issues_model.PullRequestsOptions{
 		ListOptions: listOptions,
@@ -137,6 +151,8 @@ func ListPullRequests(ctx *context.APIContext) {
 		MilestoneID: ctx.FormInt64("milestone"),
 		PosterID:    posterID,
 		BaseBranch:  ctx.FormTrim("base_branch"),
+		Checks:      checks,
+		Review:      review,
 	})
 	if err != nil {
 		ctx.APIErrorInternal(err)

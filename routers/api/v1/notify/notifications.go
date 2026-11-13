@@ -54,6 +54,13 @@ func getFindNotificationOptions(ctx *context.APIContext) *activities_model.FindN
 		opts.Status = statusStringsToNotificationStatuses(statuses, []string{"unread", "pinned"})
 	}
 
+	if reason := ctx.FormTrim("reason"); reason != "" {
+		if opts.Reason = activities_model.ParseNotificationReason(reason); opts.Reason == "" {
+			ctx.APIError(http.StatusUnprocessableEntity, "reason must be review_requested, assign, mention or author")
+			return nil
+		}
+	}
+
 	subjectTypes := ctx.FormStrings("subject-type")
 	if len(subjectTypes) != 0 {
 		opts.Source = subjectToSource(subjectTypes)

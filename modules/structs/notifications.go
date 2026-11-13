@@ -19,6 +19,9 @@ type NotificationThread struct {
 	Unread bool `json:"unread"`
 	// Pinned indicates if the notification is pinned
 	Pinned bool `json:"pinned"`
+	// Reason is why the user gets the notification, the strongest when there are several
+	// enum: ["review_requested","assign","mention","author","subscribed"]
+	Reason string `json:"reason"`
 	// UpdatedAt is the time when the notification was last updated
 	UpdatedAt time.Time `json:"updated_at"`
 	// URL is the API URL for this notification thread

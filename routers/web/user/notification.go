@@ -52,11 +52,21 @@ func prepareUserNotificationsData(ctx *context.Context) {
 	pageType := ctx.FormString("type", ctx.FormString("q")) // "q" is the legacy query parameter for "page type"
 	page := max(1, ctx.FormInt("page"))
 	perPage := util.IfZero(ctx.FormInt("perPage"), 20) // this value is never used or exposed ....
-	queryStatus := util.Iif(pageType == "read", activities_model.NotificationStatusRead, activities_model.NotificationStatusUnread)
+	reason := activities_model.ParseNotificationReason(ctx.FormString("reason"))
+	queryStatus := activities_model.NotificationStatusUnread
+	switch pageType {
+	case "read":
+		queryStatus = activities_model.NotificationStatusRead
+	case "saved":
+		queryStatus = activities_model.NotificationStatusPinned
+	default:
+		pageType = "unread"
+	}
 
 	total, err := db.Count[activities_model.Notification](ctx, activities_model.FindNotificationOptions{
 		UserID: ctx.Doer.ID,
 		Status: []activities_model.NotificationStatus{queryStatus},
+		Reason: reason,
 	})
 	if err != nil {
 		ctx.ServerErrorAuto(err)
@@ -78,6 +88,7 @@ func prepareUserNotificationsData(ctx *context.Context) {
 		},
 		UserID: ctx.Doer.ID,
 		Status: statuses,
+		Reason: reason,
 	})
 	if err != nil {
 		ctx.ServerErrorAuto(err)
@@ -132,6 +143,12 @@ func prepareUserNotificationsData(ctx *context.Context) {
 		ctx.Flash.Error(fmt.Sprintf("ERROR: %d notifications were removed due to missing parts - check the logs", failCount))
 	}
 
+	reasons, err := notifications.LoadReasons(ctx, ctx.Doer.ID)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+
 	var unreadNotificationIDs []int64
 	for _, n := range notifications {
 		if n.Status == activities_model.NotificationStatusUnread {
@@ -142,6 +159,9 @@ func prepareUserNotificationsData(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("notifications")
 	ctx.Data["PageType"] = pageType
 	ctx.Data["Notifications"] = notifications
+	ctx.Data["NotificationReasonByID"] = reasons
+	ctx.Data["NotificationReasons"] = activities_model.NotificationReasons
+	ctx.Data["ReasonFilter"] = string(reason)
 	ctx.Data["CurUnreadNotificationIDs"] = strings.Join(base.Int64sToStrings(unreadNotificationIDs), ",")
 	ctx.Data["Link"] = setting.AppSubURL + "/notifications"
 	ctx.Data["SequenceNumber"] = ctx.FormString("sequence-number")
@@ -179,10 +199,17 @@ func NotificationStatusPost(ctx *context.Context) {
 		newStatus = activities_model.NotificationStatusUnread
 	case "pin":
 		newStatus = activities_model.NotificationStatusPinned
+	case "done":
 	default:
 		return // ignore user's invalid input
 	}
-	if _, err := notifications.SetNotificationStatus(ctx, notificationID, ctx.Doer, newStatus); err != nil {
+	var err error
+	if newStatus == 0 {
+		err = activities_model.DeleteNotification(ctx, ctx.Doer.ID, notificationID)
+	} else {
+		_, err = notifications.SetNotificationStatus(ctx, notificationID, ctx.Doer, newStatus)
+	}
+	if err != nil {
 		ctx.ServerErrorAuto(err)
 		return
 	}

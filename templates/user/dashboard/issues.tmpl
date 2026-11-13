@@ -36,7 +36,7 @@
 				</div>
 			</div>
 
-			{{$queryLinkWithFilter := QueryBuild $queryLink "poster" $.FilterPosterUsername "assignee" $.FilterAssigneeUsername}}
+			{{$queryLinkWithFilter := QueryBuild $queryLink "poster" $.FilterPosterUsername "assignee" $.FilterAssigneeUsername "checks" $.ChecksFilter "review" $.ReviewFilter}}
 			<div class="flex-container-main content">
 				<div class="list-header">
 					<div class="small-menu-items ui compact tiny menu list-header-toggle flex-items-block">
@@ -53,6 +53,10 @@
 						<input type="hidden" name="type" value="{{$.ViewType}}">
 						<input type="hidden" name="sort" value="{{$.SortType}}">
 						<input type="hidden" name="state" value="{{$.State}}">
+						{{if .PageIsPulls}}
+							<input type="hidden" name="checks" value="{{$.ChecksFilter}}">
+							<input type="hidden" name="review" value="{{$.ReviewFilter}}">
+						{{end}}
 						{{template "shared/search/combo" (dict
 							"Value" $.Keyword
 							"Placeholder" (ctx.Locale.Tr (Iif .PageIsPulls "search.pull_kind" "search.issue_kind"))
@@ -85,6 +89,10 @@
 								"SelectedUsername" $.FilterAssigneeUsername
 								"TextFilterTitle" (ctx.Locale.Tr "repo.issues.filter_assignee")
 							}}
+						{{end}}
+
+						{{if .PageIsPulls}}
+							{{template "repo/issue/filter_item_pull_status" dict "QueryLink" $queryLinkWithFilter "ChecksFilter" $.ChecksFilter "ReviewFilter" $.ReviewFilter}}
 						{{end}}
 
 						<!-- Sort -->

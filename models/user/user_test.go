@@ -686,3 +686,19 @@ func TestCanCreateRepo(t *testing.T) {
 		assert.True(t, doerNormal.CanCreateRepoIn(orgOwner(10, 100)))
 	})
 }
+
+func TestSavedRepliesStayWithTheirOwner(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	reply := &user_model.SavedReply{UserID: 2, Title: "LGTM", Content: "Looks good"}
+	require.NoError(t, user_model.SaveSavedReply(t.Context(), reply))
+
+	require.NoError(t, user_model.SaveSavedReply(t.Context(), &user_model.SavedReply{ID: reply.ID, UserID: 5, Title: "taken", Content: "taken"}))
+	require.NoError(t, user_model.DeleteSavedReply(t.Context(), 5, reply.ID))
+	_, err := user_model.GetSavedReply(t.Context(), 5, reply.ID)
+	assert.ErrorIs(t, err, util.ErrNotExist)
+
+	replies, err := user_model.GetSavedReplies(t.Context(), 2)
+	require.NoError(t, err)
+	require.Len(t, replies, 1)
+	assert.Equal(t, "LGTM", replies[0].Title)
+}

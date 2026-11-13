@@ -228,3 +228,26 @@ respect the repository list. Container catalog listing is unavailable.
 Commit references cannot change issues outside the repository list. Scheduled
 auto-merges retain the scheduling token's restrictions and cannot run after it
 expires or is revoked.
+
+## Secret push protection
+
+Push protection is off by default. Turn it on with:
+
+```ini
+[repository.secret_scanning]
+PUSH_PROTECTION = true
+```
+
+A push is rejected when its new commits add a credential with a recognisable
+format, such as an AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic
+or npm key, or a private key. The rejection names the file, the commit and the
+start of each match. A pusher who knows a match is not a secret can push again
+with `git push -o secret_scanning.allow=true`.
+
+On the live host this is turned on. git-sync does not pass the override, so a
+commit GitHub already accepted and this check rejects stays on GitHub. That
+branch stops moving onto Branchroom until someone removes the credential or,
+after looking at the commit, pushes it once with the option above. The sync
+engine opens an issue in the affected repository when Branchroom refuses the
+update. The issue does not include the hook message, which contains the start
+of the match.

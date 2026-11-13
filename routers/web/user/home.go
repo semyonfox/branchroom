@@ -438,6 +438,12 @@ func buildIssueOverview(ctx *context.Context, unitType unit.Type) {
 	opts.PosterID = user.GetFilterUserIDByName(ctx, posterUsername)
 	assigneeUsername := ctx.FormString("assignee")
 	ctx.Data["FilterAssigneeUsername"] = assigneeUsername
+	if isPullList {
+		opts.PullChecks = issues_model.ParsePullChecksFilter(ctx.FormString("checks"))
+		opts.PullReview = issues_model.ParsePullReviewFilter(ctx.FormString("review"))
+		ctx.Data["ChecksFilter"] = string(opts.PullChecks)
+		ctx.Data["ReviewFilter"] = string(opts.PullReview)
+	}
 	opts.AssigneeID = user.GetFilterUserIDByName(ctx, assigneeUsername)
 
 	searchMode := ctx.FormString("search_mode")

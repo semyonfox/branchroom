@@ -141,6 +141,10 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 		return
 	}
 
+	if !isDeletingBranch && !assertNoPushedSecrets(ctx, newCommitID, branchName) {
+		return
+	}
+
 	protectBranch, err := git_model.GetFirstMatchProtectedBranchRule(ctx, repo.ID, branchName)
 	if err != nil {
 		ctx.PrivateInternalErrorf("Unable to get protected branch: %v", err)

@@ -46,6 +46,8 @@ type IssuesOptions struct { //nolint:revive // export stutter
 	IncludeMilestones  []string
 	SortType           string
 	IssueIDs           []int64
+	PullChecks         PullChecksFilter
+	PullReview         PullReviewFilter
 	UpdatedAfterUnix   int64
 	UpdatedBeforeUnix  int64
 	// prioritize issues from this repo
@@ -265,6 +267,8 @@ func applyConditions(sess db.Session, opts *IssuesOptions) {
 	}
 
 	applyProjectCondition(sess, opts)
+
+	applyPullFilterConditions(sess, opts)
 
 	if opts.IsPull.Has() {
 		sess.And("issue.is_pull=?", opts.IsPull.Value())
