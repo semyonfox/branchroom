@@ -16,6 +16,27 @@
 				</div>
 			</div>
 			<div class="tw-ml-[24px] tw-text-12">{{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</div>
+			<div class="flex-items-block tw-mt-3">
+				{{range $index, $asset := .LatestRelease.Attachments}}
+					{{if lt $index 6}}
+						<a class="flex-text-block" href="{{$.RepoLink}}/releases/latest/download/{{PathEscape $asset.Name}}" title="{{$asset.Name}}">
+							{{svg "octicon-download" 16 "tw-shrink-0"}}
+							<span class="gt-ellipsis tw-flex-1">{{$asset.Name}}</span>
+							<span class="tw-text-12 tw-text-text-light tw-shrink-0">{{FormatByteSize $asset.Size}}</span>
+						</a>
+					{{end}}
+				{{end}}
+				{{if gt (len .LatestRelease.Attachments) 6}}
+					<a href="{{.LatestRelease.Link}}">{{ctx.Locale.Tr "repo.release.all_assets" (len .LatestRelease.Attachments)}}</a>
+				{{end}}
+				{{if and (not .DisableDownloadSourceArchives) (.Permission.CanRead ctx.Consts.RepoUnitTypeCode)}}
+					<div class="flex-text-block tw-flex-wrap tw-text-12 muted-links">
+						<span>{{ctx.Locale.Tr "repo.release.source_code"}}</span>
+						<a href="{{.RepoLink}}/archive/{{PathEscapeSegments .LatestRelease.TagName}}.zip" rel="nofollow">zip</a>
+						<a href="{{.RepoLink}}/archive/{{PathEscapeSegments .LatestRelease.TagName}}.tar.gz" rel="nofollow">tar.gz</a>
+					</div>
+				{{end}}
+			</div>
 		</div>
 	{{end}}
 
