@@ -6,12 +6,15 @@ package integration
 import (
 	"fmt"
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
+	system_model "gitea.dev/models/system"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
@@ -100,8 +103,19 @@ func TestGitPush(t *testing.T) {
 			doGitPushTestRepositoryFail(gitPath, "origin", "leak")(t)
 			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
 
+			// with the bypass turned off the option is refused
+			resetBypass := test.MockVariableValue(&setting.SecretScanning.AllowBypass, false)
+			doGitPushTestRepositoryFail(gitPath, "origin", "leak", "-o", "secret_scanning.allow=true")(t)
+			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
+			resetBypass()
+
 			doGitPushTestRepository(gitPath, "origin", "leak", "-o", "secret_scanning.allow=true")(t)
 			unittest.AssertExistsAndLoadBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
+			notices, err := system_model.Notices(t.Context(), 1, 50)
+			require.NoError(t, err)
+			assert.True(t, slices.ContainsFunc(notices, func(n *system_model.Notice) bool {
+				return strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch leak")
+			}), "the bypass leaves an admin notice")
 		})
 
 		t.Run("PullRefs", func(t *testing.T) {

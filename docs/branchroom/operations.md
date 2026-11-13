@@ -242,7 +242,10 @@ A push is rejected when its new commits add a credential with a recognisable
 format, such as an AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic
 or npm key, or a private key. The rejection names the file, the commit and the
 start of each match. A pusher who knows a match is not a secret can push again
-with `git push -o secret_scanning.allow=true`.
+with `git push -o secret_scanning.allow=true`. Each push that skips a match this
+way leaves a notice under Site Administration, System Notices, with the pusher,
+repository, branch, commit and the redacted matches. Set `ALLOW_BYPASS = false`
+in the same section to refuse the option.
 
 On the live host this is turned on. git-sync does not pass the override, so a
 commit GitHub already accepted and this check rejects stays on GitHub. That
