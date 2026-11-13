@@ -77,8 +77,12 @@ func (g *ASTTransformer) Transform(node *ast.Document, reader text.Reader, pc pa
 		case *ast.CodeSpan:
 			g.transformCodeSpan(ctx, v, reader)
 		case *ast.FencedCodeBlock:
-			if original, ok := ctx.RenderOptions.Metas["reviewSuggestionOriginal"]; ok && v.Info != nil && string(v.Info.Segment.Value(reader.Source())) == "suggestion" {
-				v.SetAttributeString("review-suggestion-original", original)
+			// marked before the info string is trimmed, so "suggestion:-1+1" is not a suggestion
+			if v.Info != nil && string(v.Info.Segment.Value(reader.Source())) == "suggestion" {
+				v.SetAttributeString(reviewSuggestionAttr, true)
+				if original, ok := ctx.RenderOptions.Metas["reviewSuggestionOriginal"]; ok {
+					v.SetAttributeString("review-suggestion-original", original)
+				}
 			}
 			g.transformFencedCodeblock(v, reader)
 		case *ast.Blockquote:

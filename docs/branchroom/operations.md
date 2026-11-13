@@ -129,7 +129,8 @@ Suspected disclosure of restricted source:
 1. Revoke the affected grants on the Branchroom settings page. Revocation applies to
    the next request. One push already claimed may finish.
 2. Rotate the clone URL. Old URLs stop working at once.
-3. To shut everything at once, set `[branchroom] ENABLED = false` and restart. Every
+3. Export the audit evidence first, because the audit page is a Branchroom route too.
+   To shut everything at once, set `[branchroom] ENABLED = false` and restart. Every
    Branchroom route returns 404 and claimed pushes are rejected in the hook.
 4. Read the audit trail. Open the scope's **Audit evidence** page in the repository's
    **Settings > Branchroom**. Filter by actor, kind or UTC date range, check the chain

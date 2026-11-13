@@ -622,10 +622,18 @@ func TestMarkdownCodeBlock(t *testing.T) {
 
 func TestReviewSuggestion(t *testing.T) {
 	content := "Text\n````suggestion\n<script>bad()</script>\n```\n````\n\n```suggestion:-1+1\nunsupported range\n```"
-	assert.Equal(t, []string{"<script>bad()</script>\n```\n"}, markdown.Suggestions(content))
+	assert.Equal(t, []string{"<script>bad()</script>\n```\n"}, markdown.Suggestions(markup.NewTestRenderContext(), content))
 	original, ok := markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 11)
 	assert.True(t, ok)
 	assert.Equal(t, "last", original)
+	reviewed, ok := markdown.SuggestionContext("@@ -1,2 +1,3 @@\n a\r\n-b\n+c\r\n d", 3)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"a", "c", "d"}, reviewed)
+
+	// browsers submit CRLF, and front matter hides fences from the renderer, so applying must parse as rendering does
+	assert.Equal(t, []string{"uno\ndos\n"}, markdown.Suggestions(markup.NewTestRenderContext(), "```suggestion\r\nuno\r\ndos\r\n```"))
+	hidden := "---\na: |\n ```suggestion\n evil()\n ```\nb: |\n <pre>\n---\n\nSmall nit:\n\n```suggestion\nbenign\n```\n\n</pre>\n"
+	assert.Equal(t, []string{"benign\n"}, markdown.Suggestions(markup.NewTestRenderContext(), hidden))
 	rctx := markup.NewTestRenderContext(map[string]string{"reviewSuggestionOriginal": "original"})
 	rendered, err := markdown.RenderString(rctx, "```suggestion\n<script>bad()</script>\n```")
 	assert.NoError(t, err)

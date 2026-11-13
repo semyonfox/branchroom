@@ -11,6 +11,7 @@ import (
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
+	"gitea.dev/models/renderhelper"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/markup/markdown"
@@ -27,11 +28,7 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 	if doer == nil || comment.Type != issues_model.CommentTypeCode || comment.Line <= 0 || comment.Invalidated || comment.ResolveDoerID != 0 || (comment.CommentMetaData != nil && comment.CommentMetaData.AppliedSuggestionCommit != "") {
 		return nil, ErrSuggestionUnavailable
 	}
-	suggestions := markdown.Suggestions(comment.Content)
-	if len(suggestions) != 1 {
-		return nil, ErrSuggestionUnavailable
-	}
-	original, ok := markdown.SuggestionOriginal(comment.Patch, comment.Line)
+	reviewed, ok := markdown.SuggestionContext(comment.Patch, comment.Line)
 	if !ok {
 		return nil, ErrSuggestionUnavailable
 	}
@@ -39,6 +36,14 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 		return nil, err
 	}
 	issue := comment.Issue
+	if err := issue.LoadRepo(ctx); err != nil {
+		return nil, err
+	}
+	rctx := renderhelper.NewRenderContextRepoComment(ctx, issue.Repo, renderhelper.RepoCommentOptions{})
+	suggestions := markdown.Suggestions(rctx, comment.Content)
+	if len(suggestions) != 1 {
+		return nil, ErrSuggestionUnavailable
+	}
 	if !issue.IsPull || issue.IsClosed {
 		return nil, ErrSuggestionUnavailable
 	}
@@ -92,12 +97,24 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 		return nil, err
 	}
 	lines := strings.SplitAfter(content, "\n")
-	if comment.Line > int64(len(lines)) || strings.TrimSuffix(lines[comment.Line-1], "\n") != original {
+	// the commented line and the reviewed lines above it must all still be where they were,
+	// otherwise a push moved things and an identical line elsewhere could take the change
+	first := comment.Line - int64(len(reviewed))
+	if comment.Line > int64(len(lines)) || first < 0 {
 		return nil, ErrSuggestionUnavailable
 	}
+	for i, want := range reviewed {
+		if strings.TrimRight(lines[first+int64(i)], "\r\n") != want {
+			return nil, ErrSuggestionUnavailable
+		}
+	}
+	target := lines[comment.Line-1]
+	ending := target[len(strings.TrimRight(target, "\r\n")):]
 	replacement := suggestions[0]
-	if !strings.HasSuffix(lines[comment.Line-1], "\n") {
+	if ending == "" {
 		replacement = strings.TrimSuffix(replacement, "\n")
+	} else if ending == "\r\n" {
+		replacement = strings.ReplaceAll(replacement, "\n", "\r\n")
 	}
 	lines[comment.Line-1] = replacement
 	updated := strings.Join(lines, "")
