@@ -42,7 +42,7 @@ async function submit(page: Page, button: Locator) {
 
 async function confirm(page: Page, name: string) {
   await page.getByRole('button', {name}).click();
-  await submit(page, page.locator('.ui.modal.visible').getByRole('button', {name}));
+  await submit(page, page.locator('dialog[open]').getByRole('button', {name}));
 }
 
 async function grant(page: Page, prefix: string, button: string, username: string) {
@@ -63,16 +63,16 @@ test('restricted workspace end to end: provision, clone, push, rotate, revoke, p
 
     const settings = `/${owner}/${repo}/settings/branchroom`;
     await page.goto(settings);
-    await page.getByLabel('Scope name').fill('embargo');
-    await submit(page, page.getByRole('button', {name: 'Create scope'}));
-    await submit(page, page.getByRole('button', {name: 'Provision isolated workspace'}));
+    await page.getByLabel('Workspace name').fill('embargo');
+    await submit(page, page.getByRole('button', {name: 'Create restricted workspace'}));
+    await submit(page, page.getByRole('button', {name: 'Set up workspace'}));
     await expect(page.getByRole('button', {name: 'Rotate clone URL'})).toBeVisible();
 
     expect((await handoffURL(browser, member, owner, repo)).status).toBe(404);
-    await grant(page, 'branchroom-grant-user-', 'Grant discovery', member);
+    await grant(page, 'branchroom-grant-user-', 'Allow seeing this workspace', member);
     expect((await handoffURL(browser, member, owner, repo)).status).toBe(404);
-    await grant(page, 'branchroom-source-grant-user-', 'Grant source read', member);
-    await grant(page, 'branchroom-source-write-grant-user-', 'Grant source write', member);
+    await grant(page, 'branchroom-source-grant-user-', 'Allow cloning and fetching', member);
+    await grant(page, 'branchroom-source-write-grant-user-', 'Allow pushing', member);
 
     const first = await handoffURL(browser, member, owner, repo);
     expect(first.status).toBe(200);
@@ -99,8 +99,9 @@ test('restricted workspace end to end: provision, clone, push, rotate, revoke, p
     expect((await handoffURL(browser, member, owner, repo)).status).toBe(404);
     await expect(git(work, 'ls-remote', withCredentials(rotated.value, member))).rejects.toThrow();
 
-    await submit(page, page.getByRole('button', {name: 'Retire workspace'}));
-    await confirm(page, 'Purge workspace');
+    await confirm(page, 'Close workspace');
+    await expect(page.getByText('Only people with permission to see and clone this workspace can access its source.')).toHaveCount(0);
+    await confirm(page, 'Delete workspace permanently');
 
     const deleted = await request.delete(`${baseUrl()}/api/v1/repos/${owner}/${repo}`, {headers: apiHeaders()});
     expect(deleted.status()).toBe(204);
@@ -115,14 +116,14 @@ test('repository deletion is refused while a restricted store is unpurged', asyn
   const repo = `br-retain-${randomString(8)}`;
   await Promise.all([apiCreateRepo(request, {name: repo}), login(page)]);
   await page.goto(`/${owner}/${repo}/settings/branchroom`);
-  await page.getByLabel('Scope name').fill('retained');
-  await submit(page, page.getByRole('button', {name: 'Create scope'}));
-  await submit(page, page.getByRole('button', {name: 'Provision isolated workspace'}));
+  await page.getByLabel('Workspace name').fill('retained');
+  await submit(page, page.getByRole('button', {name: 'Create restricted workspace'}));
+  await submit(page, page.getByRole('button', {name: 'Set up workspace'}));
   await expect(page.getByRole('button', {name: 'Rotate clone URL'})).toBeVisible();
 
   const refused = await request.delete(`${baseUrl()}/api/v1/repos/${owner}/${repo}`, {headers: apiHeaders()});
   expect(refused.status()).toBe(409);
-  await confirm(page, 'Purge workspace');
+  await confirm(page, 'Delete workspace permanently');
   const deleted = await request.delete(`${baseUrl()}/api/v1/repos/${owner}/${repo}`, {headers: apiHeaders()});
   expect(deleted.status()).toBe(204);
 });

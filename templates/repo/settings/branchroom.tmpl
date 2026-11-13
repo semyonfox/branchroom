@@ -31,16 +31,23 @@
 										<span class="ui basic label">{{.WorkspaceState}}</span>
 										<code>{{.WorkspacePublicBase}}</code>
 									</div>
-									<div class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}</div>
+									{{if eq .WorkspaceState "ready"}}<div class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}</div>{{end}}
 									{{if .CanRetryWorkspace}}
 										<form class="tw-mt-2" action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retry" method="post">
 											<button type="submit" id="branchroom-workspace-retry-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retry"}}</button>
 										</form>
 									{{end}}
 									{{if .CanRetireWorkspace}}
-										<form class="tw-mt-2" action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retire" method="post">
-											<button type="submit" id="branchroom-workspace-retire-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</button>
-										</form>
+<div class="tw-mt-2">
+ <button type="button" id="branchroom-workspace-retire-{{.ID}}" class="ui basic button show-modal" data-modal="#branchroom-workspace-retire-modal-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</button>
+ </div>
+ <dialog class="modal-dialog" id="branchroom-workspace-retire-modal-{{.ID}}">
+ <div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</div>
+ <div class="content"><p>{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire_confirm"}}</p></div>
+ <form action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retire" method="post">
+ {{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"))}}
+ </form>
+ </dialog>
 									{{end}}
 									{{if .CanPurgeWorkspace}}
 										<div class="tw-mt-2">
@@ -155,6 +162,7 @@
 									{{end}}
 								</div>
 								{{if .CanGrantSourceWrite}}
+ <p class="help">{{ctx.Locale.Tr "repo.settings.branchroom.repository_write_warning"}}</p>
 									<form class="ui form tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/source-write-grants" method="post">
 										<input type="hidden" name="scope_id" value="{{.ID}}">
 										<div class="required field">
