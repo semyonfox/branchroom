@@ -241,8 +241,15 @@ func TestDBEvaluatorWriteSourceRemainsUnavailable(t *testing.T) {
 	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
 
 	request.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
-	request.RequestID = "write-source-code-write-denied"
+	request.RequestID = "write-source-code-read-only"
 	request.Ceiling.CodeWrite = false
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
+
+	request.RequestID = "write-source-code-read-denied"
+	request.Ceiling = RepositoryCeiling{CodeWrite: true}
 	decision, err = evaluator.Evaluate(ctx, request)
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
@@ -255,29 +262,6 @@ func TestDBEvaluatorWriteSourceRemainsUnavailable(t *testing.T) {
 		OrdinaryAllowed: false,
 	})
 	auditRecord := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
-		DecisionKey:     decisionRecord.DecisionKey,
-		ScopeID:         scope.ID,
-		Action:          branchroom_model.ActionWriteSource,
-		ReasonCode:      ReasonOrdinaryPermissionDeny,
-		RequestID:       request.RequestID,
-		OrdinaryAllowed: false,
-	})
-	assert.Equal(t, decisionRecord.DecisionKey, auditRecord.DecisionKey)
-
-	request.RequestID = "write-source-code-read-denied"
-	request.Ceiling = RepositoryCeiling{CodeWrite: true}
-	decision, err = evaluator.Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonOrdinaryPermissionDeny, decision.ReasonCode)
-	decisionRecord = unittest.AssertExistsAndLoadBean(t, &branchroom_model.Decision{
-		ScopeID:         scope.ID,
-		Action:          branchroom_model.ActionWriteSource,
-		ReasonCode:      ReasonOrdinaryPermissionDeny,
-		RequestID:       request.RequestID,
-		OrdinaryAllowed: false,
-	})
-	auditRecord = unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
 		DecisionKey:     decisionRecord.DecisionKey,
 		ScopeID:         scope.ID,
 		Action:          branchroom_model.ActionWriteSource,

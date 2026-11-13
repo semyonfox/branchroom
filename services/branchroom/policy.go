@@ -222,7 +222,7 @@ func (e *DBEvaluator) Evaluate(ctx context.Context, request Request) (Decision, 
 			return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonScopeInactive, 0)
 		}
 		if request.Action == branchroom_model.ActionWriteSource {
-			if !request.Ceiling.CodeRead || !request.Ceiling.CodeWrite {
+			if !request.Ceiling.CodeRead {
 				return e.record(txCtx, scope, result, request, now, branchroom_model.DecisionResultDeny, ReasonOrdinaryPermissionDeny, 0)
 			}
 			// Source writes are admitted only by the sealed receive-session issuer.
@@ -255,9 +255,6 @@ func isWorkspaceResourceID(resourceID string) bool {
 }
 
 func (request Request) ordinaryAllowed() bool {
-	if request.Action == branchroom_model.ActionWriteSource {
-		return request.Ceiling.CodeRead && request.Ceiling.CodeWrite
-	}
 	return request.Ceiling.CodeRead
 }
 

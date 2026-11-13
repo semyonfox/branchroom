@@ -14,14 +14,19 @@ import (
 	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/oauth2_provider"
+	repository_service "gitea.dev/services/repository"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -32,6 +37,7 @@ func TestBranchroomAccessMatrices(t *testing.T) {
 	defer test.MockVariableValue(&setting.AppURL, "http://127.0.0.1:0/")()
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{Enabled: true, RestrictedRepoRootPath: branchroomTestRoot(t), MaxGitRequestSize: 1 << 20})()
+		defer test.MockVariableValue(&setting.CustomConf, branchroomReceiveHookTestConfig(t, u, setting.Branchroom.RestrictedRepoRootPath))()
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 3)
 		require.NoError(t, err)
 		base, err := git.GetBranchCommitID(t.Context(), repository.CodeStorageRepo(), repository.DefaultBranch)
@@ -151,6 +157,35 @@ func TestBranchroomAccessMatrices(t *testing.T) {
 				}
 			})
 		}
+
+		t.Run("read collaborator can push restricted refs only", func(t *testing.T) {
+			defer test.MockVariableValue(&setting.LocalURL, u.String())()
+			repository.IsPrivate = false
+			_, err := db.GetEngine(t.Context()).ID(repository.ID).Cols("is_private").Update(repository)
+			require.NoError(t, err)
+			contractor := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5})
+			require.NoError(t, repository_service.AddOrUpdateCollaborator(t.Context(), repository, contractor, perm.AccessModeRead))
+			permission, err := access_model.GetIndividualUserRepoPermission(t.Context(), repository, contractor)
+			require.NoError(t, err)
+			require.True(t, permission.CanRead(unit.TypeCode))
+			require.False(t, permission.CanWrite(unit.TypeCode))
+			for _, action := range []branchroom_model.Action{discover, read, write} {
+				require.NoError(t, branchroom_model.InsertGrant(t.Context(), &branchroom_model.Grant{ScopeID: scope.ID, SubjectType: branchroom_model.SubjectTypeUser, SubjectID: contractor.ID, Action: action, CreatedByID: 2}))
+			}
+			restrictedURL := *gateway
+			restrictedURL.User = url.UserPassword(contractor.Name, userPassword)
+			cloneDir := t.TempDir()
+			require.NoError(t, git.Clone(t.Context(), restrictedURL.String(), cloneDir, git.CloneRepoOptions{}))
+			commitBranchroomFakeEnvironment(t, cloneDir, "restricted fix\n", "fix embargoed bug")
+			_, _, err = gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:refs/heads/branchroom/contractor").WithDir(cloneDir).RunStdString(t.Context())
+			require.NoError(t, err)
+			publicURL := *u.JoinPath("org3", "repo3.git")
+			publicURL.User = restrictedURL.User
+			for _, ref := range []string{"main", "fix-public", "branchroom/leak"} {
+				_, _, err = gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:refs/heads/"+ref).WithDir(cloneDir).RunStdString(t.Context())
+				require.Error(t, err, ref)
+			}
+		})
 
 		t.Run("oversized chunked body", func(t *testing.T) {
 			_, err := db.GetEngine(t.Context()).Where("scope_id = ?", scope.ID).Delete(new(branchroom_model.Grant))

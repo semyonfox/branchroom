@@ -76,7 +76,7 @@ func authorizeSealedSourceWriteAdmission(ctx context.Context, scope *branchroom_
 	if err != nil {
 		return sealedSourceWriteAdmission{}, false, err
 	}
-	if !active || !ceiling.CodeRead || !ceiling.CodeWrite {
+	if !active || !ceiling.CodeRead {
 		return sealedSourceWriteAdmission{}, false, nil
 	}
 
@@ -126,7 +126,7 @@ func recordSealedSourceWriteAdmission(ctx context.Context, scope *branchroom_mod
 		Surface:         branchroom_model.SurfaceGitHTTP,
 		Result:          branchroom_model.DecisionResultAllow,
 		ReasonCode:      ReasonGrantMatched,
-		OrdinaryAllowed: admission.ceiling.CodeRead && admission.ceiling.CodeWrite,
+		OrdinaryAllowed: admission.ceiling.CodeRead,
 		ExpiresUnix:     admission.now,
 		CreatedUnix:     admission.now,
 	})
