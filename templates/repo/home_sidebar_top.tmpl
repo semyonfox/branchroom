@@ -72,14 +72,14 @@
 
 		{{if not .DisableStars}}
 			<a class="flex-text-block muted" href="{{.RepoLink}}/stars">
-				{{svg "octicon-star"}} <b>{{CountFmt .Repository.NumStars}}</b> {{ctx.Locale.Tr "repo.stars"}}
+				{{svg "octicon-star"}} <b>{{CountFmt .Repository.NumStars}}</b> {{ctx.Locale.TrN .Repository.NumStars "repo.star" "repo.stars"}}
 			</a>
 		{{end}}
 		<a class="flex-text-block muted" href="{{.RepoLink}}/watchers">
-			{{svg "octicon-eye"}} <b>{{CountFmt .Repository.NumWatches}}</b> {{ctx.Locale.Tr "repo.watchers"}}
+			{{svg "octicon-eye"}} <b>{{CountFmt .Repository.NumWatches}}</b> {{ctx.Locale.TrN .Repository.NumWatches "repo.watcher" "repo.watchers"}}
 		</a>
 		<a class="flex-text-block muted" href="{{.RepoLink}}/forks">
-			{{svg "octicon-repo-forked"}} <b>{{CountFmt .Repository.NumForks}}</b> {{ctx.Locale.Tr "repo.forks"}}
+			{{svg "octicon-repo-forked"}} <b>{{CountFmt .Repository.NumForks}}</b> {{ctx.Locale.TrN .Repository.NumForks "repo.fork" "repo.forks"}}
 		</a>
 	</div>
 </div>
