@@ -5,10 +5,13 @@ package user
 
 import (
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 
 	"gitea.dev/models/auth"
+	"gitea.dev/modules/json"
+	"gitea.dev/modules/timeutil"
 )
 
 type ExtDoerData interface {
@@ -54,9 +57,11 @@ const (
 )
 
 type extDoerToken struct {
-	credential string // empty for package registry tokens
-	scope      auth.AccessTokenScope
-	publicOnly bool
+	repositoryIDs []int64
+	expiresUnix   timeutil.TimeStamp
+	credential    string // empty for package registry tokens
+	scope         auth.AccessTokenScope
+	publicOnly    bool
 }
 
 var _ ExtDoerData = (*extDoerToken)(nil)
@@ -71,13 +76,26 @@ func NewTokenExtDoerData(credentialKind string, credentialID int64, scope auth.A
 }
 
 func (e *extDoerToken) EncodeToString() string {
-	return e.credential + "|" + string(e.scope)
+	s := e.credential + "|" + string(e.scope)
+	if len(e.repositoryIDs) > 0 || e.expiresUnix != 0 {
+		data, _ := json.Marshal(tokenRestrictions{e.repositoryIDs, e.expiresUnix})
+		s += "|" + string(data)
+	}
+	return s
 }
 
 func (e *extDoerToken) DecodeFromString(s string) error {
 	credential, scope, ok := strings.Cut(s, "|")
 	if !ok {
 		return errors.New("invalid token doer data")
+	}
+	scope, restrictions, _ := strings.Cut(scope, "|")
+	if restrictions != "" {
+		var r tokenRestrictions
+		if err := json.Unmarshal([]byte(restrictions), &r); err != nil {
+			return err
+		}
+		e.repositoryIDs, e.expiresUnix = r.RepositoryIDs, r.ExpiresUnix
 	}
 	publicOnly, err := auth.AccessTokenScope(scope).PublicOnly()
 	if err != nil {
@@ -112,7 +130,7 @@ func DoerCanViewPrivate(doer *User) bool {
 }
 
 func DoerIsSiteAdminFullAccess(doer *User) bool {
-	if !DoerCanViewPrivate(doer) || !doer.IsAdmin {
+	if !DoerCanViewPrivate(doer) || !doer.IsAdmin || len(GetDoerRepositoryIDs(doer)) > 0 {
 		return false
 	}
 	scope, hasScope := GetDoerTokenScope(doer)
@@ -131,4 +149,31 @@ func GetDoerCredential(u *User) string {
 		return token.credential
 	}
 	return u.ExtDoerData.EncodeToString()
+}
+
+type tokenRestrictions struct {
+	RepositoryIDs []int64
+	ExpiresUnix   timeutil.TimeStamp
+}
+
+func NewAccessTokenExtDoerData(t *auth.AccessToken) ExtDoerData {
+	publicOnly, err := t.Scope.PublicOnly()
+	return &extDoerToken{credential: CredentialAccessToken + ":" + strconv.FormatInt(t.ID, 10), scope: t.Scope, publicOnly: publicOnly || err != nil, repositoryIDs: t.RepositoryIDs, expiresUnix: t.ExpiresUnix}
+}
+
+func GetDoerRepositoryIDs(u *User) []int64 {
+	if t := getDoerToken(u); t != nil {
+		return t.repositoryIDs
+	}
+	return nil
+}
+
+func DoerTokenAllowsRepositoryID(u *User, id int64) bool {
+	if t := getDoerToken(u); t != nil {
+		if t.expiresUnix != 0 && t.expiresUnix <= timeutil.TimeStampNow() {
+			return false
+		}
+		return len(t.repositoryIDs) == 0 || slices.Contains(t.repositoryIDs, id)
+	}
+	return true
 }

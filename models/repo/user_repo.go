@@ -47,7 +47,7 @@ func (opts *StarredReposOptions) ToConds() builder.Cond {
 		// a public repo under a limited/private owner is not publicly reachable, so exclude it too
 		cond = cond.And(PublicRepoUnderPublicOwnerCond())
 	}
-	return cond
+	return cond.And(DoerTokenRepoCond(opts.Actor))
 }
 
 func (opts *StarredReposOptions) ToJoins() []db.JoinFunc {
@@ -94,7 +94,7 @@ func (opts *WatchedReposOptions) ToConds() builder.Cond {
 		// a public repo under a limited/private owner is not publicly reachable, so exclude it too
 		cond = cond.And(PublicRepoUnderPublicOwnerCond())
 	}
-	return cond.And(builder.Neq{
+	return cond.And(DoerTokenRepoCond(opts.Actor)).And(builder.Neq{
 		"watch.mode": WatchModeDont,
 	})
 }

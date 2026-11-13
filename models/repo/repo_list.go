@@ -364,7 +364,7 @@ func SearchRepositoryCondition(opts SearchRepoOptions) builder.Cond {
 	if user_model.IsPublicOnlyDoer(opts.Actor) {
 		opts.Private, opts.AllLimited = false, false
 	}
-	cond := builder.NewCond()
+	cond := DoerTokenRepoCond(opts.Actor)
 
 	if opts.Private {
 		if opts.Actor != nil && !opts.Actor.IsAdmin {
@@ -664,7 +664,7 @@ func AccessibleRepositoryCondition(user *user_model.User, unitType unit.Type) bu
 			And(builder.Eq{"repo_unit.type": unitType}, builder.NotIn("repo_unit.type", unit.DisabledRepoUnitsGet()))))
 	}
 	if user_model.IsPublicOnlyDoer(user) && !user.IsRestricted {
-		return PublicRepoUnderPublicOwnerCond().And(unitCond)
+		return DoerTokenRepoCond(user).And(unitCond)
 	}
 	cond := builder.NewCond()
 
@@ -770,6 +770,9 @@ func PublicRepoUnderPublicOwnerCond() builder.Cond {
 }
 
 func DoerTokenAllowsRepo(ctx context.Context, doer *user_model.User, repo *Repository) bool {
+	if !user_model.DoerTokenAllowsRepositoryID(doer, repo.ID) {
+		return false
+	}
 	if !user_model.IsPublicOnlyDoer(doer) {
 		return true
 	}
@@ -777,10 +780,14 @@ func DoerTokenAllowsRepo(ctx context.Context, doer *user_model.User, repo *Repos
 }
 
 func DoerTokenRepoCond(doer *user_model.User) builder.Cond {
-	if user_model.IsPublicOnlyDoer(doer) {
-		return PublicRepoUnderPublicOwnerCond()
+	cond := builder.NewCond()
+	if ids := user_model.GetDoerRepositoryIDs(doer); len(ids) > 0 {
+		cond = cond.And(builder.In("`repository`.id", ids))
 	}
-	return builder.NewCond()
+	if user_model.IsPublicOnlyDoer(doer) {
+		return cond.And(PublicRepoUnderPublicOwnerCond())
+	}
+	return cond
 }
 
 // NotPublicRepoUnderPublicOwnerCond complements PublicRepoUnderPublicOwnerCond. Spelled positively so

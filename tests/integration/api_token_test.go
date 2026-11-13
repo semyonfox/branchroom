@@ -6,16 +6,20 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
 	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPITokens(t *testing.T) {
@@ -356,4 +360,35 @@ func deleteAPIAccessToken(t *testing.T, accessToken api.AccessToken, user *user_
 	MakeRequest(t, req, http.StatusNoContent)
 
 	unittest.AssertNotExistsBean(t, &auth_model.AccessToken{ID: accessToken.ID})
+}
+
+func TestAPITokenRestrictions(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, baseURL *url.URL) {
+		expiry := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+		req := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", api.CreateAccessTokenOption{Name: "limited", Scopes: []string{"all"}, ExpiresAt: &expiry, Repositories: []string{"user2/repo1"}}).AddBasicAuth("user2")
+		response := MakeRequest(t, req, http.StatusCreated)
+		token := DecodeJSON(t, response, &api.AccessToken{})
+		require.False(t, token.Created.IsZero())
+		require.False(t, token.Updated.IsZero())
+		require.Equal(t, expiry, *token.ExpiresAt)
+		require.Equal(t, []string{"user2/repo1"}, token.Repositories)
+		MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1").AddTokenAuth(token.Token), http.StatusOK)
+		MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo2").AddTokenAuth(token.Token), http.StatusNotFound)
+		req = NewRequestWithJSON(t, "POST", "/api/v1/user/repos", api.CreateRepoOption{Name: "must-not-exist"}).AddTokenAuth(token.Token)
+		MakeRequest(t, req, http.StatusForbidden)
+		req = NewRequest(t, "GET", "/api/v1/repos/search?q=repo2&private=true").AddTokenAuth(token.Token)
+		result := DecodeJSON(t, MakeRequest(t, req, http.StatusOK), &api.SearchResults{})
+		assert.Empty(t, result.Data)
+		cloneURL := *baseURL
+		cloneURL.Path += "user2/repo2.git"
+		cloneURL.User = url.UserPassword("user2", token.Token)
+		t.Run("clone outside allowlist", doGitCloneFail(&cloneURL))
+		stored := unittest.AssertExistsAndLoadBean(t, &auth_model.AccessToken{ID: token.ID})
+		stored.ExpiresUnix = timeutil.TimeStampNow() - 1
+		require.NoError(t, auth_model.UpdateAccessToken(t.Context(), stored))
+		MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1").AddTokenAuth(token.Token), http.StatusUnauthorized)
+		cloneURL.Path = baseURL.Path + "user2/repo2.git"
+		MakeRequest(t, NewRequest(t, "GET", "/user2/repo2.git/info/refs?service=git-upload-pack").AddBasicAuth("user2", token.Token), http.StatusUnauthorized)
+		t.Run("clone expired", doGitCloneFail(&cloneURL))
+	})
 }

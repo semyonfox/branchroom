@@ -5,9 +5,12 @@ package user
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
+	"gitea.dev/models/auth"
 	"gitea.dev/modules/structs"
+	"gitea.dev/modules/util"
 )
 
 const (
@@ -132,5 +135,22 @@ func GetDoerPermissionUser(ctx context.Context, id int64, extDoerData string) (u
 		// other system users are not real doers for the permission system
 		return nil, ErrUserNotExist{UID: id}
 	}
-	return u, u.ExtDoerData.DecodeFromString(extDoerData)
+	if err := u.ExtDoerData.DecodeFromString(extDoerData); err != nil {
+		return nil, err
+	}
+	if token := getDoerToken(u); token != nil && strings.HasPrefix(token.credential, CredentialAccessToken+":") {
+		id, err := strconv.ParseInt(strings.TrimPrefix(token.credential, CredentialAccessToken+":"), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		source, err := auth.GetAccessTokenByID(ctx, id, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		if source.IsExpired() {
+			return nil, util.NewNotExistErrorf("access token expired")
+		}
+		u.ExtDoerData = NewAccessTokenExtDoerData(source)
+	}
+	return u, nil
 }

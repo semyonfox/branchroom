@@ -146,7 +146,7 @@ func (o *OAuth2) userFromToken(ctx context.Context, tokenSHA string) (*user_mode
 	if err != nil {
 		return nil, err
 	}
-	user.ExtDoerData = user_model.NewTokenExtDoerData(user_model.CredentialAccessToken, t.ID, t.Scope)
+	user.ExtDoerData = user_model.NewAccessTokenExtDoerData(t)
 	return user, nil
 }
 

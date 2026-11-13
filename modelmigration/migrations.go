@@ -467,6 +467,7 @@ func prepareBranchroomMigrationTasks() []*migration {
 		newMigration(6, "Add Branchroom receive session outcomes", v29.AddBranchroomReceiveSessionOutcomes),
 		newMigration(7, "Convert Branchroom audit hashes to varchar", v29.ConvertBranchroomAuditHashesToVarchar),
 		newMigration(8, "Add review comment start line", v29.AddReviewCommentStartLine),
+		newMigration(9, "Add access token expiry and repositories", v29.AddAccessTokenRestrictions),
 	}
 }
 

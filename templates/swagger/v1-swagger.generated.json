@@ -24096,6 +24096,11 @@
           "format": "date-time",
           "x-go-name": "Created"
         },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "ExpiresAt"
+        },
         "id": {
           "description": "The unique identifier of the access token",
           "type": "integer",
@@ -24112,6 +24117,13 @@
           "description": "The name of the access token",
           "type": "string",
           "x-go-name": "Name"
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Repositories"
         },
         "scopes": {
           "description": "The scopes granted to this access token",
@@ -26005,9 +26017,21 @@
         "name"
       ],
       "properties": {
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "ExpiresAt"
+        },
         "name": {
           "type": "string",
           "x-go-name": "Name"
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Repositories"
         },
         "scopes": {
           "type": "array",

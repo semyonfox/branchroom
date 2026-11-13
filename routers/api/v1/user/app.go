@@ -15,9 +15,11 @@ import (
 	"gitea.dev/models/db"
 	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/api/v1/utils"
 	"gitea.dev/services/audit"
+	auth_service "gitea.dev/services/auth"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
@@ -60,8 +62,15 @@ func ListAccessTokens(ctx *context.APIContext) {
 
 	apiTokens := make([]*api.AccessToken, len(tokens))
 	for i := range tokens {
+		names, err := auth_service.TokenRepositoryNames(ctx, tokens[i])
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
 		apiTokens[i] = &api.AccessToken{
 			ID:             tokens[i].ID,
+			ExpiresAt:      tokens[i].ExpiresAt(),
+			Repositories:   names,
 			Name:           tokens[i].Name,
 			TokenLastEight: tokens[i].TokenLastEight,
 			Scopes:         tokens[i].Scope.StringSlice(),
@@ -106,6 +115,19 @@ func CreateAccessToken(ctx *context.APIContext) {
 		Name: form.Name,
 	}
 
+	if form.ExpiresAt != nil {
+		t.ExpiresUnix = timeutil.TimeStamp(form.ExpiresAt.Unix())
+	}
+	if err := t.ValidateExpiry(); err != nil {
+		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	ids, err := auth_service.ResolveTokenRepositories(ctx, ctx.ContextUser, form.Repositories)
+	if err != nil {
+		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	t.RepositoryIDs = ids
 	exist, err := auth_model.AccessTokenByNameExists(ctx, t)
 	if err != nil {
 		ctx.APIErrorInternal(err)
@@ -159,6 +181,10 @@ func CreateAccessToken(ctx *context.APIContext) {
 		ID:             t.ID,
 		TokenLastEight: t.TokenLastEight,
 		Scopes:         t.Scope.StringSlice(),
+		Created:        t.CreatedUnix.AsTime(),
+		Updated:        t.UpdatedUnix.AsTime(),
+		ExpiresAt:      t.ExpiresAt(),
+		Repositories:   form.Repositories,
 	})
 }
 

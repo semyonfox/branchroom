@@ -470,6 +470,11 @@ func getAuthenticatedRepository(ctx *context.Context, rc *requestContext, requir
 		return nil
 	}
 
+	if !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repository) {
+		writeStatus(ctx, http.StatusNotFound)
+		return nil
+	}
+
 	if !authenticate(ctx, repository, rc.Authorization, false, requireWrite) {
 		requireAuth(ctx)
 		return nil

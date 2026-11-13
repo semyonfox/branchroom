@@ -121,6 +121,14 @@ func httpBase(ctx *context.Context, optGitService ...string) *serviceHandler {
 		repoExist = false
 	}
 
+	if repoExist && !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repo) {
+		ctx.NotFound()
+		return nil
+	}
+	if !repoExist && len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 {
+		ctx.NotFound()
+		return nil
+	}
 	// Don't allow pushing if the repo is archived
 	if repoExist && repo.IsArchived && !isPull {
 		ctx.PlainText(http.StatusForbidden, "This repo is archived. You can view files and clone it, but cannot push or open issues/pull-requests.")

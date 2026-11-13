@@ -391,7 +391,7 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
-	if !tokenAuthorized(ctx) {
+	if !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repository) || !tokenAuthorized(ctx) {
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
