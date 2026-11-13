@@ -368,6 +368,7 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		defer test.MockVariableValue(&setting.Branchroom)()
 		defer test.MockVariableValue(&setting.CustomConf)()
+		defer test.MockVariableValue(&setting.LocalURL, u.String())()
 		restrictedRoot := branchroomTestRoot(t)
 		setting.CustomConf = branchroomReceiveHookTestConfig(t, u, restrictedRoot)
 		setting.Branchroom = setting.BranchroomConfig{
@@ -443,10 +444,24 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 		require.NoError(t, git.Clone(t.Context(), writerURL.String(), cloneDir, git.CloneRepoOptions{}))
 		firstCommit := commitBranchroomFakeEnvironment(t, cloneDir, "BRANCHROOM_FAKE_TOKEN=not-a-real-token\n", "add fake environment")
 		const restrictedRef = "refs/heads/branchroom/fake-environment"
+		publicURL := *u.JoinPath("user2", "repo1.git")
+		publicURL.User = url.UserPassword(ordinaryWriter.Name, userPassword)
+		_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
+		require.Error(t, err)
+		assert.Contains(t, stderr, "Use the restricted clone URL")
+		response := MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/branches", map[string]string{"new_branch_name": "branchroom/api", "old_branch_name": repository.DefaultBranch}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+		assert.Contains(t, response.Body.String(), "Use the restricted clone URL")
+		response = MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/contents/reserved.txt", map[string]string{"branch": repository.DefaultBranch, "new_branch": "branchroom/api-file", "content": "dGVzdA=="}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+		assert.Contains(t, response.Body.String(), "Use the restricted clone URL")
+
 		t.Run("a direct writer cannot push outside the branchroom namespace", func(t *testing.T) {
-			_, _, err := gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:refs/heads/"+repository.DefaultBranch).WithDir(cloneDir).RunStdString(t.Context())
-			require.Error(t, err)
+			_, _, pushErr := gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:refs/heads/"+repository.DefaultBranch).WithDir(cloneDir).RunStdString(t.Context())
+			require.Error(t, pushErr)
 			assert.Equal(t, baseSHA, branchroomObjectID(t, restricted, "refs/heads/"+repository.DefaultBranch))
+			events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "receive_rejected", events[len(events)-1].ReasonCode)
+			assert.Contains(t, events[len(events)-1].Details, "refs/heads/"+repository.DefaultBranch)
 		})
 		_, _, err = gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
 		require.NoError(t, err)
@@ -455,6 +470,15 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("a direct writer pushes only to the isolated branchroom namespace", func(t *testing.T) {
+			events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+			require.NoError(t, err)
+			event := events[len(events)-1]
+			assert.Equal(t, "receive_accepted", event.ReasonCode)
+			assert.Contains(t, event.Details, restrictedRef)
+			assert.Contains(t, event.Details, firstCommit)
+			assert.Contains(t, event.Details, secondAllowedCommit)
+			require.NoError(t, branchroom_model.VerifyScopeAuditChain(t.Context(), scope))
+
 			assert.Equal(t, secondAllowedCommit, branchroomObjectID(t, restricted, restrictedRef))
 			contents, _, err := gitcmd.NewCommand("show").AddDynamicArguments(restrictedRef + ":.env").WithRepo(restricted).RunStdString(t.Context())
 			require.NoError(t, err)

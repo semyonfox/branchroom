@@ -466,6 +466,7 @@ func prepareBranchroomMigrationTasks() []*migration {
 		newMigration(5, "Add Branchroom receive session schema", v29.AddBranchroomReceiveSessionSchema),
 		newMigration(6, "Add Branchroom receive session outcomes", v29.AddBranchroomReceiveSessionOutcomes),
 		newMigration(7, "Convert Branchroom audit hashes to varchar", v29.ConvertBranchroomAuditHashesToVarchar),
+		newMigration(8, "Add Branchroom audit details", v29.AddBranchroomAuditDetails),
 	}
 }
 
@@ -655,8 +656,8 @@ func Migrate(ctx context.Context, x base.EngineMigration) error {
 		}
 	}
 
-	curDBVer := currentVersion.Version
-	if curDBVer, err = rewindBranchroomLegacyVersion(x, currentVersion); err != nil {
+	curDBVer, err := rewindBranchroomLegacyVersion(x, currentVersion)
+	if err != nil {
 		return err
 	}
 	// Outdated Gitea database version is not supported

@@ -174,6 +174,8 @@ func branchroomAudit(ctx *context.Context, export bool) {
 }
 
 type branchroomEvidenceRow struct {
+	ActorName       string                          `json:"actor_name,omitempty"`
+	Details         json.Value                      `json:"details,omitzero"`
 	Type            string                          `json:"type"`
 	Sequence        int64                           `json:"sequence"`
 	PreviousHash    string                          `json:"previous_hash"`
@@ -197,8 +199,16 @@ type branchroomEvidenceRow struct {
 	ExpiresUnix     timeutil.TimeStamp              `json:"expires_unix,omitempty"`
 }
 
+func branchroomEvidenceDetails(details string) json.Value {
+	if details == "" {
+		return nil
+	}
+	return json.Value(details)
+}
+
 func branchroomEvidenceEvent(event *branchroom_model.AuditEvent) branchroomEvidenceRow {
 	return branchroomEvidenceRow{
+		Details:         branchroomEvidenceDetails(event.Details),
 		Type:            "event",
 		Sequence:        event.Sequence,
 		PreviousHash:    event.PreviousHash,
@@ -227,6 +237,7 @@ func branchroomEvidenceDecision(event *branchroom_model.AuditEvent, decision *br
 		event = &branchroom_model.AuditEvent{}
 	}
 	return branchroomEvidenceRow{
+		Details:         branchroomEvidenceDetails(decision.Details),
 		Type:            "decision",
 		Sequence:        event.Sequence,
 		PreviousHash:    event.PreviousHash,
@@ -305,13 +316,17 @@ func branchroomExportEvidence(ctx *context.Context, scope *branchroom_model.Scop
 	count := 0
 	for _, row := range rows {
 		event := row.Event
-		if err := encoder.Encode(branchroomEvidenceEvent(event)); err != nil {
+		evidence := branchroomEvidenceEvent(event)
+		evidence.ActorName = row.Actor
+		if err := encoder.Encode(evidence); err != nil {
 			ctx.ServerErrorAuto(err)
 			return
 		}
 		_ = output.WriteByte('\n')
 		if decision := byKey[event.DecisionKey]; decision != nil {
-			if err := encoder.Encode(branchroomEvidenceDecision(event, decision)); err != nil {
+			evidence := branchroomEvidenceDecision(event, decision)
+			evidence.ActorName = row.Actor
+			if err := encoder.Encode(evidence); err != nil {
 				ctx.ServerErrorAuto(err)
 				return
 			}
@@ -331,7 +346,9 @@ func branchroomExportEvidence(ctx *context.Context, scope *branchroom_model.Scop
 		if !filter.matches(event, actor) {
 			continue
 		}
-		if err := encoder.Encode(branchroomEvidenceDecision(nil, decision)); err != nil {
+		evidence := branchroomEvidenceDecision(nil, decision)
+		evidence.ActorName = actor
+		if err := encoder.Encode(evidence); err != nil {
 			ctx.ServerErrorAuto(err)
 			return
 		}

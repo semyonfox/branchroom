@@ -147,7 +147,7 @@ func TestVerifyClaimedReceiveAdmitsAfterWorkspaceRetired(t *testing.T) {
 	assert.Zero(t, audits)
 }
 
-func TestVerifyClaimedReceiveRejectsMalformedUpdatesWithoutMutation(t *testing.T) {
+func TestVerifyClaimedReceiveAuditsRejectedUpdates(t *testing.T) {
 	scope, _, session, bearerSecret, quarantine := prepareReceiveVerifierFixture(t)
 	decisionsBefore, auditsBefore := receiveVerifierPolicyCounts(t, scope.ID)
 
@@ -166,12 +166,12 @@ func TestVerifyClaimedReceiveRejectsMalformedUpdatesWithoutMutation(t *testing.T
 	}
 
 	decisionsAfter, auditsAfter := receiveVerifierPolicyCounts(t, scope.ID)
-	assert.Equal(t, decisionsBefore, decisionsAfter)
-	assert.Equal(t, auditsBefore, auditsAfter)
+	assert.Equal(t, decisionsBefore+1, decisionsAfter)
+	assert.Equal(t, auditsBefore+1, auditsAfter)
 	stored, err := branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
 	require.NoError(t, err)
-	assert.Equal(t, branchroom_model.ReceiveSessionStateClaimed, stored.State)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomePending, stored.Outcome)
+	assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
 }
 
 func TestVerifyClaimedReceiveRejectsWrongBearerWithoutAudit(t *testing.T) {
@@ -206,8 +206,8 @@ func TestVerifyClaimedReceiveRejectsWrongBearerWithoutAudit(t *testing.T) {
 }
 
 // A correctly authenticated claimed session whose quarantine facts are missing or invalid
-// terminates denied in the same transaction with no evaluator decision or audit row.
-func TestVerifyClaimedReceiveCompletesDeniedOnInvalidQuarantineWithoutAudit(t *testing.T) {
+// terminates denied with a chained outcome event.
+func TestVerifyClaimedReceiveAuditsInvalidQuarantine(t *testing.T) {
 	for name, mutate := range map[string]func(t *testing.T, v *branchroom_module.ReceiveQuarantineValues){
 		"missing": func(_ *testing.T, v *branchroom_module.ReceiveQuarantineValues) {
 			*v = branchroom_module.ReceiveQuarantineValues{}
@@ -243,8 +243,8 @@ func TestVerifyClaimedReceiveCompletesDeniedOnInvalidQuarantineWithoutAudit(t *t
 			assert.Equal(t, branchroom_model.ReceiveSessionStateCompleted, stored.State)
 			assert.Equal(t, branchroom_model.ReceiveSessionOutcomeDenied, stored.Outcome)
 			decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
-			assert.Zero(t, decisions)
-			assert.Zero(t, audits)
+			assert.EqualValues(t, 1, decisions)
+			assert.EqualValues(t, 1, audits)
 		})
 	}
 }
@@ -282,7 +282,7 @@ func TestFinalizeReceiveAdmissionFailsOnlyPendingClaim(t *testing.T) {
 	FinalizeReceiveAdmission(t.Context(), &ReceiveAdmissionCredential{SessionKey: session.SessionKey, BearerSecret: bytes.Clone(bearerSecret)})
 	stored, err = branchroom_model.GetReceiveSessionByID(t.Context(), session.ID)
 	require.NoError(t, err)
-	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeAdmitted, stored.Outcome)
+	assert.Equal(t, branchroom_model.ReceiveSessionOutcomeFailed, stored.Outcome)
 }
 
 // An unknown session key denies before any row read, so the real fixture session stays

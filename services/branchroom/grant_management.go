@@ -14,6 +14,7 @@ import (
 	organization_model "gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/json"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -565,8 +566,20 @@ func RevokeRepositoryTeamGrant(ctx context.Context, request RevokeRepositoryTeam
 }
 
 func recordRepositoryGrantChange(ctx context.Context, scope *branchroom_model.Scope, grantID int64, actor Actor, surface branchroom_model.Surface, requestID, reasonCode string) error {
+	grant, err := branchroom_model.GetGrantByID(ctx, grantID)
+	if err != nil {
+		return err
+	}
+	details, err := json.Marshal(struct {
+		NotBeforeUnix timeutil.TimeStamp `json:"not_before_unix"`
+		ExpiresUnix   timeutil.TimeStamp `json:"expires_unix"`
+	}{grant.NotBeforeUnix, grant.ExpiresUnix})
+	if err != nil {
+		return err
+	}
 	now := timeutil.TimeStampNow()
-	_, err := branchroom_model.RecordDecisionAndAudit(ctx, scope, &branchroom_model.Decision{
+	_, err = branchroom_model.RecordDecisionAndAudit(ctx, scope, &branchroom_model.Decision{
+		Details:         string(details),
 		ScopeID:         scope.ID,
 		RepoID:          scope.RepoID,
 		GrantID:         grantID,

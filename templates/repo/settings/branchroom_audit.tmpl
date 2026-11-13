@@ -61,7 +61,7 @@
 						<td>{{DateUtils.FullTime $row.Event.CreatedUnix}}</td>
 						<td>{{if $row.ActorLink}}<a href="{{$row.ActorLink}}">{{$row.Actor}}</a>{{else}}{{$row.Actor}}{{end}}</td>
 						<td>{{$row.Event.Action}}</td>
-						<td>{{$row.Event.Result}}<br><code>{{$row.Event.ReasonCode}}</code></td>
+						<td>{{$row.Event.Result}}<br><code>{{$row.Event.ReasonCode}}</code>{{if $row.Event.Details}}<pre class="tw-whitespace-pre-wrap">{{$row.Event.Details}}</pre>{{end}}</td>
 						<td>{{$row.Event.ResourceType}}: {{$row.Event.ResourceID}}{{if $row.Event.GrantID}}<br>{{$row.Event.GrantID}}{{end}}</td>
 					</tr>
 				{{else}}
