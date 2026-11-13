@@ -1,0 +1,24 @@
+{{/*
+* QueryLink, ChecksFilter, ReviewFilter
+*/}}
+{{$queryLink := .QueryLink}}
+<div class="item ui dropdown jump">
+	<span class="text">{{ctx.Locale.Tr "repo.pulls.filter_checks"}}</span>
+	{{svg "octicon-triangle-down" 14 "dropdown icon"}}
+	<div class="menu">
+		<a class="{{if not .ChecksFilter}}active {{end}}item" href="{{QueryBuild $queryLink "checks" NIL}}">{{ctx.Locale.Tr "repo.pulls.filter_checks_all"}}</a>
+		<a class="{{if eq .ChecksFilter "success"}}active {{end}}item" href="{{QueryBuild $queryLink "checks" "success"}}">{{svg "octicon-check" 16 "tw-text-green"}} {{ctx.Locale.Tr "repo.pulls.filter_checks_success"}}</a>
+		<a class="{{if eq .ChecksFilter "failure"}}active {{end}}item" href="{{QueryBuild $queryLink "checks" "failure"}}">{{svg "octicon-x" 16 "tw-text-red"}} {{ctx.Locale.Tr "repo.pulls.filter_checks_failure"}}</a>
+		<a class="{{if eq .ChecksFilter "pending"}}active {{end}}item" href="{{QueryBuild $queryLink "checks" "pending"}}">{{svg "octicon-dot-fill" 16 "tw-text-yellow"}} {{ctx.Locale.Tr "repo.pulls.filter_checks_pending"}}</a>
+	</div>
+</div>
+<div class="item ui dropdown jump">
+	<span class="text">{{ctx.Locale.Tr "repo.pulls.filter_review"}}</span>
+	{{svg "octicon-triangle-down" 14 "dropdown icon"}}
+	<div class="menu">
+		<a class="{{if not .ReviewFilter}}active {{end}}item" href="{{QueryBuild $queryLink "review" NIL}}">{{ctx.Locale.Tr "repo.pulls.filter_review_all"}}</a>
+		<a class="{{if eq .ReviewFilter "approved"}}active {{end}}item" href="{{QueryBuild $queryLink "review" "approved"}}">{{ctx.Locale.Tr "repo.pulls.filter_review_approved"}}</a>
+		<a class="{{if eq .ReviewFilter "changes_requested"}}active {{end}}item" href="{{QueryBuild $queryLink "review" "changes_requested"}}">{{ctx.Locale.Tr "repo.pulls.filter_review_changes_requested"}}</a>
+		<a class="{{if eq .ReviewFilter "review_required"}}active {{end}}item" href="{{QueryBuild $queryLink "review" "review_required"}}">{{ctx.Locale.Tr "repo.pulls.filter_review_none"}}</a>
+	</div>
+</div>

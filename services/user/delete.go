@@ -82,12 +82,12 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 		&activities_model.Action{UserID: u.ID},
 		&issues_model.IssueUser{UID: u.ID},
 		&user_model.EmailAddress{UID: u.ID},
-		&user_model.UserOpenID{UID: u.ID},
 		&issues_model.Reaction{UserID: u.ID},
 		&organization.TeamUser{UID: u.ID},
 		&issues_model.Stopwatch{UserID: u.ID},
 		&user_model.Setting{UserID: u.ID},
 		&user_model.UserBadge{UserID: u.ID},
+		&user_model.SavedReply{UserID: u.ID},
 		&pull_model.AutoMerge{DoerID: u.ID},
 		&pull_model.ReviewState{UserID: u.ID},
 		&user_model.Redirect{RedirectUserID: u.ID},
@@ -129,7 +129,7 @@ func deleteUser(ctx context.Context, u *user_model.User, purge bool) (err error)
 		}
 
 		// Delete Reactions
-		if err = issues_model.DeleteReaction(ctx, &issues_model.ReactionOptions{DoerID: u.ID}); err != nil {
+		if err = issues_model.DeleteUserReactions(ctx, u.ID); err != nil {
 			return err
 		}
 	}

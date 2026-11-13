@@ -37,7 +37,7 @@ func TestImportPublicBaseIsolated(t *testing.T) {
 
 	public, err := gitrepo.RepositoryManagedInRoot("public-store", publicRoot, "public.git")
 	require.NoError(t, err)
-	require.NoError(t, git.InitRepository(t.Context(), public, git.Sha1ObjectFormat.Name()))
+	require.NoError(t, git.InitRepository(t.Context(), public, git.Sha1ObjectFormat.Name(), ""))
 	require.NoError(t, git.ForceFastImport(t.Context(), public, []git.FastImportCommit{
 		{
 			Ref:     "refs/heads/main",
@@ -59,7 +59,7 @@ func TestImportPublicBaseIsolated(t *testing.T) {
 	_, _, err = gitcmd.NewCommand("repack", "-ad").WithRepo(public).RunStdString(t.Context())
 	require.NoError(t, err)
 
-	restricted, err := RestrictedRepository("m0b-isolation")
+	restricted, err := RestrictedRepository("a13e2a27-167d-4586-a511-42910dc3a955")
 	require.NoError(t, err)
 	require.NoError(t, ImportPublicBase(t.Context(), public, restricted))
 

@@ -4,9 +4,12 @@
 package repo
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	auth_model "gitea.dev/models/auth"
@@ -20,13 +23,13 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web/types"
+	"gitea.dev/services/auth"
 	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 )
 
 const (
-	branchroomGitHTTPMaxRequestBody = 1 << 20
-	branchroomGitHTTPRPCTimeout     = 45 * time.Second
+	branchroomGitHTTPUploadTimeout = 10 * time.Minute
 )
 
 func setBranchroomGitHTTPResponseHeaders(header http.Header) {
@@ -73,9 +76,9 @@ func BranchroomGitHTTPInfoRefs(ctx *context.Context) {
 
 	ctx.RespHeader().Set("Content-Type", "application/x-git-"+service+"-advertisement")
 	ctx.Status(http.StatusOK)
-	_, _ = ctx.Write(packetWrite("# service=git-" + service + "\n"))
-	_, _ = ctx.Write([]byte("0000"))
-	_, _ = ctx.Write(refs)
+	_ = pktLineWriteText(ctx.Resp, "# service=git-"+service)
+	_ = pktLineWriteFlush(ctx.Resp)
+	_, _ = ctx.Resp.Write(refs)
 }
 
 // BranchroomGitHTTPUploadPack serves only authenticated smart upload-pack RPCs.
@@ -86,16 +89,15 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 		branchroomGitHTTPNotFound(ctx)
 		return
 	}
-	rpcDeadline := time.Now().Add(branchroomGitHTTPRPCTimeout)
+	rpcDeadline := time.Now().Add(setting.Branchroom.GitRequestTimeLimit())
 	restricted, ok := authorizeBranchroomGitHTTPRead(ctx)
 	if !ok {
 		return
 	}
 
-	body, ok := readBranchroomGitHTTPRPCBody(ctx.Req.Body, rpcDeadline)
+	body, ok := readBranchroomGitHTTPRPCBody(ctx.Resp, ctx.Req, rpcDeadline)
 	if !ok {
-		clear(body)
-		branchroomGitHTTPNotFound(ctx)
+		branchroomGitHTTPBodyRejected(ctx, body)
 		return
 	}
 	defer clear(body)
@@ -112,7 +114,7 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 		WithRepo(restricted).
 		WithStdinBytes(body).
 		WithStdoutCopy(ctx.Resp).
-		WithTimeout(rpcTimeout).
+		WithTimeout(branchroomGitHTTPUploadTimeout).
 		RunWithStderr(ctx)
 	if err != nil && !gitcmd.IsErrorCanceledOrKilled(err) {
 		log.Error("Branchroom Git HTTP upload-pack RPC failed")
@@ -132,15 +134,14 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		branchroomGitHTTPNotFound(ctx)
 		return
 	}
-	rpcDeadline := time.Now().Add(branchroomGitHTTPRPCTimeout)
+	rpcDeadline := time.Now().Add(setting.Branchroom.GitRequestTimeLimit())
 	restricted, authorization, ok := authorizeBranchroomGitHTTPWriteWithIdentity(ctx)
 	if !ok {
 		return
 	}
-	body, ok := readBranchroomGitHTTPRPCBody(ctx.Req.Body, rpcDeadline)
+	body, ok := readBranchroomGitHTTPRPCBody(ctx.Resp, ctx.Req, rpcDeadline)
 	if !ok {
-		clear(body)
-		branchroomGitHTTPNotFound(ctx)
+		branchroomGitHTTPBodyRejected(ctx, body)
 		return
 	}
 	defer clear(body)
@@ -155,7 +156,11 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		return
 	}
 	defer credential.Clear()
-	defer branchroom_service.FinalizeReceiveAdmission(ctx, credential)
+	var receiveReport bytes.Buffer
+	defer func() {
+		credential.Report = receiveReport.Bytes()
+		branchroom_service.FinalizeReceiveAdmission(ctx, credential)
+	}()
 
 	environ := branchroomGitHTTPEnvironment(ctx)
 	environ = append(environ,
@@ -169,12 +174,12 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		return
 	}
 	ctx.RespHeader().Set("Content-Type", "application/x-git-receive-pack-result")
-	err = gitcmd.NewCommand(ServiceTypeReceivePack).
+	err = gitcmd.NewCommand("-c", "receive.fsckObjects=true", ServiceTypeReceivePack).
 		AddArguments("--stateless-rpc", ".").
 		WithEnv(environ).
 		WithRepo(restricted).
 		WithStdinBytes(body).
-		WithStdoutCopy(ctx.Resp).
+		WithStdoutCopy(io.MultiWriter(ctx.Resp, &receiveReport)).
 		WithTimeout(rpcTimeout).
 		RunWithStderr(ctx)
 	if err != nil && !gitcmd.IsErrorCanceledOrKilled(err) {
@@ -206,35 +211,50 @@ func branchroomGitHTTPInfoRefsService(req *http.Request) (string, bool) {
 func isBranchroomGitHTTPUploadPackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-upload-pack-request" &&
-		len(req.Header.Values("Content-Encoding")) == 0 &&
-		req.ContentLength <= branchroomGitHTTPMaxRequestBody
+		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
+		req.ContentLength <= setting.Branchroom.GitRequestSizeLimit()
 }
 
 func isBranchroomGitHTTPReceivePackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-receive-pack-request" &&
-		len(req.Header.Values("Content-Encoding")) == 0 &&
-		req.ContentLength <= branchroomGitHTTPMaxRequestBody
+		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
+		req.ContentLength <= setting.Branchroom.GitRequestSizeLimit()
 }
 
 // readBranchroomGitHTTPBody consumes an RPC request before a Git child starts so
 // command cancellation never depends on a client-controlled streaming reader.
 func readBranchroomGitHTTPBody(body io.Reader) ([]byte, bool) {
-	contents, err := io.ReadAll(io.LimitReader(body, branchroomGitHTTPMaxRequestBody+1))
-	return contents, err == nil && len(contents) <= branchroomGitHTTPMaxRequestBody
+	limit := setting.Branchroom.GitRequestSizeLimit()
+	contents, err := io.ReadAll(io.LimitReader(body, limit+1))
+	return contents, err == nil && int64(len(contents)) <= limit
 }
 
-// readBranchroomGitHTTPRPCBody closes a stalled server request body at the RPC
-// deadline. net/http guarantees Close unblocks a server Body read.
-func readBranchroomGitHTTPRPCBody(body io.ReadCloser, deadline time.Time) ([]byte, bool) {
-	if !deadline.After(time.Now()) {
-		_ = body.Close()
+func readBranchroomGitHTTPRPCBody(resp http.ResponseWriter, req *http.Request, deadline time.Time) (contents []byte, ok bool) {
+	controller := http.NewResponseController(resp)
+	if err := controller.SetReadDeadline(deadline); err != nil {
 		return nil, false
 	}
-	timer := time.AfterFunc(time.Until(deadline), func() {
-		_ = body.Close()
-	})
-	defer timer.Stop()
+	defer func() {
+		if !ok {
+			_ = controller.SetReadDeadline(time.Now())
+			_ = req.Body.Close()
+		}
+		_ = controller.SetReadDeadline(time.Time{})
+	}()
+	if !deadline.After(time.Now()) {
+		return nil, false
+	}
+	var body io.Reader = req.Body
+	if req.Header.Get("Content-Encoding") == "gzip" {
+		// chunked bodies carry no length, so bound the compressed side too
+		decoded, err := gzip.NewReader(io.LimitReader(body, setting.Branchroom.GitRequestSizeLimit()+1))
+		if err != nil {
+			return nil, false
+		}
+		defer decoded.Close()
+		body = decoded
+	}
 	return readBranchroomGitHTTPBody(body)
 }
 
@@ -242,7 +262,7 @@ func branchroomGitHTTPEnvironment(ctx *context.Context) []string {
 	// Do not inherit the web process environment: ambient GIT_* values can alter
 	// receive behavior and unrelated service variables do not belong in a child.
 	environ := gitcmd.CommonGitCmdEnvs()
-	if protocol := ctx.Req.Header.Get("Git-Protocol"); protocol != "" && safeGitProtocolHeader.MatchString(protocol) {
+	if protocol := ctx.Req.Header.Get("Git-Protocol"); protocol != "" && safeGitProtocolHeader().MatchString(protocol) {
 		environ = append(environ, "GIT_PROTOCOL="+protocol)
 	}
 	return environ
@@ -320,11 +340,21 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 		branchroomGitHTTPUnauthorized(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
+	// only a password or a personal access token, never an OAuth2 grant, Actions task,
+	// deploy key or package token, which all arrive through basic auth too
+	_, isToken := user_model.GetDoerTokenScope(ctx.Doer)
+	switch {
+	case isToken && strings.HasPrefix(user_model.GetDoerCredential(ctx.Doer), user_model.CredentialAccessToken+":"):
+	case !isToken && ctx.Doer.ExtDoerData == nil && ctx.Data["LoginMethod"] == auth.BasicMethodName:
+	default:
+		branchroomGitHTTPNotFound(ctx)
+		return branchroomGitHTTPAuthorization{}, false
+	}
 	if !isEligibleBranchroomDoer(ctx) {
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
-	if ctx.Data["ApiTokenScope"] == nil {
+	if !isToken {
 		_, err := auth_model.GetTwoFactorByUID(ctx, ctx.Doer.ID)
 		if err == nil {
 			branchroomGitHTTPUnauthorized(ctx)
@@ -366,7 +396,7 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
-	if !tokenAuthorized(ctx) {
+	if !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repository) || !tokenAuthorized(ctx) {
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
@@ -374,7 +404,7 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 }
 
 func branchroomGitHTTPTokenCanRead(ctx *context.Context) bool {
-	scope, hasAPITokenScope := ctx.Data["ApiTokenScope"].(auth_model.AccessTokenScope)
+	scope, hasAPITokenScope := user_model.GetDoerTokenScope(ctx.Doer)
 	if !hasAPITokenScope {
 		return true
 	}
@@ -392,7 +422,7 @@ func branchroomGitHTTPTokenCanRead(ctx *context.Context) bool {
 }
 
 func branchroomGitHTTPTokenCanWrite(ctx *context.Context) bool {
-	scope, hasAPITokenScope := ctx.Data["ApiTokenScope"].(auth_model.AccessTokenScope)
+	scope, hasAPITokenScope := user_model.GetDoerTokenScope(ctx.Doer)
 	if !hasAPITokenScope {
 		return true
 	}
@@ -415,6 +445,18 @@ func branchroomGitHTTPUnauthorized(ctx *context.Context) {
 
 func branchroomGitHTTPNotFound(ctx *context.Context) {
 	ctx.PlainText(http.StatusNotFound, "Repository not found\n")
+}
+
+// branchroomGitHTTPBodyRejected runs only after authorization, so saying a body was too
+// large tells an authorized client nothing about the workspace it did not already know
+func branchroomGitHTTPBodyRejected(ctx *context.Context, body []byte) {
+	tooLarge := int64(len(body)) > setting.Branchroom.GitRequestSizeLimit()
+	clear(body)
+	if tooLarge {
+		ctx.PlainText(http.StatusRequestEntityTooLarge, "Request exceeds the restricted gateway size limit\n")
+		return
+	}
+	branchroomGitHTTPNotFound(ctx)
 }
 
 func branchroomGitHTTPServerError(ctx *context.Context) {

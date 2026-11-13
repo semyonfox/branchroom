@@ -9,10 +9,11 @@ import (
 
 // PushUpdateOptions defines the push update options
 type PushUpdateOptions struct {
-	PusherID     int64
-	PusherName   string
-	RepoUserName string
-	RepoName     string
+	PusherID        int64
+	UserExtDoerData string
+	PusherName      string
+	RepoUserName    string
+	RepoName        string
 
 	// FIXME: this struct's design is not right, the changed commits should be in a separate slice
 

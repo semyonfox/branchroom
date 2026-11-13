@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 
+	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/db"
 	"gitea.dev/models/organization"
 	user_model "gitea.dev/models/user"
@@ -15,6 +16,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/web"
+	"gitea.dev/services/audit"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
 )
@@ -28,7 +30,7 @@ const (
 func Create(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("new_org")
 	if !ctx.Doer.CanCreateOrganization() {
-		ctx.ServerError("Not allowed", errors.New(ctx.Locale.TrString("org.form.create_org_not_allowed")))
+		ctx.ServerErrorAuto(errors.New(ctx.Locale.TrString("org.form.create_org_not_allowed")))
 		return
 	}
 
@@ -44,7 +46,7 @@ func CreatePost(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("new_org")
 
 	if !ctx.Doer.CanCreateOrganization() {
-		ctx.ServerError("Not allowed", errors.New(ctx.Locale.TrString("org.form.create_org_not_allowed")))
+		ctx.ServerErrorAuto(errors.New(ctx.Locale.TrString("org.form.create_org_not_allowed")))
 		return
 	}
 
@@ -75,10 +77,12 @@ func CreatePost(ctx *context.Context) {
 		case organization.IsErrUserNotAllowedCreateOrg(err):
 			ctx.RenderWithErrDeprecated(ctx.Tr("org.form.create_org_not_allowed"), tplCreateOrg, &form)
 		default:
-			ctx.ServerError("CreateOrganization", err)
+			ctx.ServerErrorAuto(err)
 		}
 		return
 	}
+	audit.Record(ctx, audit_model.OrganizationCreate, org.AsUser())
+
 	log.Trace("Organization created: %s", org.Name)
 
 	ctx.Redirect(org.AsUser().DashboardLink())

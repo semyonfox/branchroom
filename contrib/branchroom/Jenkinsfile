@@ -1,0 +1,31 @@
+pipeline {
+  agent { label 'docker-agent' }
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+    timeout(time: 90, unit: 'MINUTES')
+    skipDefaultCheckout(true)
+  }
+  triggers { githubPush() }
+  stages {
+    stage('Record revision') {
+      steps {
+        // a checkout is what lets the GitHub hook see later commits; without it the hook returns and builds nothing
+        checkout scm
+      }
+    }
+    stage('Deploy') {
+      steps {
+        sh '''
+          set -eu
+          ssh -i /home/semyon/server-stacks/jenkins/secrets/branchroom-ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile=/home/semyon/server-stacks/jenkins/secrets/branchroom-ssh/known_hosts \
+            -o BatchMode=yes \
+            -o ConnectTimeout=8 \
+            semyon@10.0.0.5 branchroom-deploy
+        '''
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+@import "./theme-branchroom-light.css" (prefers-color-scheme: light);
+@import "./theme-branchroom-dark.css" (prefers-color-scheme: dark);
+
+gitea-theme-meta-info {
+  --theme-display-name: "Branchroom";
+  --theme-color-scheme: "auto";
+}

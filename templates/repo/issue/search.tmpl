@@ -8,6 +8,10 @@
 			<input type="hidden" name="project" value="{{SliceUtils.JoinInt64 $.ProjectIDs}}">
 			<input type="hidden" name="assignee" value="{{$.AssigneeID}}">
 			<input type="hidden" name="poster" value="{{$.PosterUsername}}">
+			{{if $.PageIsPullList}}
+				<input type="hidden" name="checks" value="{{$.ChecksFilter}}">
+				<input type="hidden" name="review" value="{{$.ReviewFilter}}">
+			{{end}}
 			<input type="hidden" name="sort" value="{{$.SortType}}">
 		{{end}}
 		{{template "shared/search/input" dict "Value" .Keyword}}

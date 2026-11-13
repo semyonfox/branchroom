@@ -34,6 +34,7 @@ type IssueReceiveAdmissionRequest struct {
 }
 
 type ReceiveAdmissionCredential struct {
+	Report       []byte
 	SessionKey   string
 	BearerSecret []byte
 }
@@ -44,7 +45,9 @@ func (credential *ReceiveAdmissionCredential) Clear() {
 	if credential == nil {
 		return
 	}
-	clearBytes(credential.BearerSecret)
+	clear(credential.Report)
+	credential.Report = nil
+	clear(credential.BearerSecret)
 	credential.SessionKey = ""
 	credential.BearerSecret = nil
 }
@@ -73,7 +76,7 @@ func authorizeSealedSourceWriteAdmission(ctx context.Context, scope *branchroom_
 	if err != nil {
 		return sealedSourceWriteAdmission{}, false, err
 	}
-	if !active || !ceiling.CodeRead || !ceiling.CodeWrite {
+	if !active || !ceiling.CodeRead {
 		return sealedSourceWriteAdmission{}, false, nil
 	}
 
@@ -123,7 +126,7 @@ func recordSealedSourceWriteAdmission(ctx context.Context, scope *branchroom_mod
 		Surface:         branchroom_model.SurfaceGitHTTP,
 		Result:          branchroom_model.DecisionResultAllow,
 		ReasonCode:      ReasonGrantMatched,
-		OrdinaryAllowed: admission.ceiling.CodeRead && admission.ceiling.CodeWrite,
+		OrdinaryAllowed: admission.ceiling.CodeRead,
 		ExpiresUnix:     admission.now,
 		CreatedUnix:     admission.now,
 	})
@@ -191,12 +194,12 @@ func IssueReceiveAdmission(ctx context.Context, request IssueReceiveAdmissionReq
 		}
 		bearerEntropy := make([]byte, receiveAdmissionBearerEntropyLen)
 		if _, err := rand.Read(bearerEntropy); err != nil {
-			clearBytes(bearerEntropy)
+			clear(bearerEntropy)
 			return nil, errReceiveAdmissionDenied
 		}
 		bearerSecret := make([]byte, hex.EncodedLen(len(bearerEntropy)))
 		hex.Encode(bearerSecret, bearerEntropy)
-		clearBytes(bearerEntropy)
+		clear(bearerEntropy)
 
 		credential := &ReceiveAdmissionCredential{
 			SessionKey:   sessionKeyUUID.String(),

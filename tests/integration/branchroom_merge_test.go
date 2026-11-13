@@ -26,7 +26,6 @@ import (
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
-	"gitea.dev/services/migrations"
 	repository_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -41,11 +40,6 @@ func TestBranchroomMergeAndRepositoryMigrationIsolation(t *testing.T) {
 		setting.AppURL = strings.TrimSuffix(u.String(), "/") + "/"
 		defer test.MockVariableValue(&setting.Branchroom)()
 		defer test.MockVariableValue(&setting.CustomConf)()
-		restoreLocalMigrations := test.MockVariableValue(&setting.Migrations.AllowLocalNetworks, true)
-		defer func() {
-			restoreLocalMigrations()
-			require.NoError(t, migrations.Init())
-		}()
 
 		restrictedRoot := branchroomTestRoot(t)
 		setting.CustomConf = branchroomReceiveHookTestConfig(t, u, restrictedRoot)
@@ -53,7 +47,6 @@ func TestBranchroomMergeAndRepositoryMigrationIsolation(t *testing.T) {
 			Enabled:                true,
 			RestrictedRepoRootPath: restrictedRoot,
 		}
-		require.NoError(t, migrations.Init())
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
 		require.NoError(t, err)

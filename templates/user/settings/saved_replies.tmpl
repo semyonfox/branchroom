@@ -1,0 +1,46 @@
+{{template "user/settings/layout_head" (dict "pageClass" "user settings saved-replies")}}
+	<div class="user-setting-content">
+		<h4 class="ui top attached header">{{ctx.Locale.Tr "settings.saved_replies"}}</h4>
+		<div class="ui attached segment">
+			<div class="flex-divided-list items-with-main">
+				<div class="item">{{ctx.Locale.Tr "settings.saved_replies_desc"}}</div>
+				{{range $reply := .SavedReplies}}
+					<div class="item">
+						<div class="item-leading">{{svg "octicon-reply" 32}}</div>
+						<div class="item-main">
+							<div class="item-title">{{$reply.Title}}</div>
+							<div class="item-body tw-whitespace-pre-line gt-ellipsis">{{StringUtils.EllipsisString $reply.Content 200}}</div>
+						</div>
+						<div class="item-trailing">
+							<a class="ui tiny button" href="{{AppSubUrl}}/user/settings/replies?edit={{$reply.ID}}#saved-reply-form">{{ctx.Locale.Tr "edit"}}</a>
+							<button type="button" class="ui red tiny button link-action" data-modal-confirm="{{ctx.Locale.Tr "settings.saved_replies_delete_confirm"}}" data-url="{{AppSubUrl}}/user/settings/replies/delete?id={{$reply.ID}}">
+								{{ctx.Locale.Tr "remove"}}
+							</button>
+						</div>
+					</div>
+				{{end}}
+			</div>
+		</div>
+
+		<h4 class="ui top attached header" id="saved-reply-form">
+			{{if .EditReply}}{{ctx.Locale.Tr "settings.saved_replies_edit"}}{{else}}{{ctx.Locale.Tr "settings.saved_replies_add"}}{{end}}
+		</h4>
+		<div class="ui attached segment">
+			<form class="ui form" action="{{AppSubUrl}}/user/settings/replies" method="post">
+				{{if .EditReply}}<input type="hidden" name="id" value="{{.EditReply.ID}}">{{end}}
+				<div class="required field">
+					<label for="saved-reply-title">{{ctx.Locale.Tr "settings.saved_replies_title"}}</label>
+					<input id="saved-reply-title" name="title" maxlength="255" required value="{{if .EditReply}}{{.EditReply.Title}}{{end}}">
+				</div>
+				<div class="required field">
+					<label for="saved-reply-content">{{ctx.Locale.Tr "settings.saved_replies_content"}}</label>
+					<textarea id="saved-reply-content" name="content" rows="8" required>{{if .EditReply}}{{.EditReply.Content}}{{end}}</textarea>
+				</div>
+				<div class="flex-text-block">
+					<button type="submit" class="ui primary button">{{if .EditReply}}{{ctx.Locale.Tr "save"}}{{else}}{{ctx.Locale.Tr "settings.saved_replies_add"}}{{end}}</button>
+					{{if .EditReply}}<a class="ui button" href="{{AppSubUrl}}/user/settings/replies">{{ctx.Locale.Tr "cancel"}}</a>{{end}}
+				</div>
+			</form>
+		</div>
+	</div>
+{{template "user/settings/layout_footer" .}}

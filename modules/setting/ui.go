@@ -30,7 +30,9 @@ var UI = struct {
 	FileIconTheme           string
 	FolderIconTheme         string
 	Reactions               []string
+	ReleaseReactions        []string
 	ReactionsLookup         container.Set[string] `ini:"-"`
+	ReleaseReactionsLookup  container.Set[string] `ini:"-"`
 	CustomEmojis            []string
 	CustomEmojisMap         map[string]string `ini:"-"`
 	EnabledEmojis           []string
@@ -94,10 +96,12 @@ var UI = struct {
 	CodeCommentLines:        4,
 	ReactionMaxUserNum:      10,
 	MaxDisplayFileSize:      8388608,
-	DefaultTheme:            `gitea-auto`,
+	DefaultTheme:            `branchroom-auto`,
+	Themes:                  []string{`branchroom-auto`, `branchroom-light`, `branchroom-dark`, `gitea-auto`, `gitea-auto-protanopia-deuteranopia`, `gitea-auto-tritanopia`, `gitea-dark`, `gitea-dark-protanopia-deuteranopia`, `gitea-dark-tritanopia`, `gitea-light`, `gitea-light-protanopia-deuteranopia`, `gitea-light-tritanopia`},
 	FileIconTheme:           `material`,
 	FolderIconTheme:         `basic`,
 	Reactions:               []string{`+1`, `-1`, `laugh`, `hooray`, `confused`, `heart`, `rocket`, `eyes`},
+	ReleaseReactions:        []string{`+1`, `laugh`, `hooray`, `heart`, `rocket`, `eyes`},
 	CustomEmojis:            []string{`git`, `gitea`, `codeberg`, `gitlab`, `github`, `gogs`},
 	CustomEmojisMap:         map[string]string{"git": ":git:", "gitea": ":gitea:", "codeberg": ":codeberg:", "gitlab": ":gitlab:", "github": ":github:", "gogs": ":gogs:"},
 	ExploreDefaultSort:      "recentupdate",
@@ -170,10 +174,9 @@ func loadUIFrom(rootCfg ConfigProvider) {
 	// because many private repositories do not have "description/topic", users just want to search by their names.
 	UI.OnlyShowRelevantRepos = sec.Key("ONLY_SHOW_RELEVANT_REPOS").MustBool(false)
 
-	UI.ReactionsLookup = make(container.Set[string])
-	for _, reaction := range UI.Reactions {
-		UI.ReactionsLookup.Add(reaction)
-	}
+	UI.ReactionsLookup = container.SetOf(UI.Reactions...)
+	UI.ReleaseReactionsLookup = container.SetOf(UI.ReleaseReactions...)
+
 	UI.CustomEmojisMap = make(map[string]string)
 	for _, emoji := range UI.CustomEmojis {
 		UI.CustomEmojisMap[emoji] = ":" + emoji + ":"

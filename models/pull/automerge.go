@@ -17,12 +17,14 @@ import (
 type AutoMerge struct {
 	ID                     int64                 `xorm:"pk autoincr"`
 	PullID                 int64                 `xorm:"UNIQUE"`
+	UserExtDoerData        string                `xorm:"TEXT"`
 	DoerID                 int64                 `xorm:"INDEX NOT NULL"`
 	Doer                   *user_model.User      `xorm:"-"`
 	MergeStyle             repo_model.MergeStyle `xorm:"varchar(30)"`
 	Message                string                `xorm:"LONGTEXT"`
 	DeleteBranchAfterMerge bool
 	CreatedUnix            timeutil.TimeStamp `xorm:"created"`
+	MergedCommitID         string             `xorm:"VARCHAR(64)"`
 }
 
 // TableName return database table name for xorm
@@ -58,7 +60,12 @@ func ScheduleAutoMerge(ctx context.Context, doer *user_model.User, pullID int64,
 		return ErrAlreadyScheduledToAutoMerge{PullID: pullID}
 	}
 
+	extData := ""
+	if doer.ExtDoerData != nil {
+		extData = doer.ExtDoerData.EncodeToString()
+	}
 	_, err := db.GetEngine(ctx).Insert(&AutoMerge{
+		UserExtDoerData:        extData,
 		DoerID:                 doer.ID,
 		PullID:                 pullID,
 		MergeStyle:             style,
@@ -80,15 +87,12 @@ func GetScheduledMergeByPullID(ctx context.Context, pullID int64) (bool, *AutoMe
 	return true, scheduledPRM, err
 }
 
-// DeleteScheduledAutoMerge delete a scheduled pull request
-func DeleteScheduledAutoMerge(ctx context.Context, pullID int64) error {
-	exist, scheduledPRM, err := GetScheduledMergeByPullID(ctx, pullID)
-	if err != nil {
-		return err
-	} else if !exist {
-		return db.ErrNotExist{Resource: "auto_merge", ID: pullID}
-	}
+func GetScheduledMergePullIDsSince(ctx context.Context, since timeutil.TimeStamp) ([]int64, error) {
+	var pullIDs []int64
+	err := db.GetEngine(ctx).Table(&AutoMerge{}).Where("created_unix >= ?", since).Cols("pull_id").Find(&pullIDs)
+	return pullIDs, err
+}
 
-	_, err = db.GetEngine(ctx).ID(scheduledPRM.ID).Delete(&AutoMerge{})
-	return err
+func DeleteScheduledAutoMerge(ctx context.Context, pullID int64) (int64, error) {
+	return db.GetEngine(ctx).Where("pull_id = ?", pullID).Delete(&AutoMerge{})
 }

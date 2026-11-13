@@ -35,7 +35,7 @@ func RotateRepositoryWorkspaceRouteKey(ctx context.Context, request RotateReposi
 	}
 
 	err := db.WithTx(ctx, func(txCtx context.Context) error {
-		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, branchroom_model.ScopeKindRepository, "Branchroom workspace does not exist")
+		scope, err := requireActiveScopeTx(txCtx, request.RepoID, request.Actor, request.ScopeID, "Branchroom workspace does not exist")
 		if err != nil {
 			return workspaceRouteKeyRotationError(err)
 		}

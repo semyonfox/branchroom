@@ -5,7 +5,7 @@
 		</h4>
 		<div class="ui attached segment">
 			<p>{{ctx.Locale.Tr "repo.settings.branchroom.desc"}}</p>
-			<div class="ui warning message">
+			<div class="ui warning message branchroom-restricted">
 				{{ctx.Locale.Tr "repo.settings.branchroom.not_workspace"}}
 			</div>
 		</div>
@@ -31,57 +31,67 @@
 										<span class="ui basic label">{{.WorkspaceState}}</span>
 										<code>{{.WorkspacePublicBase}}</code>
 									</div>
-									<div class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}</div>
+									{{if eq .WorkspaceState "ready"}}<div class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}</div>{{end}}
 									{{if .CanRetryWorkspace}}
 										<form class="tw-mt-2" action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retry" method="post">
-											<button id="branchroom-workspace-retry-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retry"}}</button>
+											<button type="submit" id="branchroom-workspace-retry-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retry"}}</button>
 										</form>
 									{{end}}
 									{{if .CanRetireWorkspace}}
-										<form class="tw-mt-2" action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retire" method="post">
-											<button id="branchroom-workspace-retire-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</button>
-										</form>
+<div class="tw-mt-2">
+ <button type="button" id="branchroom-workspace-retire-{{.ID}}" class="ui basic button show-modal" data-modal="#branchroom-workspace-retire-modal-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</button>
+ </div>
+ <dialog class="modal-dialog" id="branchroom-workspace-retire-modal-{{.ID}}">
+ <div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</div>
+ <div class="content"><p>{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire_confirm"}}</p></div>
+ <form action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retire" method="post">
+ {{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"))}}
+ </form>
+ </dialog>
 									{{end}}
 									{{if .CanPurgeWorkspace}}
 										<div class="tw-mt-2">
 											<button id="branchroom-workspace-purge-{{.ID}}" type="button" class="ui red basic button show-modal" data-modal="#branchroom-workspace-purge-modal-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"}}</button>
 										</div>
-										<div class="ui g-modal-confirm modal" id="branchroom-workspace-purge-modal-{{.ID}}">
+										<dialog class="modal-dialog" id="branchroom-workspace-purge-modal-{{.ID}}">
 											<div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"}}</div>
 											<div class="content"><p>{{ctx.Locale.Tr "repo.settings.branchroom.workspace_purge_confirm"}}</p></div>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/purge" method="post">
-												{{template "base/modal_actions_confirm" (dict "ModalButtonTypes" "confirm" "ModalButtonOkText" (ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"))}}
+												{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"))}}
 											</form>
-										</div>
+										</dialog>
 									{{end}}
 									{{if .CanRotateRouteKey}}
 										<div class="tw-mt-2">
 											<button id="branchroom-route-key-rotate-{{.ID}}" type="button" class="ui basic button show-modal" data-modal="#branchroom-route-key-rotate-modal-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url"}}</button>
 										</div>
-										<div class="ui g-modal-confirm modal" id="branchroom-route-key-rotate-modal-{{.ID}}">
+										<dialog class="modal-dialog" id="branchroom-route-key-rotate-modal-{{.ID}}">
 											<div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url"}}</div>
 											<div class="content"><p>{{ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url_confirm"}}</p></div>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/route-key/rotate" method="post">
 												{{template "base/modal_actions_confirm" (dict "ModalButtonTypes" "confirm" "ModalButtonOkText" (ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url"))}}
 											</form>
-										</div>
+										</dialog>
 									{{end}}
 								</div>
 							{{else if .CanProvisionWorkspace}}
 								<form class="ui form flex-text-block tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/workspaces" method="post">
 									<input type="hidden" name="scope_id" value="{{.ID}}">
 									<div class="item-body tw-flex-1">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_default_branch"}}</div>
-									<button id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
+									<button type="submit" id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
 								</form>
 							{{end}}
+							{{if and (ne .State "retired") (ne .WorkspaceState "purged")}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
 								<strong>{{ctx.Locale.Tr "repo.settings.branchroom.discovery_grants"}}</strong>
 								<div class="ui list">
 									{{range .DiscoveryGrants}}
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -97,7 +107,7 @@
 										<input id="branchroom-grant-user-{{.ID}}" name="username" maxlength="255" required>
 									</div>
 									{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-grant-%d" .ID))}}
-									<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_discovery"}}</button>
+									<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_discovery"}}</button>
 								</form>
 							{{end}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
@@ -106,8 +116,10 @@
 									{{range .SourceReadGrants}}
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-grants/{{.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -123,7 +135,7 @@
 										<input id="branchroom-source-grant-user-{{.ID}}" name="username" maxlength="255" required>
 									</div>
 									{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-source-grant-%d" .ID))}}
-									<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_read"}}</button>
+									<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_read"}}</button>
 								</form>
 							{{end}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
@@ -133,8 +145,10 @@
 									{{range .SourceWriteGrants}}
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-write-grants/{{.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -142,6 +156,7 @@
 									{{end}}
 								</div>
 								{{if .CanGrantSourceWrite}}
+ <p class="help">{{ctx.Locale.Tr "repo.settings.branchroom.repository_write_warning"}}</p>
 									<form class="ui form tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/source-write-grants" method="post">
 										<input type="hidden" name="scope_id" value="{{.ID}}">
 										<div class="required field">
@@ -149,7 +164,7 @@
 											<input id="branchroom-source-write-grant-user-{{.ID}}" name="username" maxlength="255" required>
 										</div>
 										{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-source-write-grant-%d" .ID))}}
-										<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_write"}}</button>
+										<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_write"}}</button>
 									</form>
 								{{end}}
 							</div>
@@ -161,8 +176,10 @@
 										<div class="item flex-text-block">
 											<span>{{$teamGrant.TeamName}}</span>
 											<span class="ui basic label">{{$teamGrant.Action}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/team-grants/{{$teamGrant.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -187,10 +204,11 @@
 											</select>
 										</div>
 										{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-team-grant-%d" .ID))}}
-										<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_team_access"}}</button>
+										<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_team_access"}}</button>
 									</form>
 								{{end}}
 							</div>
+							{{end}}
 						</div>
 					</div>
 				{{else}}
@@ -198,6 +216,34 @@
 				{{end}}
 			</div>
 		</div>
+
+        {{range $person := .BranchroomPeople}}
+        <div class="ui segment flex-text-block">
+            <span>{{$person.Name}}</span>
+            <button type="button" class="ui red basic button show-modal" data-modal="#branchroom-remove-person-{{$person.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.remove_person"}}</button>
+            <dialog class="modal-dialog" id="branchroom-remove-person-{{$person.ID}}">
+                <div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.remove_person"}}</div>
+                <form class="ui form" action="{{$.RepoLink}}/settings/branchroom/people/{{$person.ID}}/remove" method="post">
+                    <div class="content">
+                        <p>{{ctx.Locale.Tr "repo.settings.branchroom.remove_person_confirm" $person.Name}}</p>
+                        <div class="field"><label><input type="checkbox" name="remove_collaborator" value="true" checked> {{ctx.Locale.Tr "repo.settings.branchroom.remove_collaborator"}}</label></div>
+                    </div>
+                    {{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.branchroom.remove_person"))}}
+                </form>
+            </dialog>
+        </div>
+        {{end}}
+
+		{{if .BranchroomAuditScopes}}
+			<h4 class="ui top attached header">{{ctx.Locale.Tr "repo.settings.branchroom.audit.title"}}</h4>
+			<div class="ui attached segment">
+				<div class="ui list">
+					{{range $scope := .BranchroomAuditScopes}}
+						<div class="item"><a href="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/audit">{{$scope.Name}}</a></div>
+					{{end}}
+				</div>
+			</div>
+		{{end}}
 
 		<h4 class="ui top attached header">
 			{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}
@@ -209,7 +255,7 @@
 					<input id="branchroom-scope-name" name="name" maxlength="255" required>
 					<div class="help">{{ctx.Locale.Tr "repo.settings.branchroom.scope_name_desc"}}</div>
 				</div>
-				<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}</button>
+				<button type="submit" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}</button>
 			</form>
 		</div>
 	</div>

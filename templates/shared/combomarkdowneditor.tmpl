@@ -19,6 +19,7 @@
 {{$mentionsLink := or $editorContext.MentionsLink ""}}
 {{/* don't try to remove it, there are still many users who like it: https://github.com/go-gitea/gitea/issues/38228#issuecomment-4809312561 */}}
 {{$supportEasyMDE := or (eq $previewMode "comment") (eq $previewMode "wiki")}}
+{{$supportSavedReplies := and (eq $previewMode "comment") ctx.RootData.IsSigned}}
 <div {{if .ContainerId}}id="{{.ContainerId}}"{{end}} class="combo-markdown-editor {{if .CustomInit}}custom-init{{end}} {{.ContainerClasses}}"
 		data-dropzone-parent-container="{{.DropzoneParentContainer}}"
 		data-content-mode="{{$previewMode}}"
@@ -47,6 +48,7 @@
 			</div>
 			<div class="markdown-toolbar-group">
 				<md-quote class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.quote.tooltip"}}">{{svg "octicon-quote"}}</md-quote>
+				{{if .ReviewSuggestion}}<button type="button" class="markdown-toolbar-button review-suggest-change" data-tooltip-content="{{ctx.Locale.Tr "repo.pulls.suggestion.suggest"}}">{{svg "octicon-diff"}}</button>{{end}}
 				<md-code class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.code.tooltip"}}">{{svg "octicon-code"}}</md-code>
 				<md-link class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.link.tooltip"}}">{{svg "octicon-link"}}</md-link>
 			</div>
@@ -56,6 +58,11 @@
 				<md-task-list class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.list.task.tooltip"}}">{{svg "octicon-tasklist"}}</md-task-list>
 				<button class="markdown-toolbar-button markdown-button-table-add" type="button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.table.add.tooltip"}}">{{svg "octicon-table"}}</button>
 			</div>
+			{{if $supportSavedReplies}}
+			<div class="markdown-toolbar-group">
+				<button class="markdown-toolbar-button markdown-button-saved-replies" type="button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.saved_replies.tooltip"}}">{{svg "octicon-reply"}}</button>
+			</div>
+			{{end}}
 			{{if $mentionsLink}}
 			<div class="markdown-toolbar-group">
 				<md-mention class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.mention.tooltip"}}">{{svg "octicon-mention"}}</md-mention>
@@ -85,6 +92,14 @@
 	<div class="ui tab" data-tab-panel="markdown-previewer">
 		{{ctx.Locale.Tr "loading"}}
 	</div>
+	{{if $supportSavedReplies}}
+	<div class="markdown-saved-replies-panel tippy-target" data-url="{{AppSubUrl}}/user/settings/replies/list">
+		<div class="saved-replies-items flex-items-menu"></div>
+		<div class="saved-replies-empty tw-hidden tw-p-2">{{ctx.Locale.Tr "editor.buttons.saved_replies.empty"}}</div>
+		<div class="divider"></div>
+		<a class="item tw-block tw-p-2" href="{{AppSubUrl}}/user/settings/replies" target="_blank">{{svg "octicon-gear"}} {{ctx.Locale.Tr "editor.buttons.saved_replies.manage"}}</a>
+	</div>
+	{{end}}
 	<div class="markdown-add-table-panel tippy-target">
 		<div class="ui form tw-p-4 flex-text-block">
 			<input type="number" min="1" value="3" size="3" class="add-table-rows tw-w-24" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.table.rows"}}">

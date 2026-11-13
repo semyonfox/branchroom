@@ -14,6 +14,7 @@ import (
 
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
+	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/renderhelper"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
@@ -22,6 +23,7 @@ import (
 	"gitea.dev/modules/markup/markdown"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
@@ -70,9 +72,11 @@ func calReleaseNumCommitsBehind(ctx stdCtx.Context, repoCtx *context.Repository,
 }
 
 type ReleaseInfo struct {
+	IsLatest       bool
 	Release        *repo_model.Release
 	CommitStatus   *git_model.CommitStatus
 	CommitStatuses []*git_model.CommitStatus
+	Reactions      issues_model.ReactionList
 }
 
 func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions) ([]*ReleaseInfo, error) {
@@ -81,17 +85,31 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 		return nil, err
 	}
 
+	releaseIDs := make([]int64, 0, len(releases))
 	for _, release := range releases {
 		release.Repo = ctx.Repo.Repository
+		releaseIDs = append(releaseIDs, release.ID)
 	}
 
 	if err = repo_model.GetReleaseAttachments(ctx, releases...); err != nil {
 		return nil, err
 	}
 
+	reactions, err := issues_model.FindReleaseReactions(ctx, releaseIDs...)
+	if err != nil {
+		return nil, err
+	}
+	cacheUsers, err := reactions.LoadUsers(ctx, ctx.Repo.Repository)
+	if err != nil {
+		return nil, err
+	}
+	reactionsByRelease := make(map[int64]issues_model.ReactionList)
+	for _, reaction := range reactions {
+		reactionsByRelease[reaction.ReleaseID] = append(reactionsByRelease[reaction.ReleaseID], reaction)
+	}
+
 	// Temporary cache commits count of used branches to speed up.
 	countCache := make(map[string]int64)
-	cacheUsers := make(map[int64]*user_model.User)
 	if ctx.Doer != nil {
 		cacheUsers[ctx.Doer.ID] = ctx.Doer
 	}
@@ -111,6 +129,15 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	latestRelease, err := repo_model.GetLatestRelease(ctx, ctx.Repo.Repository)
+	if err != nil && !repo_model.IsErrReleaseNotExist(err) {
+		return nil, err
+	}
+	var latestReleaseID int64
+	if latestRelease != nil {
+		latestReleaseID = latestRelease.ID
 	}
 
 	releaseInfos := make([]*ReleaseInfo, 0, len(releases))
@@ -138,7 +165,9 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 		}
 
 		info := &ReleaseInfo{
-			Release: r,
+			Release:   r,
+			IsLatest:  r.ID == latestReleaseID,
+			Reactions: reactionsByRelease[r.ID],
 		}
 
 		if canReadCode {
@@ -154,10 +183,22 @@ func getReleaseInfos(ctx *context.Context, opts *repo_model.FindReleasesOptions)
 	return releaseInfos, nil
 }
 
-// Releases render releases list page
-func Releases(ctx *context.Context) {
+func prepareReleasePageCommon(ctx *context.Context) (ret struct {
+	writeAccess bool
+},
+) {
 	ctx.Data["PageIsReleaseList"] = true
 	ctx.Data["Title"] = ctx.Tr("repo.release.releases")
+	ctx.Data["AllowedReleaseReactions"] = release_service.AllowedReleaseReactions()
+
+	ret.writeAccess = ctx.Repo.Permission.CanWrite(unit.TypeReleases)
+	ctx.Data["CanCreateRelease"] = ret.writeAccess && !ctx.Repo.Repository.IsArchived
+	return ret
+}
+
+// Releases render releases list page
+func Releases(ctx *context.Context) {
+	preparedData := prepareReleasePageCommon(ctx)
 
 	listOptions := db.ListOptions{
 		Page:     ctx.FormInt("page"),
@@ -170,17 +211,14 @@ func Releases(ctx *context.Context) {
 		listOptions.PageSize = setting.API.MaxResponseItems
 	}
 
-	writeAccess := ctx.Repo.Permission.CanWrite(unit.TypeReleases)
-	ctx.Data["CanCreateRelease"] = writeAccess && !ctx.Repo.Repository.IsArchived
-
 	releases, err := getReleaseInfos(ctx, &repo_model.FindReleasesOptions{
 		ListOptions: listOptions,
 		// only show draft releases for users who can write, read-only users shouldn't see draft releases.
-		IncludeDrafts: writeAccess,
+		IncludeDrafts: preparedData.writeAccess,
 		RepoID:        ctx.Repo.Repository.ID,
 	})
 	if err != nil {
-		ctx.ServerError("getReleaseInfos", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	for _, rel := range releases {
@@ -192,8 +230,7 @@ func Releases(ctx *context.Context) {
 	ctx.Data["Releases"] = releases
 
 	numReleases := ctx.Data["NumReleases"].(int64) //nolint:forcetypeassert // must exist
-	pager := context.NewPagination(numReleases, listOptions.PageSize, listOptions.Page, 5)
-	pager.AddParamFromRequest(ctx.Req)
+	pager := context.NewPagerBuilder(ctx).TotalCount(numReleases).PerPageLimit(listOptions.PageSize).CurPage(listOptions.Page).Build()
 	ctx.Data["Page"] = pager
 	ctx.HTML(http.StatusOK, tplReleasesList)
 }
@@ -230,13 +267,13 @@ func TagsList(ctx *context.Context) {
 
 	releases, err := db.Find[repo_model.Release](ctx, opts)
 	if err != nil {
-		ctx.ServerError("GetReleasesByRepoID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
 	count, err := db.Count[repo_model.Release](ctx, opts)
 	if err != nil {
-		ctx.ServerError("GetReleasesByRepoID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
@@ -244,8 +281,7 @@ func TagsList(ctx *context.Context) {
 	ctx.Data["Releases"] = releases
 	ctx.Data["TagCount"] = count
 
-	pager := context.NewPagination(count, opts.PageSize, opts.Page, 5)
-	pager.AddParamFromRequest(ctx.Req)
+	pager := context.NewPagerBuilder(ctx).TotalCount(count).PerPageLimit(opts.PageSize).CurPage(opts.Page).Build()
 	ctx.Data["Page"] = pager
 	ctx.Data["PageIsViewCode"] = !ctx.Repo.Repository.UnitEnabled(ctx, unit.TypeReleases)
 	ctx.HTML(http.StatusOK, tplTagsList)
@@ -277,25 +313,22 @@ func releasesOrTagsFeed(ctx *context.Context, isReleasesOnly bool, formatType st
 
 // SingleRelease renders a single release's page
 func SingleRelease(ctx *context.Context) {
-	ctx.Data["PageIsReleaseList"] = true
-
-	writeAccess := ctx.Repo.Permission.CanWrite(unit.TypeReleases)
-	ctx.Data["CanCreateRelease"] = writeAccess && !ctx.Repo.Repository.IsArchived
+	preparedData := prepareReleasePageCommon(ctx)
 
 	releases, err := getReleaseInfos(ctx, &repo_model.FindReleasesOptions{
 		ListOptions: db.ListOptions{Page: 1, PageSize: 1},
 		RepoID:      ctx.Repo.Repository.ID,
 		TagNames:    []string{ctx.PathParam("*")},
 		// only show draft releases for users who can write, read-only users shouldn't see draft releases.
-		IncludeDrafts: writeAccess,
+		IncludeDrafts: preparedData.writeAccess,
 		IncludeTags:   true,
 	})
 	if err != nil {
-		ctx.ServerError("getReleaseInfos", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	if len(releases) != 1 {
-		ctx.NotFound(err)
+		ctx.NotFound()
 		return
 	}
 
@@ -318,18 +351,14 @@ func SingleRelease(ctx *context.Context) {
 
 // LatestRelease redirects to the latest release
 func LatestRelease(ctx *context.Context) {
-	release, err := repo_model.GetLatestReleaseByRepoID(ctx, ctx.Repo.Repository.ID)
+	release, err := repo_model.GetLatestRelease(ctx, ctx.Repo.Repository)
 	if err != nil {
-		if repo_model.IsErrReleaseNotExist(err) {
-			ctx.NotFound(err)
-			return
-		}
-		ctx.ServerError("GetLatestReleaseByRepoID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
 	if err := release.LoadAttributes(ctx); err != nil {
-		ctx.ServerError("LoadAttributes", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
@@ -341,7 +370,7 @@ func newReleaseCommon(ctx *context.Context) {
 
 	tags, err := repo_model.GetTagNamesByRepoID(ctx, ctx.Repo.Repository.ID)
 	if err != nil {
-		ctx.ServerError("GetTagNamesByRepoID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	ctx.Data["Tags"] = tags
@@ -364,14 +393,14 @@ func NewRelease(ctx *context.Context) {
 	if tagName := ctx.FormString("tag"); tagName != "" {
 		rel, err := repo_model.GetRelease(ctx, ctx.Repo.Repository.ID, tagName)
 		if err != nil && !repo_model.IsErrReleaseNotExist(err) {
-			ctx.ServerError("GetRelease", err)
+			ctx.ServerErrorAuto(err)
 			return
 		}
 
 		if rel != nil {
 			rel.Repo = ctx.Repo.Repository
 			if err = rel.LoadAttributes(ctx); err != nil {
-				ctx.ServerError("LoadAttributes", err)
+				ctx.ServerErrorAuto(err)
 				return
 			}
 
@@ -402,11 +431,7 @@ func GenerateReleaseNotes(ctx *context.Context) {
 		PreviousTag: form.PreviousTag,
 	})
 	if err != nil {
-		if errTr := util.ErrorAsTranslatable(err); errTr != nil {
-			ctx.JSONError(errTr.Translate(ctx.Locale))
-		} else {
-			ctx.ServerError("GenerateReleaseNotes", err)
-		}
+		ctx.JSONErrorAuto(err)
 		return
 	}
 
@@ -426,7 +451,7 @@ func NewReleasePost(ctx *context.Context) {
 	// the logic should be done before the form error check to make the tmpl has correct variables
 	rel, err := repo_model.GetRelease(ctx, ctx.Repo.Repository.ID, form.TagName)
 	if err != nil && !repo_model.IsErrReleaseNotExist(err) {
-		ctx.ServerError("GetRelease", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
@@ -463,7 +488,7 @@ func NewReleasePost(ctx *context.Context) {
 		case release_service.IsErrProtectedTagName(err):
 			ctx.JSONError(ctx.Tr("repo.release.tag_name_protected"))
 		default:
-			ctx.ServerError("handleTagReleaseError", err)
+			ctx.ServerErrorAuto(err)
 		}
 	}
 
@@ -501,7 +526,7 @@ func NewReleasePost(ctx *context.Context) {
 			IsPrerelease: form.Prerelease,
 			IsTag:        false,
 		}
-		if err = release_service.CreateRelease(ctx, ctx.Repo.GitRepo, rel, attachmentUUIDs, newTagMsg); err != nil {
+		if err = release_service.CreateRelease(ctx, ctx.Repo.GitRepo, rel, attachmentUUIDs, newTagMsg, util.Iif(form.MakeLatest, api.MakeLatestTrue, "")); err != nil {
 			handleTagReleaseError(err)
 			return
 		}
@@ -525,7 +550,7 @@ func NewReleasePost(ctx *context.Context) {
 	rel.IsPrerelease = form.Prerelease
 	rel.PublisherID = ctx.Doer.ID
 	rel.IsTag = false
-	if err = release_service.UpdateRelease(ctx, ctx.Doer, ctx.Repo.GitRepo, rel, attachmentUUIDs, nil, nil); err != nil {
+	if err = release_service.UpdateRelease(ctx, ctx.Doer, ctx.Repo.GitRepo, rel, attachmentUUIDs, nil, nil, util.Iif(form.MakeLatest, api.MakeLatestTrue, "")); err != nil {
 		handleTagReleaseError(err)
 		return
 	}
@@ -545,15 +570,11 @@ func EditRelease(ctx *context.Context) {
 	tagName := ctx.PathParam("*")
 	rel, err := repo_model.GetRelease(ctx, ctx.Repo.Repository.ID, tagName)
 	if err != nil {
-		if repo_model.IsErrReleaseNotExist(err) {
-			ctx.NotFound(err)
-		} else {
-			ctx.ServerError("GetRelease", err)
-		}
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	if rel.IsTag {
-		ctx.NotFound(err) // for a pure tag release, don't allow to edit it as a release
+		ctx.NotFound() // for a pure tag release, don't allow to edit it as a release
 		return
 	}
 
@@ -563,11 +584,12 @@ func EditRelease(ctx *context.Context) {
 	ctx.Data["title"] = rel.Title
 	ctx.Data["content"] = rel.Note
 	ctx.Data["prerelease"] = rel.IsPrerelease
+	ctx.Data["make_latest"] = ctx.Repo.Repository.LatestReleaseID == rel.ID && rel.CanBeLatest()
 	ctx.Data["IsDraft"] = rel.IsDraft
 
 	rel.Repo = ctx.Repo.Repository
 	if err := rel.LoadAttributes(ctx); err != nil {
-		ctx.ServerError("LoadAttributes", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	ctx.Data["attachments"] = rel.Attachments
@@ -589,7 +611,7 @@ func EditReleasePost(ctx *context.Context) {
 		if repo_model.IsErrReleaseNotExist(err) {
 			ctx.JSONErrorNotFound(err.Error())
 		} else {
-			ctx.ServerError("GetRelease", err)
+			ctx.ServerErrorAuto(err)
 		}
 		return
 	}
@@ -623,13 +645,16 @@ func EditReleasePost(ctx *context.Context) {
 	rel.Note = form.Content
 	rel.IsDraft = len(form.Draft) > 0
 	rel.IsPrerelease = form.Prerelease
+	var makeLatest api.MakeLatest
+	switch {
+	case form.MakeLatest:
+		makeLatest = api.MakeLatestTrue
+	case ctx.Repo.Repository.LatestReleaseID == rel.ID:
+		makeLatest = api.MakeLatestLegacy
+	}
 	if err = release_service.UpdateRelease(ctx, ctx.Doer, ctx.Repo.GitRepo,
-		rel, addAttachmentUUIDs, delAttachmentUUIDs, editAttachments); err != nil {
-		if upload.IsErrFileTypeForbidden(err) {
-			ctx.JSONError(err.Error())
-		} else {
-			ctx.ServerError("UpdateRelease", err)
-		}
+		rel, addAttachmentUUIDs, delAttachmentUUIDs, editAttachments, makeLatest); err != nil {
+		ctx.JSONErrorAuto(err)
 		return
 	}
 	ctx.JSONRedirect(ctx.Repo.RepoLink + "/releases")
@@ -658,11 +683,16 @@ func deleteReleaseOrTag(ctx *context.Context, isDelTag bool) {
 	rel, err := repo_model.GetReleaseForRepoByID(ctx, ctx.Repo.Repository.ID, ctx.FormInt64("id"))
 	if err != nil {
 		if repo_model.IsErrReleaseNotExist(err) {
-			ctx.NotFound(err)
+			ctx.ServerErrorAuto(err)
 		} else {
 			ctx.Flash.Error("DeleteReleaseByID: " + err.Error())
 			redirect()
 		}
+		return
+	}
+
+	if isDelTag && !rel.IsTag {
+		ctx.HTTPError(http.StatusConflict, "a tag attached to a release cannot be deleted directly")
 		return
 	}
 
@@ -681,4 +711,53 @@ func deleteReleaseOrTag(ctx *context.Context, isDelTag bool) {
 	}
 
 	redirect()
+}
+
+func ChangeReleaseReaction(ctx *context.Context) {
+	form := context.GetFetchActionForm[*forms.ReactionForm](ctx)
+	if form == nil {
+		return
+	}
+
+	rel, err := repo_model.GetReleaseForRepoByID(ctx, ctx.Repo.Repository.ID, ctx.PathParamInt64("id"))
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	if rel.IsTag || rel.IsDraft {
+		ctx.NotFound()
+		return
+	}
+	rel.Repo = ctx.Repo.Repository
+
+	switch ctx.PathParam("action") {
+	case "react":
+		_, err = release_service.CreateReleaseReaction(ctx, ctx.Doer, rel, form.Content)
+		if errors.Is(err, util.ErrPermissionDenied) {
+			ctx.HTTPError(http.StatusForbidden)
+			return
+		} else if err != nil && !errors.Is(err, util.ErrAlreadyExist) {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+	case "unreact":
+		if err = issues_model.DeleteReleaseReaction(ctx, ctx.Doer.ID, rel.ID, form.Content); err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+	default:
+		ctx.NotFound()
+		return
+	}
+
+	reactions, err := issues_model.FindReleaseReactions(ctx, rel.ID)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	if _, err = reactions.LoadUsers(ctx, ctx.Repo.Repository); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	renderReactions(ctx, fmt.Sprintf("%s/releases/%d/reactions", ctx.Repo.RepoLink, rel.ID), reactions, release_service.AllowedReleaseReactions())
 }

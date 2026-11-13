@@ -15,6 +15,7 @@ import (
 	"gitea.dev/models/db"
 	organization_model "gitea.dev/models/organization"
 	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -158,6 +159,8 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 				Action:      branchroom_model.ActionReadSource,
 			})
 
+			member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusNotFound)
+			postTeamGrantForm(manager, scope.ID, team.Name, "discover", "", "", http.StatusSeeOther)
 			resp := member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusOK)
 			expectedCloneURL := gatewayBase.JoinPath(workspace.RouteKey + ".git").String()
 			assert.Contains(t, resp.Body.String(), expectedCloneURL)
@@ -229,6 +232,8 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 				Action:      branchroom_model.ActionReadSource,
 			})
 			assert.NotZero(t, activeGrant.ExpiresUnix)
+			member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusNotFound)
+			postTeamGrantForm(manager, scope.ID, team.Name, "discover", "", "", http.StatusSeeOther)
 			resp := member.MakeRequest(t, NewRequest(t, http.MethodGet, handoffURL), http.StatusOK)
 			assert.Contains(t, resp.Body.String(), gatewayBase.JoinPath(workspace.RouteKey+".git").String())
 			assert.Equal(t, http.StatusOK, advertiseSource(workspace.RouteKey, "user4").StatusCode)
@@ -296,6 +301,8 @@ func TestBranchroomRbacLifecycle(t *testing.T) {
 			}
 			require.NoError(t, org_service.NewTeam(t.Context(), adminTeam))
 			require.NoError(t, org_service.AddTeamMember(t.Context(), adminTeam, adminUser))
+			// upstream only grants repository admin to admin teams through access rows, which adding a member does not refresh
+			require.NoError(t, access_model.RecalculateTeamAccesses(t.Context(), repository, 0))
 
 			orgAdmin := loginUser(t, "user28")
 			scope := createScope(t)

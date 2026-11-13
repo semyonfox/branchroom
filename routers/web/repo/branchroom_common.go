@@ -51,5 +51,6 @@ func newBranchroomPrivacyResponseWriter(resp http.ResponseWriter, setHeaders fun
 // Branchroom transport surface at all.
 func isEligibleBranchroomDoer(ctx *context.Context) bool {
 	doer := ctx.Doer
-	return doer != nil && !ctx.DoerIsImpersonated() && doer.IsIndividual() && doer.IsActive && !doer.ProhibitLogin && !doer.MustChangePassword && !doer.IsGiteaActions()
+	// system users such as Gitea Actions and deploy keys have negative IDs
+	return doer != nil && doer.ID > 0 && !context.IsDoerSessionImpersonated(ctx.Session) && doer.IsIndividual() && doer.IsActive && !doer.ProhibitLogin && !doer.MustChangePassword
 }

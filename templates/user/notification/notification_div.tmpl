@@ -3,22 +3,45 @@
 		{{$statusUnread := 1}}{{$statusRead := 2}}{{$statusPinned := 3}}
 		{{$notificationUnreadCount := call .PageGlobalData.GetNotificationUnreadCount}}
 		{{$pageTypeIsRead := eq $.PageType "read"}}
+		{{$tabLink := QueryBuild (print AppSubUrl "/notifications") "reason" $.ReasonFilter}}
 		<div class="flex-left-right tw-mb-[--page-spacing]">
-			<div class="small-menu-items ui compact tiny menu">
-				<a class="{{if not $pageTypeIsRead}}active{{end}} item" href="{{AppSubUrl}}/notifications?type=unread">
-					{{ctx.Locale.Tr "notification.unread"}}
-					<div class="notifications-unread-count ui label {{if not $notificationUnreadCount}}tw-hidden{{end}}">{{$notificationUnreadCount}}</div>
-				</a>
-				<a class="{{if $pageTypeIsRead}}active{{end}} item" href="{{AppSubUrl}}/notifications?type=read">
-					{{ctx.Locale.Tr "notification.read"}}
-				</a>
+			<div class="flex-text-block">
+				<div class="small-menu-items ui compact tiny menu">
+					<a class="{{if eq $.PageType "unread"}}active{{end}} item" href="{{QueryBuild $tabLink "type" "unread"}}">
+						{{ctx.Locale.Tr "notification.unread"}}
+						<div class="notifications-unread-count ui label {{if not $notificationUnreadCount}}tw-hidden{{end}}">{{$notificationUnreadCount}}</div>
+					</a>
+					<a class="{{if eq $.PageType "saved"}}active{{end}} item" href="{{QueryBuild $tabLink "type" "saved"}}">
+						{{ctx.Locale.Tr "notification.saved"}}
+					</a>
+					<a class="{{if $pageTypeIsRead}}active{{end}} item" href="{{QueryBuild $tabLink "type" "read"}}">
+						{{ctx.Locale.Tr "notification.read"}}
+					</a>
+				</div>
+				<div class="ui secondary menu tw-m-0">
+					<div class="item ui dropdown jump">
+						<span class="text">{{ctx.Locale.Tr "notification.filter_reason"}}</span>
+						{{svg "octicon-triangle-down" 14 "dropdown icon"}}
+						<div class="menu">
+							<a class="{{if not $.ReasonFilter}}active {{end}}item" href="{{QueryBuild (print AppSubUrl "/notifications") "type" $.PageType}}">{{ctx.Locale.Tr "notification.reason_all"}}</a>
+							{{range $reason := $.NotificationReasons}}
+								<a class="{{if eq $.ReasonFilter (print $reason)}}active {{end}}item" href="{{QueryBuild (print AppSubUrl "/notifications") "type" $.PageType "reason" (print $reason)}}">{{ctx.Locale.Tr (print "notification.reason." $reason)}}</a>
+							{{end}}
+						</div>
+					</div>
+				</div>
 			</div>
-			{{if and (not $pageTypeIsRead) $notificationUnreadCount}}
-				<form action="{{AppSubUrl}}/notifications/purge" method="post">
-					<button class="ui mini button primary tw-mr-0" title="{{ctx.Locale.Tr "notification.mark_all_as_read"}}">
-						{{svg "octicon-checklist"}}
-					</button>
-				</form>
+			{{if and (eq $.PageType "unread") $notificationUnreadCount}}
+				<div class="flex-text-block">
+					{{if .CurUnreadNotificationIDs}}
+						<button type="button" class="ui mini button link-action" data-tooltip-content="{{ctx.Locale.Tr "notification.mark_page_as_read"}}"
+							data-url="{{AppSubUrl}}/notifications/purge-page?ids={{.CurUnreadNotificationIDs}}"
+						>{{svg "octicon-check"}}</button>
+					{{end}}
+					<button type="button" class="ui mini button primary link-action" data-tooltip-content="{{ctx.Locale.Tr "notification.mark_all_as_read"}}"
+						data-url="{{AppSubUrl}}/notifications/purge"
+					>{{svg "octicon-checklist"}}</button>
+				</div>
 			{{end}}
 		</div>
 		<div id="notification_table">
@@ -37,6 +60,10 @@
 							{{if eq $one.Status $statusPinned}}
 								{{svg "octicon-pin" 13 "tw-text-blue"}}
 							{{end}}
+							{{$reason := index $.NotificationReasonByID $one.ID}}
+							{{if ne (print $reason) "subscribed"}}
+								<span class="tw-text-text-light-2">{{ctx.Locale.Tr (print "notification.reason." $reason)}}</span>
+							{{end}}
 						</div>
 						<div class="tw-text-16 tw-py-0.5">
 							{{if $one.Issue}}
@@ -53,30 +80,35 @@
 							{{DateUtils.TimeSince $one.UpdatedUnix}}
 						{{end}}
 					</div>
-					<form class="notifications-buttons form-fetch-action" action="{{AppSubUrl}}/notifications/status?type={{$.PageType}}&page={{$.Page.Paginater.Current}}&perPage={{$.Page.Paginater.PagingNum}}" method="post"
+					<form class="notifications-buttons form-fetch-action" action="{{AppSubUrl}}/notifications/status?{{$.PageQueryParams}}" method="post"
 								data-fetch-sync="$body #notification_div"
 					>
 						<input type="hidden" name="notification_id" value="{{$one.ID}}">
 						{{if ne $one.Status $statusPinned}}
-							<button class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.pin"}}"
+							<button type="submit" class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.pin"}}"
 											name="notification_action" value="pin"
 							>
 								{{svg "octicon-pin"}}
 							</button>
 						{{end}}
 						{{if or (eq $one.Status $statusUnread) (eq $one.Status $statusPinned)}}
-							<button class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.mark_as_read"}}"
+							<button type="submit" class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.mark_as_read"}}"
 											name="notification_action" value="mark_as_read"
 							>
 								{{svg "octicon-check"}}
 							</button>
 						{{else if eq $one.Status $statusRead}}
-							<button class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.mark_as_unread"}}"
+							<button type="submit" class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.mark_as_unread"}}"
 											name="notification_action" value="mark_as_unread"
 							>
 								{{svg "octicon-bell"}}
 							</button>
 						{{end}}
+						<button type="submit" class="btn interact-bg tw-p-2" data-tooltip-content="{{ctx.Locale.Tr "notification.done"}}"
+										name="notification_action" value="done"
+						>
+							{{svg "octicon-archive"}}
+						</button>
 					</form>
 				</div>
 			{{else}}
@@ -84,6 +116,8 @@
 					{{svg "octicon-inbox" 56 "tw-mb-4"}}
 					{{if $pageTypeIsRead}}
 						{{ctx.Locale.Tr "notification.no_read"}}
+					{{else if eq $.PageType "saved"}}
+						{{ctx.Locale.Tr "notification.no_saved"}}
 					{{else}}
 						{{ctx.Locale.Tr "notification.no_unread"}}
 					{{end}}

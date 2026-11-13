@@ -69,6 +69,7 @@ type PullReviewComment struct {
 	OrigCommitID string `json:"original_commit_id"`
 	DiffHunk     string `json:"diff_hunk"`
 	LineNum      uint64 `json:"position"`
+	StartLine    int64  `json:"start_line"`
 	OldLineNum   uint64 `json:"original_position"`
 
 	HTMLURL     string `json:"html_url"`
@@ -86,12 +87,15 @@ type CreatePullReviewOptions struct {
 // CreatePullReviewComment represent a review comment for creation api
 type CreatePullReviewComment struct {
 	// the tree path
+	// required: true
 	Path string `json:"path"`
 	Body string `json:"body"`
 	// if comment to old file line or 0
 	OldLineNum int64 `json:"old_position"`
 	// if comment to new file line or 0
 	NewLineNum int64 `json:"new_position"`
+	// first line of a range on the same side as old_position or new_position
+	StartLine int64 `json:"start_line"`
 }
 
 // CreatePullReviewCommentReplyOptions are options to reply to a pull request review comment

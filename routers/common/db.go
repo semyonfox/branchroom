@@ -53,6 +53,11 @@ func migrateWithSetting(ctx context.Context, x db.EngineMigration) error {
 	} else if expected := modelmigration.ExpectedDBVersion(); current != expected {
 		log.Fatal(`"database.AUTO_MIGRATION" is disabled, but current database version %d is not equal to the expected version %d.`+
 			`You can set "database.AUTO_MIGRATION" to true or migrate manually by running "gitea [--config /path/to/app.ini] migrate"`, current, expected)
+	} else if current, err := modelmigration.GetCurrentBranchroomVersion(x); err != nil {
+		return err
+	} else if expected := modelmigration.ExpectedBranchroomVersion(); current != expected {
+		log.Fatal(`"database.AUTO_MIGRATION" is disabled, but the Branchroom database version %d is not equal to the expected version %d.`+
+			`You can set "database.AUTO_MIGRATION" to true or migrate manually by running "gitea [--config /path/to/app.ini] migrate"`, current, expected)
 	}
 	return nil
 }

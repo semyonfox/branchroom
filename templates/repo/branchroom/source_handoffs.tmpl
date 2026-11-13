@@ -4,7 +4,7 @@
 	<div class="ui container">
 		{{template "base/alert" .}}
 		<h1 class="ui top attached header">{{ctx.Locale.Tr "repo.branchroom.source_handoffs"}}</h1>
-		<div class="ui attached segment">
+		<div class="ui attached segment branchroom-restricted">
 			<p>{{ctx.Locale.Tr "repo.branchroom.source_handoffs_desc"}}</p>
 			<div class="ui warning message">{{ctx.Locale.Tr "repo.branchroom.source_handoffs_auth"}}</div>
 			<p>{{ctx.Locale.Tr "repo.branchroom.recovery"}}</p>
@@ -25,7 +25,6 @@
 				{{end}}
 			</div>
 		</div>
-		{{template "repo/branchroom/privacy" .}}
 	</div>
 </div>
 {{template "base/footer" .}}

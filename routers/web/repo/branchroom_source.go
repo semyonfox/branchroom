@@ -37,7 +37,7 @@ type branchroomSourceHandoffData struct {
 func BranchroomSourceHandoffs(ctx *context.Context) {
 	setBranchroomSourceHandoffHeaders(ctx)
 	if !setting.Branchroom.Enabled || !ctx.IsSigned || !isEligibleBranchroomDoer(ctx) {
-		ctx.NotFound(nil)
+		ctx.NotFound()
 		return
 	}
 
@@ -47,10 +47,10 @@ func BranchroomSourceHandoffs(ctx *context.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound(nil)
+			ctx.NotFound()
 			return
 		}
-		ctx.ServerError("ListRepositorySourceHandoffs", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 

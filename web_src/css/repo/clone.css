@@ -37,3 +37,12 @@
 .clone-panel-list .item {
   margin: 5px 0;
 }
+
+.clone-panel-popup .clone-panel-field {
+  width: 460px;
+  max-width: calc(100vw - 54px);
+}
+
+.clone-panel-field .ui.input {
+  width: 100%;
+}

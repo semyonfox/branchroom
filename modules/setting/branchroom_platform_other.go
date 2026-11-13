@@ -5,6 +5,10 @@
 
 package setting
 
+import "io/fs"
+
 func branchroomRestrictedStoreIntegritySupported() bool {
 	return false
 }
+
+func BranchroomRootOwnedByService(info fs.FileInfo) bool { return false }

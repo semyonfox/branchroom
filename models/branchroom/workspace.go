@@ -359,12 +359,19 @@ func CountOwnerActiveWorkspaces(ctx context.Context, ownerID int64) (int64, erro
 	if ownerID <= 0 {
 		return 0, util.NewInvalidArgumentErrorf("invalid Branchroom scope owner ID")
 	}
-	return db.GetEngine(ctx).
+	ids := make([]int64, 0)
+	sess := db.GetEngine(ctx).
 		Table(new(Workspace)).
 		Join("INNER", new(Scope), "branchroom_scope.id = branchroom_workspace.scope_id").
 		Where("branchroom_scope.owner_id = ?", ownerID).
 		In("branchroom_workspace.state", WorkspaceStateProvisioning, WorkspaceStateReady, WorkspaceStateFailed).
-		Count()
+		Select("branchroom_workspace.id")
+	// a locking read sees rows committed after a repeatable-read snapshot began
+	if branchroomSupportsForUpdate() {
+		sess = sess.ForUpdate()
+	}
+	err := sess.Find(&ids)
+	return int64(len(ids)), err
 }
 
 func init() {

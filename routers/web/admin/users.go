@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	org_model "gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
@@ -21,15 +23,20 @@ import (
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
-	"gitea.dev/modules/structs"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/templates"
+	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/routers/web/explore"
 	user_setting "gitea.dev/routers/web/user/setting"
+	"gitea.dev/services/audit"
 	auth_service "gitea.dev/services/auth"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
+	"gitea.dev/services/convert"
 	"gitea.dev/services/forms"
 	"gitea.dev/services/mailer"
+	org_service "gitea.dev/services/org"
 	user_service "gitea.dev/services/user"
 )
 
@@ -42,6 +49,13 @@ const (
 
 // UserSearchDefaultAdminSort is the default sort type for admin view
 const UserSearchDefaultAdminSort = "alphabetically"
+
+// authSourceFilterOption is one radio item of the authentication source filter dropdown
+type authSourceFilterOption struct {
+	Value    string
+	Label    string
+	Selected bool
+}
 
 // Users show all the users
 func Users(ctx *context.Context) {
@@ -57,14 +71,46 @@ func Users(ctx *context.Context) {
 	}
 
 	sortType := ctx.FormString("sort", UserSearchDefaultAdminSort)
+
+	types := user_model.AdminListedUserTypes
+	userTypeFilter := api.UserTypeString(ctx.FormString("user_type"))
+	ctx.Data["UserTypeFilter"] = ""
+	if t, err := convert.UserTypeFromString(userTypeFilter); err == nil {
+		types, ctx.Data["UserTypeFilter"] = []user_model.UserType{t}, userTypeFilter
+	}
+
 	ctx.PageData["adminUserListSearchForm"] = map[string]any{
 		"StatusFilterMap": statusFilterMap,
 		"SortType":        sortType,
 	}
 
+	// inactive sources are listed too, users stay attached to a source after it is deactivated
+	sources, err := db.Find[auth.Source](ctx, auth.FindSourcesOptions{})
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	sourceIDFilter := ctx.FormOptionalInt64("source_id")
+	sourceNames := make(map[int64]string, len(sources))
+	authSourceFilterOptions := []*authSourceFilterOption{
+		{Value: "", Label: ctx.Locale.TrString("all"), Selected: !sourceIDFilter.Has()},
+		{Value: "0", Label: ctx.Locale.TrString("admin.users.local"), Selected: sourceIDFilter.Has() && sourceIDFilter.Value() == 0},
+	}
+	for _, source := range sources {
+		sourceNames[source.ID] = source.Name
+		authSourceFilterOptions = append(authSourceFilterOptions, &authSourceFilterOption{
+			Value:    strconv.FormatInt(source.ID, 10),
+			Label:    source.Name,
+			Selected: sourceIDFilter.Has() && sourceIDFilter.Value() == source.ID,
+		})
+	}
+	ctx.Data["HasAuthSources"] = len(sources) > 0
+	ctx.Data["SourceNames"] = sourceNames
+	ctx.Data["AuthSourceFilterOptions"] = authSourceFilterOptions
+
 	explore.RenderUserSearch(ctx, user_model.SearchUserOptions{
 		Actor: ctx.Doer,
-		Types: []user_model.UserType{user_model.UserTypeIndividual},
+		Types: types,
 		ListOptions: db.ListOptions{
 			PageSize: setting.UI.Admin.UserPagingNum,
 		},
@@ -74,7 +120,7 @@ func Users(ctx *context.Context) {
 		IsRestricted:       optional.ParseBool(statusFilterMap["is_restricted"]),
 		IsTwoFactorEnabled: optional.ParseBool(statusFilterMap["is_2fa_enabled"]),
 		IsProhibitLogin:    optional.ParseBool(statusFilterMap["is_prohibit_login"]),
-		IncludeReserved:    true, // administrator needs to list all accounts include reserved, bot, remote ones
+		SourceID:           sourceIDFilter,
 		OrderBy:            db.SearchOrderBy(sortType),
 	}, tplUsers)
 }
@@ -87,12 +133,13 @@ func NewUser(ctx *context.Context) {
 	ctx.Data["AllowedUserVisibilityModes"] = setting.Service.AllowedUserVisibilityModesSlice.ToVisibleTypeSlice()
 
 	ctx.Data["login_type"] = "0-0"
+	ctx.Data["user_type"] = api.UserTypeStringUser
 
 	sources, err := db.Find[auth.Source](ctx, auth.FindSourcesOptions{
 		IsActive: optional.Some(true),
 	})
 	if err != nil {
-		ctx.ServerError("auth.Sources", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	ctx.Data["Sources"] = sources
@@ -113,7 +160,7 @@ func NewUserPost(ctx *context.Context) {
 		IsActive: optional.Some(true),
 	})
 	if err != nil {
-		ctx.ServerError("auth.Sources", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	ctx.Data["Sources"] = sources
@@ -137,7 +184,10 @@ func NewUserPost(ctx *context.Context) {
 		Visibility: &form.Visibility,
 	}
 
-	if len(form.LoginType) > 0 {
+	if form.UserType == api.UserTypeStringBot {
+		u.Type = user_model.UserTypeBot
+		u.Passwd = ""
+	} else if len(form.LoginType) > 0 {
 		fields := strings.Split(form.LoginType, "-")
 		if len(fields) == 2 {
 			lType, _ := strconv.ParseInt(fields[0], 10, 0)
@@ -146,7 +196,7 @@ func NewUserPost(ctx *context.Context) {
 			u.LoginName = form.LoginName
 		}
 	}
-	if u.LoginType == auth.NoType || u.LoginType == auth.Plain {
+	if !u.IsTypeBot() && (u.LoginType == auth.NoType || u.LoginType == auth.Plain) {
 		if len(form.Password) < setting.MinPasswordLength {
 			ctx.Data["Err_Password"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_too_short", setting.MinPasswordLength), tplUserNew, &form)
@@ -174,6 +224,7 @@ func NewUserPost(ctx *context.Context) {
 		var errNameReserved db.ErrNameReserved
 		var errNamePatternNotAllowed db.ErrNamePatternNotAllowed
 		var errNameCharsNotAllowed db.ErrNameCharsNotAllowed
+		var errEmailInvalid user_model.ErrEmailInvalid
 		switch {
 		case user_model.IsErrUserAlreadyExist(err):
 			ctx.Data["Err_UserName"] = true
@@ -181,7 +232,7 @@ func NewUserPost(ctx *context.Context) {
 		case user_model.IsErrEmailAlreadyUsed(err):
 			ctx.Data["Err_Email"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("form.email_been_used"), tplUserNew, &form)
-		case user_model.IsErrEmailInvalid(err), user_model.IsErrEmailCharIsNotSupported(err):
+		case errors.As(err, &errEmailInvalid):
 			ctx.Data["Err_Email"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("form.email_invalid"), tplUserNew, &form)
 		case errors.As(err, &errNameReserved):
@@ -194,7 +245,7 @@ func NewUserPost(ctx *context.Context) {
 			ctx.Data["Err_UserName"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("user.form.name_chars_not_allowed", errNameCharsNotAllowed.Name), tplUserNew, &form)
 		default:
-			ctx.ServerError("CreateUser", err)
+			ctx.ServerErrorAuto(err)
 		}
 		return
 	}
@@ -202,6 +253,8 @@ func NewUserPost(ctx *context.Context) {
 	if !user_model.IsEmailDomainAllowed(u.Email) {
 		ctx.Flash.Warning(ctx.Tr("form.email_domain_is_not_allowed", u.Email))
 	}
+
+	audit.Record(ctx, audit_model.UserCreate, u)
 
 	log.Trace("Account created by admin (%s): %s", ctx.Doer.Name, u.Name)
 
@@ -220,7 +273,7 @@ func prepareUserInfo(ctx *context.Context) *user_model.User {
 		if user_model.IsErrUserNotExist(err) {
 			ctx.Redirect(setting.AppSubURL + "/-/admin/users")
 		} else {
-			ctx.ServerError("GetUserByID", err)
+			ctx.ServerErrorAuto(err)
 		}
 		return nil
 	}
@@ -229,7 +282,7 @@ func prepareUserInfo(ctx *context.Context) *user_model.User {
 	if u.LoginSource > 0 {
 		ctx.Data["LoginSource"], err = auth.GetSourceByID(ctx, u.LoginSource)
 		if err != nil {
-			ctx.ServerError("auth.GetSourceByID", err)
+			ctx.ServerErrorAuto(err)
 			return nil
 		}
 	} else {
@@ -238,22 +291,23 @@ func prepareUserInfo(ctx *context.Context) *user_model.User {
 
 	sources, err := db.Find[auth.Source](ctx, auth.FindSourcesOptions{})
 	if err != nil {
-		ctx.ServerError("auth.Sources", err)
+		ctx.ServerErrorAuto(err)
 		return nil
 	}
 	ctx.Data["Sources"] = sources
 
 	hasTOTP, err := auth.HasTwoFactorByUID(ctx, u.ID)
 	if err != nil {
-		ctx.ServerError("auth.HasTwoFactorByUID", err)
+		ctx.ServerErrorAuto(err)
 		return nil
 	}
 	hasWebAuthn, err := auth.HasWebAuthnRegistrationsByUID(ctx, u.ID)
 	if err != nil {
-		ctx.ServerError("auth.HasWebAuthnRegistrationsByUID", err)
+		ctx.ServerErrorAuto(err)
 		return nil
 	}
 	ctx.Data["TwoFactorEnabled"] = hasTOTP || hasWebAuthn
+	ctx.Data["CanConvertUserType"] = user_service.CheckConvertUserType(u) == nil
 
 	return u
 }
@@ -278,7 +332,7 @@ func ViewUser(ctx *context.Context) {
 		Collaborate: optional.Some(false),
 	})
 	if err != nil {
-		ctx.ServerError("SearchRepository", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
@@ -287,26 +341,58 @@ func ViewUser(ctx *context.Context) {
 
 	emails, err := user_model.GetEmailAddresses(ctx, u.ID)
 	if err != nil {
-		ctx.ServerError("GetEmailAddresses", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 	ctx.Data["Emails"] = emails
 	ctx.Data["EmailsTotal"] = len(emails)
 
-	orgs, err := db.Find[org_model.Organization](ctx, org_model.FindOrgOptions{
-		ListOptions:       db.ListOptionsAll,
-		UserID:            u.ID,
-		IncludeVisibility: structs.VisibleTypePrivate,
-	})
+	ctx.Data["UserOrgs"], err = org_model.GetUserOrganizations(ctx, u.ID)
 	if err != nil {
-		ctx.ServerError("FindOrgs", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
-	ctx.Data["Users"] = orgs // needed to be able to use explore/user_list template
-	ctx.Data["OrgsTotal"] = len(orgs)
+	if u.IsTypeBot() {
+		ctx.Data["BotAccessTokens"] = user_setting.NewAccessTokensPanel(ctx, u, ctx.Link+"/access_tokens")
+		if ctx.Written() {
+			return
+		}
+	}
 
 	ctx.HTML(http.StatusOK, tplUserView)
+}
+
+// getTargetBot loads the bot whose tokens an admin manages, other accounts manage their own
+func getTargetBot(ctx *context.Context) *user_model.User {
+	u, err := user_model.GetUserByID(ctx, ctx.PathParamInt64("userid"))
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return nil
+	}
+	if !u.IsTypeBot() {
+		ctx.JSONError(ctx.Tr("admin.users.bot_token_only"))
+		return nil
+	}
+	return u
+}
+
+func NewBotTokenPost(ctx *context.Context) {
+	if u := getTargetBot(ctx); u != nil {
+		user_setting.CreateAccessToken(ctx, u)
+	}
+}
+
+func DeleteBotToken(ctx *context.Context) {
+	if u := getTargetBot(ctx); u != nil {
+		user_setting.DeleteAccessToken(ctx, u)
+	}
+}
+
+func RegenerateBotToken(ctx *context.Context) {
+	if u := getTargetBot(ctx); u != nil {
+		user_setting.RegenerateAccessToken(ctx, u)
+	}
 }
 
 func editUserCommon(ctx *context.Context) {
@@ -323,11 +409,20 @@ func editUserCommon(ctx *context.Context) {
 // EditUser show editing user page
 func EditUser(ctx *context.Context) {
 	editUserCommon(ctx)
-	prepareUserInfo(ctx)
+	u := prepareUserInfo(ctx)
 	if ctx.Written() {
 		return
 	}
 
+	if setting.Branchroom.Enabled {
+		access, err := branchroom_model.FindUserAccess(ctx, u.ID)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		ctx.Data["BranchroomAccess"] = access
+		ctx.Data["BranchroomEnabled"] = true
+	}
 	ctx.HTML(http.StatusOK, tplUserEdit)
 }
 
@@ -344,6 +439,8 @@ func EditUserPost(ctx *context.Context) {
 		ctx.HTML(http.StatusOK, tplUserEdit)
 		return
 	}
+
+	userLink := setting.AppSubURL + "/-/admin/users/" + url.PathEscape(ctx.PathParam("userid"))
 
 	if form.UserName != "" {
 		if err := user_service.RenameUser(ctx, u, form.UserName, ctx.Doer); err != nil {
@@ -364,15 +461,25 @@ func EditUserPost(ctx *context.Context) {
 				ctx.Data["Err_UserName"] = true
 				ctx.RenderWithErrDeprecated(ctx.Tr("user.form.name_chars_not_allowed", form.UserName), tplUserEdit, &form)
 			default:
-				ctx.ServerError("RenameUser", err)
+				ctx.ServerErrorAuto(err)
 			}
 			return
 		}
 	}
 
-	authOpts := &user_service.UpdateAuthOptions{
-		Password:  optional.FromNonDefault(form.Password),
-		LoginName: optional.Some(form.LoginName),
+	userType := u.Type
+	if formUserType, err := convert.UserTypeFromString(form.UserType); err == nil {
+		userType = formUserType
+	}
+
+	authOpts := &user_service.UpdateAuthOptions{}
+	if !u.IsTypeBot() && userType != user_model.UserTypeBot { // the auth fields hidden for bots still submit their values
+		authOpts.Password = optional.FromNonDefault(form.Password)
+		authOpts.LoginName = optional.Some(form.LoginName)
+		if fields := strings.Split(form.LoginType, "-"); len(fields) == 2 {
+			authSource, _ := strconv.ParseInt(fields[1], 10, 64)
+			authOpts.LoginSource = optional.Some(authSource)
+		}
 	}
 
 	// skip self Prohibit Login
@@ -380,13 +487,6 @@ func EditUserPost(ctx *context.Context) {
 		authOpts.ProhibitLogin = optional.Some(false)
 	} else {
 		authOpts.ProhibitLogin = optional.Some(form.ProhibitLogin)
-	}
-
-	fields := strings.Split(form.LoginType, "-")
-	if len(fields) == 2 {
-		authSource, _ := strconv.ParseInt(fields[1], 10, 64)
-
-		authOpts.LoginSource = optional.Some(authSource)
 	}
 
 	if err := user_service.UpdateAuth(ctx, u, authOpts); err != nil {
@@ -403,8 +503,11 @@ func EditUserPost(ctx *context.Context) {
 		case password.IsErrIsPwnedRequest(err):
 			ctx.Data["Err_Password"] = true
 			ctx.RenderWithErrDeprecated(ctx.Tr("auth.password_pwned_err"), tplUserEdit, &form)
+		case errors.Is(err, util.ErrInvalidArgument):
+			ctx.Flash.Error(err.Error())
+			ctx.Redirect(userLink)
 		default:
-			ctx.ServerError("UpdateUser", err)
+			ctx.ServerErrorAuto(err)
 		}
 		return
 	}
@@ -412,14 +515,14 @@ func EditUserPost(ctx *context.Context) {
 	if form.Email != "" {
 		if err := user_service.ReplacePrimaryEmailAddress(ctx, u, form.Email); err != nil {
 			switch {
-			case user_model.IsErrEmailCharIsNotSupported(err), user_model.IsErrEmailInvalid(err):
-				ctx.Data["Err_Email"] = true
-				ctx.RenderWithErrDeprecated(ctx.Tr("form.email_invalid"), tplUserEdit, &form)
 			case user_model.IsErrEmailAlreadyUsed(err):
 				ctx.Data["Err_Email"] = true
 				ctx.RenderWithErrDeprecated(ctx.Tr("form.email_been_used"), tplUserEdit, &form)
+			case errors.Is(err, util.ErrInvalidArgument):
+				ctx.Data["Err_Email"] = true
+				ctx.RenderWithErrDeprecated(ctx.Tr("form.email_invalid"), tplUserEdit, &form)
 			default:
-				ctx.ServerError("AddOrSetPrimaryEmailAddress", err)
+				ctx.ServerErrorAuto(err)
 			}
 			return
 		}
@@ -441,27 +544,36 @@ func EditUserPost(ctx *context.Context) {
 		IsRestricted:            optional.Some(form.Restricted),
 		Visibility:              optional.Some(form.Visibility),
 		Language:                optional.Some(form.Language),
+		UserType:                optional.Some(userType),
 	}
 
 	if err := user_service.UpdateUser(ctx, u, opts); err != nil {
-		if user_model.IsErrDeleteLastAdminUser(err) {
+		switch {
+		case user_model.IsErrDeleteLastAdminUser(err):
 			ctx.RenderWithErrDeprecated(ctx.Tr("auth.last_admin"), tplUserEdit, &form)
-		} else {
-			ctx.ServerError("UpdateUser", err)
+		case errors.Is(err, user_model.ErrBotCanNotBeAdmin):
+			ctx.Flash.Error(ctx.Tr("admin.users.convert_type.admin_not_allowed"))
+			ctx.Redirect(userLink)
+		case errors.Is(err, util.ErrInvalidArgument):
+			ctx.Flash.Error(err.Error())
+			ctx.Redirect(userLink)
+		default:
+			ctx.ServerErrorAuto(err)
 		}
 		return
 	}
+
 	log.Trace("Account profile updated by admin (%s): %s", ctx.Doer.Name, u.Name)
 
 	if form.Reset2FA {
 		if _, _, err := auth.DisableTwoFactor(ctx, u.ID); err != nil {
-			ctx.ServerError("auth.DisableTwoFactor", err)
+			ctx.ServerErrorAuto(err)
 			return
 		}
 	}
 
 	ctx.Flash.Success(ctx.Tr("admin.users.update_profile_success"))
-	ctx.Redirect(setting.AppSubURL + "/-/admin/users/" + url.PathEscape(ctx.PathParam("userid")))
+	ctx.Redirect(userLink)
 }
 
 func ImpersonateUser(ctx *context.Context) {
@@ -470,11 +582,18 @@ func ImpersonateUser(ctx *context.Context) {
 		ctx.JSONError("unable to get user")
 		return
 	}
-	err = auth_service.ImpersonateUser(ctx.Session, u)
-	if err != nil {
-		ctx.ServerError("unable to impersonate user", err)
+
+	if u.IsTypeBot() {
+		ctx.JSONError(ctx.Tr("admin.users.impersonate_bot_not_allowed"))
 		return
 	}
+
+	err = auth_service.ImpersonateUser(ctx.Session, u)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	audit.Record(ctx, audit_model.UserImpersonation, u)
 	ctx.JSONRedirect(setting.AppSubURL + "/user/settings")
 }
 
@@ -482,7 +601,7 @@ func ImpersonateUser(ctx *context.Context) {
 func DeleteUser(ctx *context.Context) {
 	u, err := user_model.GetUserByID(ctx, ctx.PathParamInt64("userid"))
 	if err != nil {
-		ctx.ServerError("GetUserByID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
@@ -508,7 +627,7 @@ func DeleteUser(ctx *context.Context) {
 			ctx.Flash.Error(ctx.Tr("auth.last_admin"))
 			ctx.Redirect(setting.AppSubURL + "/-/admin/users/" + url.PathEscape(ctx.PathParam("userid")))
 		default:
-			ctx.ServerError("DeleteUser", err)
+			ctx.ServerErrorAuto(err)
 		}
 		return
 	}
@@ -516,6 +635,65 @@ func DeleteUser(ctx *context.Context) {
 
 	ctx.Flash.Success(ctx.Tr("admin.users.deletion_success"))
 	ctx.Redirect(setting.AppSubURL + "/-/admin/users")
+}
+
+func RemoveUserFromOrg(ctx *context.Context) {
+	u := prepareUserInfo(ctx)
+	if ctx.Written() {
+		return
+	}
+
+	orgID := ctx.PathParamInt64("org_id")
+	org, err := org_model.GetOrgByID(ctx, orgID)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+
+	err = org_service.RemoveOrgUser(ctx, org, u)
+	if org_model.IsErrLastOrgOwner(err) {
+		ctx.Flash.Error(ctx.Tr("form.last_org_owner"))
+		ctx.JSONRedirect("")
+		return
+	} else if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr("admin.users.org_removed", org.Name))
+	ctx.JSONRedirect("")
+}
+
+func RemoveUserFromAllOrgs(ctx *context.Context) {
+	u := prepareUserInfo(ctx)
+	if ctx.Written() {
+		return
+	}
+
+	orgs, err := org_model.GetUserOrganizations(ctx, u.ID)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+
+	removedCount := 0
+	for i := range orgs {
+		err = org_service.RemoveOrgUser(ctx, orgs[i], u)
+		if org_model.IsErrLastOrgOwner(err) {
+			continue
+		} else if err != nil {
+			log.Error("Failed to remove user %s from org %s: %v", u.Name, orgs[i].Name, err)
+			continue
+		}
+		removedCount++
+	}
+
+	if removedCount < len(orgs) {
+		ctx.Flash.Warning(ctx.Tr("admin.users.some_orgs_removed", removedCount, len(orgs)))
+	} else {
+		ctx.Flash.Success(ctx.Tr("admin.users.all_orgs_removed"))
+	}
+	ctx.JSONRedirect("")
 }
 
 // AvatarPost response for change user's avatar request
@@ -547,4 +725,22 @@ func DeleteAvatar(ctx *context.Context) {
 	}
 
 	ctx.JSONRedirect(setting.AppSubURL + "/-/admin/users/" + strconv.FormatInt(u.ID, 10))
+}
+
+// RevokeBranchroomAccess removes a user's direct grants without changing team membership.
+func RevokeBranchroomAccess(ctx *context.Context) {
+	if !setting.Branchroom.Enabled {
+		ctx.NotFound()
+		return
+	}
+	user := prepareUserInfo(ctx)
+	if ctx.Written() {
+		return
+	}
+	if err := branchroom_service.RevokeAllDirectUserGrants(ctx, user.ID, branchroom_service.ActorFromUser(ctx.Doer)); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	ctx.Flash.Success(ctx.Tr("admin.users.branchroom_revoked"))
+	ctx.Redirect(setting.AppSubURL + "/-/admin/users/" + strconv.FormatInt(user.ID, 10) + "/edit")
 }

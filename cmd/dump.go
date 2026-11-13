@@ -13,13 +13,11 @@ import (
 
 	"gitea.dev/models/db"
 	"gitea.dev/modules/dump"
-	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/util"
 
-	"gitea.com/go-chi/session"
 	"github.com/urfave/cli/v3"
 )
 
@@ -92,7 +90,7 @@ func newDumpCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "type",
-				Usage: `Dump output format, default to "zip", supported types: ` + strings.Join(dump.SupportedOutputTypes, ", "),
+				Usage: `Dump output format, default to the --file extension if supported, else "zip", supported types: ` + strings.Join(dump.SupportedOutputTypes, ", "),
 			},
 		},
 	}
@@ -153,6 +151,10 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	}
 	dumper.Verbose = verbose
 	dumper.GlobalExcludeAbsPath(outFileName)
+	if setting.Branchroom.RestrictedRepoRootPath != "" {
+		dumper.GlobalExcludeAbsPath(branchroomDumpExcludes(setting.Branchroom.RestrictedRepoRootPath, setting.AppDataPath, setting.CustomPath)...)
+		log.Info("Branchroom restricted stores require a separate backup")
+	}
 	defer func() {
 		if err := dumper.Close(); err != nil {
 			fatal("Failed to save archive %q: %v", outFileName, err)
@@ -249,12 +251,8 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		log.Info("Packing data directory...%s", setting.AppDataPath)
 
 		var excludes []string
-		if setting.SessionConfig.OriginalProvider == "file" {
-			var opts session.Options
-			if err = json.Unmarshal([]byte(setting.SessionConfig.ProviderConfig), &opts); err != nil {
-				return err
-			}
-			excludes = append(excludes, opts.ProviderConfig)
+		if setting.SessionConfig.Provider == "file" {
+			excludes = append(excludes, setting.SessionConfig.ProviderConfig)
 		}
 
 		if cmd.IsSet("skip-index") && cmd.Bool("skip-index") {
@@ -325,4 +323,22 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		log.Info("Finish dumping in file %s", outFileName)
 	}
 	return nil
+}
+
+// branchroomDumpExcludes adds the restricted root as seen through each walked directory, since the dumper
+// matches exact walked paths and a symlinked data path would otherwise slip the canonical root through
+func branchroomDumpExcludes(restricted string, walked ...string) []string {
+	excludes := []string{restricted}
+	for _, base := range walked {
+		resolved, err := filepath.EvalSymlinks(base)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(resolved, restricted)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		excludes = append(excludes, filepath.Join(base, relative))
+	}
+	return excludes
 }

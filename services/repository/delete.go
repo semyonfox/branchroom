@@ -105,8 +105,8 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 	if err := branchroom_service.ReleaseRepositoryWorkspaceRetention(ctx, repoID); err != nil {
 		return fmt.Errorf("release Branchroom workspace retention: %w", err)
 	}
-	if err := branchroom_service.PurgeRepositoryPolicy(ctx, repoID); err != nil {
-		return fmt.Errorf("purge Branchroom policy: %w", err)
+	if err := branchroom_service.RetainRepositoryPolicyForDeletion(ctx, repoID); err != nil {
+		return fmt.Errorf("retain Branchroom policy: %w", err)
 	}
 	if err := deleteDBRepository(ctx, repoID); err != nil {
 		return err
@@ -143,6 +143,11 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 
 	if _, err := db.GetEngine(ctx).In("hook_id", builder.Select("id").From("webhook").Where(builder.Eq{"webhook.repo_id": repo.ID})).
 		Delete(&webhook.HookTask{}); err != nil {
+		return err
+	}
+
+	if _, err := db.GetEngine(ctx).In("release_id", builder.Select("id").From("`release`").Where(builder.Eq{"repo_id": repoID})).
+		Delete(&issues_model.Reaction{}); err != nil {
 		return err
 	}
 
@@ -405,7 +410,6 @@ func DeleteOwnerRepositoriesDirectly(ctx context.Context, owner *user_model.User
 			},
 			Private: true,
 			OwnerID: owner.ID,
-			Actor:   owner,
 		})
 		if err != nil {
 			return fmt.Errorf("GetUserRepositories: %w", err)

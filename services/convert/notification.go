@@ -9,8 +9,10 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	access_model "gitea.dev/models/perm/access"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/log"
 	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/web/middleware"
 )
 
 // ToNotificationThread convert a Notification to api.NotificationThread
@@ -27,7 +29,11 @@ func ToNotificationThread(ctx context.Context, n *activities_model.Notification)
 	if n.Repository == nil {
 		return result
 	}
-	perm, err := access_model.GetIndividualUserRepoPermission(ctx, n.Repository, n.User)
+	doer := n.User
+	if requestDoer, ok := middleware.GetContextData(ctx)[middleware.ContextDataKeySignedUser].(*user_model.User); ok {
+		doer = requestDoer
+	}
+	perm, err := access_model.GetIndividualUserRepoPermission(ctx, n.Repository, doer)
 	if err != nil {
 		log.Error("GetIndividualUserRepoPermission failed: %v", err)
 		return result
@@ -100,8 +106,18 @@ func ToNotificationThread(ctx context.Context, n *activities_model.Notification)
 // ToNotifications convert list of Notification to api.NotificationThread list
 func ToNotifications(ctx context.Context, nl activities_model.NotificationList) []*api.NotificationThread {
 	result := make([]*api.NotificationThread, 0, len(nl))
+	var reasons map[int64]activities_model.NotificationReason
+	if len(nl) > 0 {
+		var err error
+		// a list only ever holds one user's notifications
+		if reasons, err = nl.LoadReasons(ctx, nl[0].UserID); err != nil {
+			log.Error("LoadReasons: %v", err)
+		}
+	}
 	for _, n := range nl {
-		result = append(result, ToNotificationThread(ctx, n))
+		thread := ToNotificationThread(ctx, n)
+		thread.Reason = string(reasons[n.ID])
+		result = append(result, thread)
 	}
 	return result
 }

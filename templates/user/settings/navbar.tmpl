@@ -22,6 +22,9 @@
 			{{ctx.Locale.Tr "settings.security"}}
 		</a>
 		{{end}}
+		<a class="{{if .PageIsSettingsSavedReplies}}active {{end}}item" href="{{AppSubUrl}}/user/settings/replies">
+			{{ctx.Locale.Tr "settings.saved_replies"}}
+		</a>
 		<a class="{{if .PageIsSettingsBlockedUsers}}active {{end}}item" href="{{AppSubUrl}}/user/settings/blocked_users">
 			{{ctx.Locale.Tr "user.block.list"}}
 		</a>
@@ -33,6 +36,9 @@
 			{{ctx.Locale.Tr "settings.ssh_gpg_keys"}}
 		</a>
 		{{end}}
+		<a class="{{if .PageIsSettingsAudit}}active {{end}}item" href="{{AppSubUrl}}/user/settings/audit_logs">
+			{{ctx.Locale.Tr "audit.title"}}
+		</a>
 		{{if .EnableActions}}
 		<details class="item" {{if or .PageIsUserSettingsActionsGeneral .PageIsSharedSettingsRunners .PageIsSharedSettingsSecrets .PageIsSharedSettingsVariables .PageIsSharedSettingsScopedWorkflows}}open{{end}}>
 			<summary>{{ctx.Locale.Tr "actions.actions"}}</summary>

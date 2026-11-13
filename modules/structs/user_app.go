@@ -10,6 +10,8 @@ import (
 
 // AccessToken represents an API access token.
 type AccessToken struct {
+	ExpiresAt    *time.Time `json:"expires_at"`
+	Repositories []string   `json:"repositories"`
 	// The unique identifier of the access token
 	ID int64 `json:"id"`
 	// The name of the access token
@@ -33,9 +35,11 @@ type AccessTokenList []*AccessToken
 // CreateAccessTokenOption options when create access token
 // swagger:model CreateAccessTokenOption
 type CreateAccessTokenOption struct {
+	ExpiresAt    *time.Time `json:"expires_at"`
+	Repositories []string   `json:"repositories"`
 	// required: true
 	Name string `json:"name" binding:"Required"`
-	// example: ["all", "read:activitypub","read:issue", "write:misc", "read:notification", "read:organization", "read:package", "read:repository", "read:user"]
+	// example: ["all", "read:activitypub", "write:commitstatus", "read:issue", "write:misc", "read:notification", "read:organization", "read:package", "read:repository", "read:user"]
 	Scopes []string `json:"scopes"`
 }
 

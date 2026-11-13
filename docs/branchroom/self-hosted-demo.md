@@ -8,13 +8,13 @@ workspace or real secret-management system.
 ## Before you start
 
 Use a development instance, a throwaway repository, and two throwaway accounts. Do
-not use source or credentials that matter. Keep `[branchroom.environment]` disabled.
+not use source or credentials that matter.
 
 Create a separate existing directory for restricted stores. It must be a real
 directory, not a symlink, with no group or other access, normally mode `0700`. On
-Unix, the root and all of its ancestors must be owned by the Gitea service account or
-root; do not place it below another local user's directory. It must not be the public
-repository root, live inside it, or contain it. For example:
+Unix, the root must be owned by the Gitea service account. Its ancestors must be owned
+by that account or root. Do not place it below another local user's directory. It must
+not be the public repository root, live inside it, or contain it. For example:
 
 ```sh
 install -d -m 0700 -o gitea -g gitea /srv/gitea-branchroom-repositories
@@ -27,9 +27,6 @@ non-Unix hosts.
 [branchroom]
 ENABLED = true
 RESTRICTED_ROOT = /srv/gitea-branchroom-repositories
-
-[branchroom.environment]
-ENABLED = false
 ```
 
 The server refuses to start if the configured restricted root overlaps
@@ -37,9 +34,29 @@ The server refuses to start if the configured restricted root overlaps
 route hidden when `ENABLED` is false. `[repository] DISABLE_HTTP_GIT = true` also
 hides the handoff result and the restricted Git HTTP gateway.
 
+Restricted stores must not overlap public repositories, local storage, or the served
+`public`, `templates` and `options` directories under `CustomPath` and
+`StaticRootPath`. A root under the work path, such as `data/branchroom`, is fine. Local
+imports cannot read from the restricted root. `gitea dump` excludes restricted stores,
+including through a symlinked data path, so they need a separate backup. Branchroom
+refuses to start on MSSQL and under FastCGI (`PROTOCOL = fcgi` or `fcgi+unix`), because
+the gateway needs row locks and connection read deadlines. It also refuses
+`[security] DISABLE_GIT_HOOKS = false`, because editable server-side hooks run as the
+service account and could read restricted stores.
+
+Runners on the same host can also read restricted stores as the service account. The
+installed receive hook records the executable, configuration and restricted root paths,
+so moving any of them stops pushes until you run
+`gitea doctor check --run branchroom --fix`. Without `--fix` the same check verifies every
+audit chain and reports mappings without a store, stores without a mapping, and hooks
+that fail verification. It never deletes a store or repairs an audit row.
+
+Pushes run with `receive.fsckObjects`, which is stricter than an ordinary Gitea push.
+Incoming objects with legacy defects such as zero-padded file modes, a missing email or
+a bad timezone are rejected. History already in the store is not rechecked.
+
 Build and start Gitea using the normal local development instructions in
-[`docs/development.md`](../development.md). The environment foundation is not part
-of this walkthrough. Do not add a development key file or turn it on.
+[`docs/development.md`](../development.md).
 
 Use HTTPS if this instance is reachable over a network. A reverse proxy must preserve
 the `Authorization` header and must never cache `/_branchroom/` or
@@ -87,7 +104,9 @@ loopback listener. Hostnames other than `localhost` require HTTPS.
     git push origin HEAD:refs/heads/branchroom/demo
     ```
 
-    The push may be at most 1 MiB and must finish within 45 seconds. It can only
+    The push may be at most 1 MiB decoded and must finish within 45 seconds. Gzip
+    request bodies are supported. Reading an RPC body has a 45 second deadline.
+    Upload-pack has a separate 10 minute process limit. It can only
     create or fast-forward `refs/heads/branchroom/*`; tags, deletes,
     non-fast-forward updates, SSH, and LFS are rejected.
 12. Return to the owner's Branchroom settings and rotate the clone locator for the
@@ -108,10 +127,13 @@ workspace stays failed safely. Use only dummy data in this demo, including in
 `demo.env`.
 
 The repository owner receives an explicit discovery grant when creating the scope.
-A site administrator is not a Branchroom bypass. Direct `write_source` grants apply
+Site administrators are trusted operators who can use upstream impersonation, password
+reset and membership tools. Direct `write_source` grants apply
 only to active individual users and ready workspaces. Organization teams can provide
 source-read access, but never source-write access. Bots, deploy keys, and Actions
-tasks cannot use this transport.
+tasks cannot use this transport. OAuth2 JWTs in either Basic credential position are
+refused. Use password Basic or a personal access token. Discovery and source-read grants
+may each come from a direct grant or an eligible team.
 
 Rotation does not revoke grants. A Git protocol phase that was already authorized when
 the rotation commits may finish, but a fresh request using the old clone URL fails. The
@@ -129,11 +151,10 @@ URL, a filesystem path, or a store ID.
   tags, delete refs, or force a non-fast-forward update.
 - No restricted pull-request or publication workflow. Ordinary pull requests merge
   public repository branches; restricted work is not promoted into them.
-- No real secret storage or release. The development-only encryption code is sealed
-  internal plumbing and refuses production startup. Environment materialization and
-  production KMS stay deferred and disabled, with no selected production provider.
-- No push-time secret scanner. The current preflight module is not wired into pushes,
-  pull requests, imports, or publication.
+- No secret storage, release or push-time secret scanner. The earlier development-only
+  environment store and preflight scanner were removed because nothing called them.
+- Repository deletion keeps the retired scopes, grants, decisions and audit chain.
+  There is no retention period or purge for that history.
 
 Provisioning copies the repository synchronously. `MAX_WORKSPACES_PER_OWNER` limits
 active workspace counts, but there is no storage-size quota.
@@ -144,6 +165,5 @@ The restricted Git HTTP gateway accepts only GET/HEAD
 `info/refs?service=git-upload-pack` or `git-receive-pack`, and POST `git-upload-pack`
 or `git-receive-pack`. It requires Basic authentication and rechecks authorization for
 each advertisement and RPC request. It has no archive, dumb-object, SSH, LFS, API,
-CLI, or runner route. The handoff page is not the security boundary. Production KMS
-and secret-bearing runner work stay deferred and disabled, with no production provider
-selected.
+CLI, or runner route. The handoff page is not the security boundary. A request body
+over 1 MiB from an authorized user gets 413.

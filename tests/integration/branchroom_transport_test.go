@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -48,9 +49,9 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 		}
 		setting.LocalURL = u.String()
 
-		restricted, err := branchroom.RestrictedRepository("transport-regression")
+		restricted, err := branchroom.RestrictedRepository("a13e2a27-167d-4586-a511-42910dc3a955")
 		require.NoError(t, err)
-		require.NoError(t, git.InitRepository(t.Context(), restricted, git.Sha1ObjectFormat.Name()))
+		require.NoError(t, git.InitRepository(t.Context(), restricted, git.Sha1ObjectFormat.Name(), ""))
 		require.NoError(t, git.ForceFastImport(t.Context(), restricted, []git.FastImportCommit{{
 			Ref:     "refs/heads/restricted",
 			Message: "restricted commit",
@@ -62,6 +63,27 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 		restrictedCommit := branchroomObjectID(t, restricted, "refs/heads/restricted")
 		restrictedBlob := branchroomObjectID(t, restricted, "refs/heads/restricted:restricted.txt")
 		publicURL := u.JoinPath("user2/repo1.git")
+		for _, path := range []string{
+			"/user2/repo1/raw/commit/" + restrictedCommit + "/restricted.txt",
+			"/user2/repo1/src/commit/" + restrictedCommit + "/restricted.txt",
+			"/user2/repo1/blame/commit/" + restrictedCommit + "/restricted.txt",
+			"/user2/repo1/commit/" + restrictedCommit,
+			"/user2/repo1/commit/" + restrictedCommit + ".diff",
+			"/user2/repo1/compare/master..." + restrictedCommit,
+			"/user2/repo1/archive/" + restrictedCommit + ".zip",
+			"/api/v1/repos/user2/repo1/git/commits/" + restrictedCommit,
+			"/api/v1/repos/user2/repo1/git/blobs/" + restrictedBlob,
+			"/api/v1/repos/user2/repo1/contents/restricted.txt?ref=" + restrictedCommit,
+			"/api/v1/repos/user2/repo1/archive/" + restrictedCommit + ".zip",
+		} {
+			t.Run(path, func(t *testing.T) {
+				expected := http.StatusNotFound
+				if strings.Contains(path, "/git/blobs/") {
+					expected = http.StatusBadRequest
+				}
+				MakeRequest(t, NewRequest(t, http.MethodGet, path), expected)
+			})
+		}
 
 		t.Run("smart HTTP advertisement", func(t *testing.T) {
 			req, err := http.NewRequest(http.MethodGet, publicURL.JoinPath("info/refs").String()+"?service=git-upload-pack", nil)
@@ -78,7 +100,7 @@ func TestBranchroomUnregisteredStoreDoesNotLeakThroughPublicGitHTTP(t *testing.T
 
 		t.Run("known SHA fetch", func(t *testing.T) {
 			local := t.TempDir()
-			require.NoError(t, git.InitRepositoryLocal(t.Context(), local, false, git.Sha1ObjectFormat.Name()))
+			require.NoError(t, git.InitRepositoryLocal(t.Context(), local, false, git.Sha1ObjectFormat.Name(), ""))
 			_, _, err := gitcmd.NewCommand("fetch").AddDynamicArguments(publicURL.String(), restrictedCommit).
 				WithDir(local).RunStdString(t.Context())
 			assert.Error(t, err)
@@ -125,6 +147,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 		setting.Branchroom = setting.BranchroomConfig{
 			Enabled:                true,
 			RestrictedRepoRootPath: branchroomTestRoot(t),
+			MaxGitRequestSize:      1 << 20,
 		}
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
@@ -225,6 +248,29 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 			assert.NotContains(t, public.Body, restrictedCommit)
 		})
 
+		t.Run("gzip clone receives all distinct refs", func(t *testing.T) {
+			commits := make([]git.FastImportCommit, 150)
+			for i := range commits {
+				commits[i] = git.FastImportCommit{Ref: fmt.Sprintf("refs/heads/gzip-%03d", i), Message: fmt.Sprintf("gzip commit %d", i)}
+			}
+			require.NoError(t, git.ForceFastImport(t.Context(), restricted, commits))
+			cloneURL := *gatewayURL
+			cloneURL.User = url.UserPassword("user4", userPassword)
+			cloneDir := t.TempDir()
+			tracePath := filepath.Join(t.TempDir(), "curl.trace")
+			_, _, err := gitcmd.NewCommand("-c", "protocol.version=0", "clone").AddDynamicArguments(cloneURL.String(), cloneDir).WithEnv(append(os.Environ(), "GIT_TRACE_CURL="+tracePath, "GIT_TRACE_CURL_NO_DATA=1")).RunStdString(t.Context())
+			require.NoError(t, err)
+			trace, readErr := os.ReadFile(tracePath)
+			require.NoError(t, readErr)
+			assert.Contains(t, strings.ToLower(string(trace)), "content-encoding: gzip")
+			refs, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin/gzip-*").WithDir(cloneDir).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Len(t, strings.Fields(refs), 300)
+			expected, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/gzip-*").WithRepo(restricted).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, strings.ReplaceAll(expected, " refs/heads/", " refs/remotes/origin/"), refs)
+		})
+
 		t.Run("mandatory password changes deny source access", func(t *testing.T) {
 			require.NoError(t, user_model.UpdateUserCols(t.Context(), &user_model.User{ID: 4, MustChangePassword: true}, "must_change_password"))
 			response := makeBranchroomGitHTTPRequest(t, http.MethodGet, infoRefsURL, "user4", userPassword)
@@ -267,7 +313,7 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 				{method: http.MethodGet, url: gatewayURL.JoinPath("info/refs").String() + "?service=git-upload-pack&go-get=1"},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-archive").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String()},
-				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "gzip") }},
+				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "br") }},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", body: strings.Repeat("x", (1<<20)+1)},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects/info/packs").String()},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects", restrictedCommit[:2], restrictedCommit[2:]).String()},
@@ -322,6 +368,7 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		defer test.MockVariableValue(&setting.Branchroom)()
 		defer test.MockVariableValue(&setting.CustomConf)()
+		defer test.MockVariableValue(&setting.LocalURL, u.String())()
 		restrictedRoot := branchroomTestRoot(t)
 		setting.CustomConf = branchroomReceiveHookTestConfig(t, u, restrictedRoot)
 		setting.Branchroom = setting.BranchroomConfig{
@@ -331,6 +378,7 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
 		require.NoError(t, err)
+		require.NoError(t, git.CreateDelegateHooks(t.Context(), repository))
 		baseSHA, err := git.GetBranchCommitID(t.Context(), repository.CodeStorageRepo(), repository.DefaultBranch)
 		require.NoError(t, err)
 		scope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{
@@ -397,10 +445,24 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 		require.NoError(t, git.Clone(t.Context(), writerURL.String(), cloneDir, git.CloneRepoOptions{}))
 		firstCommit := commitBranchroomFakeEnvironment(t, cloneDir, "BRANCHROOM_FAKE_TOKEN=not-a-real-token\n", "add fake environment")
 		const restrictedRef = "refs/heads/branchroom/fake-environment"
+		publicURL := *u.JoinPath("user2", "repo1.git")
+		publicURL.User = url.UserPassword(ordinaryWriter.Name, userPassword)
+		_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
+		require.Error(t, err)
+		assert.Contains(t, stderr, "Use the restricted clone URL")
+		response := MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/branches", map[string]string{"new_branch_name": "branchroom/api", "old_branch_name": repository.DefaultBranch}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+		assert.Contains(t, response.Body.String(), "Use the restricted clone URL")
+		response = MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/contents/reserved.txt", map[string]string{"branch": repository.DefaultBranch, "new_branch": "branchroom/api-file", "content": "dGVzdA=="}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+		assert.Contains(t, response.Body.String(), "Use the restricted clone URL")
+
 		t.Run("a direct writer cannot push outside the branchroom namespace", func(t *testing.T) {
-			_, _, err := gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:refs/heads/"+repository.DefaultBranch).WithDir(cloneDir).RunStdString(t.Context())
-			require.Error(t, err)
+			_, _, pushErr := gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:refs/heads/"+repository.DefaultBranch).WithDir(cloneDir).RunStdString(t.Context())
+			require.Error(t, pushErr)
 			assert.Equal(t, baseSHA, branchroomObjectID(t, restricted, "refs/heads/"+repository.DefaultBranch))
+			events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "receive_rejected", events[len(events)-1].ReasonCode)
+			assert.Contains(t, events[len(events)-1].Details, "refs/heads/"+repository.DefaultBranch)
 		})
 		_, _, err = gitcmd.NewCommand("push").AddDynamicArguments("origin", "HEAD:"+restrictedRef).WithDir(cloneDir).RunStdString(t.Context())
 		require.NoError(t, err)
@@ -409,6 +471,15 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("a direct writer pushes only to the isolated branchroom namespace", func(t *testing.T) {
+			events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+			require.NoError(t, err)
+			event := events[len(events)-1]
+			assert.Equal(t, "receive_accepted", event.ReasonCode)
+			assert.Contains(t, event.Details, restrictedRef)
+			assert.Contains(t, event.Details, firstCommit)
+			assert.Contains(t, event.Details, secondAllowedCommit)
+			require.NoError(t, branchroom_model.VerifyScopeAuditChain(t.Context(), scope))
+
 			assert.Equal(t, secondAllowedCommit, branchroomObjectID(t, restricted, restrictedRef))
 			contents, _, err := gitcmd.NewCommand("show").AddDynamicArguments(restrictedRef + ":.env").WithRepo(restricted).RunStdString(t.Context())
 			require.NoError(t, err)
@@ -424,7 +495,7 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.NotContains(t, publicAdvertisement.Body, secondAllowedCommit)
 
 			publicClone := t.TempDir()
-			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name()))
+			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name(), ""))
 			_, _, err = gitcmd.NewCommand("fetch").AddDynamicArguments(u.JoinPath("user2", "repo1.git").String(), secondAllowedCommit).WithDir(publicClone).RunStdString(t.Context())
 			assert.Error(t, err)
 		})
