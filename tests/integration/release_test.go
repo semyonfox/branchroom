@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"testing"
 
+	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
@@ -75,8 +76,23 @@ func TestViewReleases(t *testing.T) {
 func TestViewReleasesNoLogin(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
 
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	assert.NoError(t, repo_model.SetLatestReleaseID(t.Context(), repo, 1))
 	req := NewRequest(t, "GET", "/user2/repo1/releases")
-	MakeRequest(t, req, http.StatusOK)
+	resp := MakeRequest(t, req, http.StatusOK)
+	doc := NewHTMLParser(t, resp.Body)
+	latest := doc.Find(".release-entry").FilterFunction(func(_ int, s *goquery.Selection) bool {
+		return s.Find(".release-list-title a").AttrOr("href", "") == "/user2/repo1/releases/tag/v1.1"
+	})
+	assert.Equal(t, "Latest", latest.Find(".release-list-title .label").Text())
+	assert.Equal(t, repo.HTMLURL()+"/releases/latest/download/attach1", latest.Find("button[data-clipboard-text]").AttrOr("data-clipboard-text", ""))
+	assert.Contains(t, latest.Find(".attachment-right-info").Text(), "0 downloads")
+
+	_, err := db.GetEngine(t.Context()).ID(1).Cols("is_prerelease").Update(&repo_model.Release{IsPrerelease: true})
+	assert.NoError(t, err)
+	resp = MakeRequest(t, req, http.StatusOK)
+	doc = NewHTMLParser(t, resp.Body)
+	assert.Equal(t, repo.HTMLURL()+"/releases/download/v1.1/attach1", doc.Find("button[data-clipboard-text]").AttrOr("data-clipboard-text", ""))
 }
 
 func TestCreateRelease(t *testing.T) {
@@ -87,7 +103,11 @@ func TestCreateRelease(t *testing.T) {
 			session := loginUser(t, "user2")
 			createNewRelease(t, session, "/user2/repo1", "v0.0.1", "v0.0.1", releaseType == "prerelease", releaseType == "draft")
 
-			checkLatestReleaseAndCount(t, session, "/user2/repo1", "v0.0.1", translation.NewLocale("en-US").TrString("repo.release."+releaseType), 4)
+			labelKey := releaseType
+			if releaseType == "stable" {
+				labelKey = "latest"
+			}
+			checkLatestReleaseAndCount(t, session, "/user2/repo1", "v0.0.1", translation.NewLocale("en-US").TrString("repo.release."+labelKey), 4)
 		})
 	}
 }
@@ -107,7 +127,7 @@ func TestCreateReleasePaging(t *testing.T) {
 
 	// Check that user4 does not see draft and still see 10 latest releases
 	session2 := loginUser(t, "user4")
-	assert.Equal(t, "v0.0.11", checkLatestReleaseAndCount(t, session2, "/user2/repo1", "v0.0.11", translation.NewLocale("en-US").TrString("repo.release.stable"), 10))
+	assert.Equal(t, "v0.0.11", checkLatestReleaseAndCount(t, session2, "/user2/repo1", "v0.0.11", translation.NewLocale("en-US").TrString("repo.release.latest"), 10))
 }
 
 func TestViewReleaseListNoLogin(t *testing.T) {
@@ -144,10 +164,10 @@ func TestViewReleaseListNoLogin(t *testing.T) {
 		"/user2/repo-release/releases/tag/v1.0",
 	}, links)
 	assert.Equal(t, []string{
-		"1 commits", // like v1.1
-		"1 commits", // like v1.1
+		"1 commit", // like v1.1
+		"1 commit", // like v1.1
 		"0 commits",
-		"1 commits", // should be 3 commits ahead and 2 commits behind, but not implemented yet
+		"1 commit", // should be 3 commits ahead and 2 commits behind, but not implemented yet
 		"3 commits",
 	}, commitsToMain)
 }

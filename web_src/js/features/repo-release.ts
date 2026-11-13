@@ -1,7 +1,7 @@
 import {POST} from '../modules/fetch.ts';
 import {hideToastsAll, showErrorToast} from '../modules/toast.ts';
 import {getComboMarkdownEditor} from './comp/ComboMarkdownEditor.ts';
-import {hideElem} from '../utils/dom.ts';
+import {hideElem, showElem, generateElemId} from '../utils/dom.ts';
 import {fomanticQuery} from '../modules/fomantic/base.ts';
 import {hideModal, showModal} from '../modules/modal.ts';
 import {registerGlobalEventFunc, registerGlobalInitFunc} from '../modules/observer.ts';
@@ -9,6 +9,25 @@ import {htmlEscape} from '../utils/html.ts';
 import {compareVersions} from 'compare-versions';
 
 export function initRepoReleaseNew() {
+  registerGlobalInitFunc('initReleaseNotes', (detail: HTMLElement) => {
+    const notes = detail.querySelector<HTMLElement>('.release-notes')!;
+    const content = notes.querySelector<HTMLElement>('.markup')!;
+    const button = notes.querySelector<HTMLButtonElement>('button')!;
+    const limit = Number.parseFloat(getComputedStyle(content).lineHeight) * 30;
+    if (content.scrollHeight <= limit) return;
+    content.id = generateElemId('release-notes-');
+    button.setAttribute('aria-controls', content.id);
+    content.classList.add('release-notes-collapsed');
+    showElem(button);
+    if (detail.getAttribute('data-promote-downloads') === 'true') {
+      notes.before(detail.querySelector('.download')!);
+    }
+    button.addEventListener('click', () => {
+      const collapsed = content.classList.toggle('release-notes-collapsed');
+      button.setAttribute('aria-expanded', String(!collapsed));
+      button.textContent = button.getAttribute(collapsed ? 'data-show-more' : 'data-show-less');
+    });
+  });
   registerGlobalEventFunc('click', 'onReleaseEditAttachmentDelete', (el) => {
     const uuid = el.getAttribute('data-uuid')!;
     const id = el.getAttribute('data-id')!;
