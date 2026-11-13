@@ -35,13 +35,14 @@ func hookPostReceiveCollectPushUpdates(opts *private.HookOptions, repo *repo_mod
 		// may be a very large number of them).
 		if refFullName.IsBranch() || refFullName.IsTag() {
 			option := &repo_module.PushUpdateOptions{
-				RefFullName:  refFullName,
-				OldCommitID:  opts.OldCommitIDs[i],
-				NewCommitID:  opts.NewCommitIDs[i],
-				PusherID:     opts.UserID,
-				PusherName:   opts.UserName,
-				RepoUserName: repo.OwnerName,
-				RepoName:     repo.Name,
+				RefFullName:     refFullName,
+				OldCommitID:     opts.OldCommitIDs[i],
+				NewCommitID:     opts.NewCommitIDs[i],
+				PusherID:        opts.UserID,
+				UserExtDoerData: opts.UserExtDoerData,
+				PusherName:      opts.UserName,
+				RepoUserName:    repo.OwnerName,
+				RepoName:        repo.Name,
 			}
 			updates = append(updates, option)
 		}

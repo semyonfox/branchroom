@@ -153,6 +153,9 @@ func UpdateIssuesCommit(ctx context.Context, doer *user_model.User, repo *repo_m
 			} else {
 				refRepo = repo
 			}
+			if !repo_model.DoerTokenAllowsRepo(ctx, doer, refRepo) {
+				continue
+			}
 			if refIssue, err = getIssueFromRef(ctx, refRepo, ref.Index); err != nil {
 				return err
 			}

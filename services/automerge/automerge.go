@@ -208,9 +208,9 @@ func handlePullRequestAutoMerge(ctx context.Context, pr *issues_model.PullReques
 	}
 
 	// Merge if all checks succeeded
-	_, doer, err := user_model.GetPossibleUserByID(ctx, scheduledPRM.DoerID)
+	doer, err := user_model.GetDoerPermissionUser(ctx, scheduledPRM.DoerID, scheduledPRM.UserExtDoerData)
 	if err != nil {
-		return fmt.Errorf("failed to get scheduled user[%d]: %w", scheduledPRM.DoerID, err)
+		return fmt.Errorf("handlePullRequestAutoMerge: failed to get scheduled user[%d]: %w", scheduledPRM.DoerID, err)
 	}
 
 	perm, err := access_model.GetDoerRepoPermission(ctx, pr.BaseRepo, doer)
