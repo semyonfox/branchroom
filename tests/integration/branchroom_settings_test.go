@@ -16,6 +16,7 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -132,7 +133,7 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		body := resp.Body.String()
 		assert.Contains(t, body, string(branchroom_model.WorkspaceStateReady))
-		assert.Contains(t, body, "Allows HTTPS pushes with clone access and Write on the repository")
+		assert.Contains(t, body, "Allows HTTPS pushes with clone access and Read on the repository")
 		assert.NotContains(t, body, workspace.WorkspaceKey)
 		assert.NotContains(t, body, oldRouteKey)
 		assert.NotContains(t, body, workspace.RouteKey)
@@ -256,7 +257,7 @@ func TestBranchroomSettings(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, sourceGrants, 1)
 		event := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{GrantID: sourceGrants[0].ID, ReasonCode: "source_read_grant_created"})
-		assert.JSONEq(t, fmt.Sprintf(`{"not_before_unix":0,"expires_unix":%d}`, sourceGrants[0].ExpiresUnix), event.Details)
+		assert.JSONEq(t, fmt.Sprintf(`{"subject_id":4,"grantee_username":"user4","not_before_unix":0,"expires_unix":%d}`, sourceGrants[0].ExpiresUnix), event.Details)
 
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-grants/"+strconv.FormatInt(sourceGrants[0].ID, 10)+"/revoke"), http.StatusSeeOther)
 		storedSourceGrant, err := branchroom_model.GetGrantByID(t.Context(), sourceGrants[0].ID)
@@ -387,12 +388,12 @@ func TestBranchroomSettings(t *testing.T) {
 		unittest.AssertNotExistsBean(t, &branchroom_model.Grant{ScopeID: scope.ID, SubjectID: 5, SubjectType: branchroom_model.SubjectTypeUser})
 		setting.Branchroom.DefaultGrantDuration = 72 * time.Hour
 		renewURL := url + "/scopes/" + strconv.FormatInt(scope.ID, 10) + "/grants/" + strconv.FormatInt(grant.ID, 10) + "/renew"
-		member.MakeRequest(t, NewRequest(t, http.MethodPost, renewURL), http.StatusNotFound)
-		owner.MakeRequest(t, NewRequest(t, http.MethodPost, renewURL), http.StatusSeeOther)
+		member.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, renewURL, map[string]string{"expires": time.Now().Add(36 * time.Hour).Format("2006-01-02T15:04")}), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, renewURL, map[string]string{"expires": time.Now().Add(36 * time.Hour).Format("2006-01-02T15:04")}), http.StatusSeeOther)
 		renewed, err := branchroom_model.GetGrantByID(t.Context(), grant.ID)
 		require.NoError(t, err)
 		assert.Greater(t, renewed.ExpiresUnix, grant.ExpiresUnix)
-		assert.InDelta(t, int64(timeutil.TimeStampNow().AddDuration(48*time.Hour)), int64(renewed.ExpiresUnix), 2)
+		assert.InDelta(t, int64(timeutil.TimeStampNow().AddDuration(36*time.Hour)), int64(renewed.ExpiresUnix), 60)
 		unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{GrantID: grant.ID, ReasonCode: "grant_renewed"})
 		orgScope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{RepoID: 3, Actor: actor, Name: "other-repository", Surface: branchroom_model.SurfaceWeb})
 		require.NoError(t, err)
@@ -537,6 +538,7 @@ func TestBranchroomAuditEvidence(t *testing.T) {
 	doc := NewHTMLParser(t, resp.Body)
 	assert.Contains(t, doc.Find("#branchroom-chain-status").Text(), "Audit hash chain intact")
 	assert.Contains(t, doc.Find("tbody").Text(), "workspace_created")
+	assert.Contains(t, doc.Find("tbody").Text(), `"grantee_username":"user2"`)
 	assert.NotContains(t, pageBody, workspace.RouteKey)
 	collaborator.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL), http.StatusNotFound)
 	collaborator.MakeRequest(t, NewRequest(t, http.MethodPost, auditURL+"/export"), http.StatusNotFound)
@@ -545,6 +547,7 @@ func TestBranchroomAuditEvidence(t *testing.T) {
 	assert.Contains(t, resp.Header().Get("Content-Disposition"), ".jsonl")
 	assert.NotContains(t, resp.Body.String(), workspace.RouteKey)
 	assert.NotContains(t, resp.Body.String(), workspace.StoreID)
+	assert.Contains(t, resp.Body.String(), `"grantee_username":"user2"`)
 	lines := bytes.Split(bytes.TrimSpace(resp.Body.Bytes()), []byte("\n"))
 	require.Greater(t, len(lines), 2)
 	var summary struct {
@@ -563,4 +566,52 @@ func TestBranchroomAuditEvidence(t *testing.T) {
 	resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL+"?actor=user4"), http.StatusOK)
 	assert.Contains(t, resp.Body.String(), "No audit events match")
 	owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL+"?from=invalid"), http.StatusBadRequest)
+}
+
+func TestBranchroomRemovePerson(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	defer test.MockVariableValue(&setting.Branchroom, setting.BranchroomConfig{Enabled: true})()
+	repository := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	contractor := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	require.NoError(t, repository_service.AddOrUpdateCollaborator(t.Context(), repository, contractor, perm.AccessModeRead))
+	owner := loginUser(t, "user2")
+	member := loginUser(t, "user4")
+	actor := branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+	scopes := make([]*branchroom_model.Scope, 0)
+	for _, name := range []string{"first", "second"} {
+		scope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{RepoID: 1, Actor: actor, Name: name, Surface: branchroom_model.SurfaceWeb})
+		require.NoError(t, err)
+		scopes = append(scopes, scope)
+		_, err = branchroom_service.CreateRepositoryDiscoveryGrant(t.Context(), branchroom_service.CreateRepositoryDiscoveryGrantRequest{RepoID: 1, ScopeID: scope.ID, Actor: actor, SubjectUsername: "user4", Surface: branchroom_model.SurfaceWeb})
+		require.NoError(t, err)
+	}
+	futureGrant := &branchroom_model.Grant{ScopeID: scopes[1].ID, SubjectType: branchroom_model.SubjectTypeUser, SubjectID: 4, Action: branchroom_model.ActionReadSource, CreatedByID: 2, NotBeforeUnix: timeutil.TimeStampNow().AddDuration(time.Hour), ExpiresUnix: timeutil.TimeStampNow().AddDuration(24 * time.Hour)}
+	require.NoError(t, branchroom_model.InsertGrant(t.Context(), futureGrant))
+	response := member.MakeRequest(t, NewRequest(t, http.MethodGet, "/user2/repo1"), http.StatusOK)
+	assert.Contains(t, response.Body.String(), ">Restricted workspace</a>")
+	outsider := loginUser(t, "user5")
+	response = outsider.MakeRequest(t, NewRequest(t, http.MethodGet, "/user2/repo1"), http.StatusOK)
+	assert.NotContains(t, response.Body.String(), ">Restricted workspace</a>")
+	removeURL := "/user2/repo1/settings/branchroom/people/4/remove"
+	member.MakeRequest(t, NewRequest(t, http.MethodPost, removeURL), http.StatusNotFound)
+	owner.MakeRequest(t, NewRequest(t, http.MethodPost, removeURL), http.StatusSeeOther)
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Collaboration{RepoID: 1, UserID: 4})
+	futureGrant, err := branchroom_model.GetGrantByID(t.Context(), futureGrant.ID)
+	require.NoError(t, err)
+	assert.NotZero(t, futureGrant.RevokedUnix)
+
+	for _, scope := range scopes {
+		grants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, branchroom_model.ActionDiscover, timeutil.TimeStampNow())
+		require.NoError(t, err)
+		for _, grant := range grants {
+			assert.NotEqual(t, int64(4), grant.SubjectID)
+		}
+		event := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{ScopeID: scope.ID, ReasonCode: "grant_revoked"})
+		assert.Contains(t, event.Details, `"grantee_username":"user4"`)
+	}
+	owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, removeURL, map[string]string{"remove_collaborator": "true"}), http.StatusSeeOther)
+	unittest.AssertNotExistsBean(t, &repo_model.Collaboration{RepoID: 1, UserID: 4})
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{ScopeID: scopes[0].ID, ReasonCode: "collaborator_removed"})
+	response = member.MakeRequest(t, NewRequest(t, http.MethodGet, "/user2/repo1"), http.StatusOK)
+	assert.NotContains(t, response.Body.String(), ">Restricted workspace</a>")
 }

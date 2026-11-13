@@ -4,13 +4,16 @@
 package setting
 
 import (
+	stdcontext "context"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
+	"gitea.dev/models/db"
 	organization_model "gitea.dev/models/organization"
 	unit_model "gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -23,6 +26,7 @@ import (
 	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
+	repo_service "gitea.dev/services/repository"
 )
 
 const tplBranchroom templates.TplName = "repo/settings/branchroom"
@@ -166,6 +170,17 @@ func Branchroom(ctx *context.Context) {
 			userIDs = append(userIDs, grant.SubjectID)
 		}
 	}
+	peopleGrants := make([]*branchroom_model.Grant, 0)
+	if err := db.GetEngine(ctx).Table("branchroom_grant").
+		Join("INNER", "branchroom_scope", "branchroom_scope.id = branchroom_grant.scope_id").
+		Where("branchroom_scope.repo_id = ? AND branchroom_grant.subject_type = ? AND branchroom_grant.revoked_unix = 0", ctx.Repo.Repository.ID, branchroom_model.SubjectTypeUser).
+		Select("branchroom_grant.*").Find(&peopleGrants); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	for _, grant := range peopleGrants {
+		userIDs = append(userIDs, grant.SubjectID)
+	}
 	users, err := user_model.GetUsersMapByIDs(ctx, userIDs)
 	if err != nil {
 		ctx.ServerErrorAuto(err)
@@ -185,7 +200,7 @@ func Branchroom(ctx *context.Context) {
 			Kind:                  scope.Kind,
 			Name:                  scope.Name,
 			State:                 scope.State,
-			CanGrantDiscovery:     scope.State == branchroom_model.ScopeStateActive,
+			CanGrantDiscovery:     scope.State == branchroom_model.ScopeStateActive && (workspace == nil || workspace.State != branchroom_model.WorkspaceStatePurged),
 			CanProvisionWorkspace: scope.State == branchroom_model.ScopeStateActive && workspace == nil,
 			HasWorkspace:          workspace != nil,
 			DiscoveryGrants:       make([]branchroomDirectUserGrantData, 0, len(discoveryGrantsByScopeID[scope.ID])),
@@ -257,6 +272,13 @@ func Branchroom(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings.branchroom")
 	ctx.Data["PageIsSettingsBranchroom"] = true
 	ctx.Data["BranchroomScopes"] = scopeData
+	people := make([]*user_model.User, 0, len(users))
+	for _, user := range users {
+		people = append(people, user)
+	}
+	slices.SortFunc(people, func(a, b *user_model.User) int { return strings.Compare(a.Name, b.Name) })
+	ctx.Data["BranchroomPeople"] = people
+	ctx.Data["BranchroomRenewExpiry"] = time.Now().Add(setting.Branchroom.GrantDuration()).Format("2006-01-02T15:04")
 	auditScopes := make([]*branchroom_model.Scope, 0, len(scopes))
 	for _, scope := range scopes {
 		if scope.Kind == branchroom_model.ScopeKindRepository {
@@ -795,6 +817,43 @@ func requireBranchroomScopeOwner(ctx *context.Context) bool {
 // BranchroomGrantRenewPost renews a grant for the repository owner.
 func BranchroomGrantRenewPost(ctx *context.Context) {
 	branchroomDirectUserGrantRevokePost(ctx, func(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error {
-		return branchroom_service.RenewRepositoryGrant(ctx, branchroom_service.RenewRepositoryGrantRequest{RepoID: repoID, ScopeID: scopeID, GrantID: grantID, Actor: actor, Surface: branchroom_model.SurfaceWeb})
+		expires, ok := parseBranchroomLocalDatetime(ctx.FormString("expires"))
+		if !ok || expires == 0 {
+			return util.NewInvalidArgumentErrorf("invalid renewal expiry")
+		}
+		return branchroom_service.RenewRepositoryGrant(ctx, branchroom_service.RenewRepositoryGrantRequest{ExpiresUnix: expires, RepoID: repoID, ScopeID: scopeID, GrantID: grantID, Actor: actor, Surface: branchroom_model.SurfaceWeb})
 	}, "repo.settings.branchroom.grant_renew_failed", "repo.settings.branchroom.grant_renewed")
+}
+
+func BranchroomRemovePersonPost(ctx *context.Context) {
+	if !requireBranchroomScopeOwner(ctx) {
+		return
+	}
+	if err := db.WithTx(ctx, func(txCtx stdcontext.Context) error {
+		userID := ctx.PathParamInt64("userID")
+		actor := branchroom_service.ActorFromUser(ctx.Doer)
+		if err := branchroom_service.RemoveRepositoryPerson(txCtx, ctx.Repo.Repository.ID, userID, actor); err != nil {
+			return err
+		}
+		if !ctx.FormBool("remove_collaborator") {
+			return nil
+		}
+		subject, err := user_model.GetUserByID(txCtx, userID)
+		if err != nil {
+			return err
+		}
+		if err := repo_service.DeleteCollaboration(txCtx, ctx.Repo.Repository, subject); err != nil {
+			return err
+		}
+		return branchroom_service.RecordRepositoryCollaboratorRemoval(txCtx, ctx.Repo.Repository.ID, userID, actor)
+	}); err != nil {
+		if errors.Is(err, util.ErrNotExist) {
+			ctx.NotFound()
+			return
+		}
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	ctx.Flash.Success(ctx.Tr("repo.settings.branchroom.person_removed"))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 }

@@ -120,7 +120,7 @@ func CreateRepositorySourceReadGrant(ctx context.Context, request CreateReposito
 }
 
 // CreateRepositorySourceWriteGrantRequest contains an owner-authorized direct-user source-write grant.
-// The restricted HTTPS receive boundary also requires active source-read and ordinary code-write access.
+// The restricted HTTPS receive boundary also requires active source-read and ordinary code-read access.
 type CreateRepositorySourceWriteGrantRequest struct {
 	RepoID          int64
 	ScopeID         int64
@@ -570,10 +570,28 @@ func recordRepositoryGrantChange(ctx context.Context, scope *branchroom_model.Sc
 	if err != nil {
 		return err
 	}
+	var username, teamName string
+	switch grant.SubjectType {
+	case branchroom_model.SubjectTypeUser:
+		subject, err := user_model.GetUserByID(ctx, grant.SubjectID)
+		if err != nil {
+			return err
+		}
+		username = subject.Name
+	case branchroom_model.SubjectTypeTeam:
+		team, err := organization_model.GetTeamByID(ctx, grant.SubjectID)
+		if err != nil {
+			return err
+		}
+		teamName = team.Name
+	}
 	details, err := json.Marshal(struct {
+		SubjectID     int64              `json:"subject_id"`
+		Username      string             `json:"grantee_username,omitempty"`
+		TeamName      string             `json:"grantee_team_name,omitempty"`
 		NotBeforeUnix timeutil.TimeStamp `json:"not_before_unix"`
 		ExpiresUnix   timeutil.TimeStamp `json:"expires_unix"`
-	}{grant.NotBeforeUnix, grant.ExpiresUnix})
+	}{grant.SubjectID, username, teamName, grant.NotBeforeUnix, grant.ExpiresUnix})
 	if err != nil {
 		return err
 	}
@@ -601,12 +619,13 @@ func recordRepositoryGrantChange(ctx context.Context, scope *branchroom_model.Sc
 
 // RenewRepositoryGrantRequest identifies an owner-authorised grant renewal.
 type RenewRepositoryGrantRequest struct {
-	RepoID    int64
-	ScopeID   int64
-	GrantID   int64
-	Actor     Actor
-	Surface   branchroom_model.Surface
-	RequestID string
+	ExpiresUnix timeutil.TimeStamp
+	RepoID      int64
+	ScopeID     int64
+	GrantID     int64
+	Actor       Actor
+	Surface     branchroom_model.Surface
+	RequestID   string
 }
 
 // RenewRepositoryGrant renews an active grant under the same owner authority as creation.
@@ -627,7 +646,13 @@ func RenewRepositoryGrant(ctx context.Context, request RenewRepositoryGrantReque
 		if grant.ScopeID != scope.ID || !grant.IsActiveAt(now) || (grant.SubjectType != branchroom_model.SubjectTypeUser && grant.SubjectType != branchroom_model.SubjectTypeTeam) {
 			return util.NewNotExistErrorf("active Branchroom grant does not exist")
 		}
-		grant.ExpiresUnix = now.AddDuration(setting.Branchroom.GrantDuration())
+		if request.ExpiresUnix <= now {
+			return util.NewInvalidArgumentErrorf("renewal expiry must be in the future")
+		}
+		if err := validateGrantTimeWindow(0, request.ExpiresUnix); err != nil {
+			return err
+		}
+		grant.ExpiresUnix = request.ExpiresUnix
 		if _, err := db.GetEngine(txCtx).ID(grant.ID).Cols("expires_unix").Update(grant); err != nil {
 			return err
 		}
@@ -674,6 +699,76 @@ func RevokeAllDirectUserGrants(ctx context.Context, userID int64, actor Actor) e
 				SiteAdmin:       true,
 				NotExistMessage: "active Branchroom grant does not exist",
 				AuditReasonCode: reason,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// RemoveRepositoryPerson revokes direct grants, including future grants, across this repository.
+func RemoveRepositoryPerson(ctx context.Context, repoID, userID int64, actor Actor) error {
+	if !setting.Branchroom.Enabled || userID <= 0 {
+		return util.NewNotExistErrorf("Branchroom access does not exist")
+	}
+	return db.WithTx(ctx, func(txCtx context.Context) error {
+		if err := requireScopeOwnerTx(txCtx, repoID, actor, "Branchroom access does not exist"); err != nil {
+			return err
+		}
+		scopes, err := branchroom_model.FindScopesByRepoID(txCtx, repoID)
+		if err != nil {
+			return err
+		}
+		for _, scope := range scopes {
+			if scope.Kind != branchroom_model.ScopeKindRepository {
+				continue
+			}
+			grants := make([]*branchroom_model.Grant, 0)
+			if err := db.GetEngine(txCtx).Where("scope_id = ? AND subject_type = ? AND subject_id = ? AND revoked_unix = 0", scope.ID, branchroom_model.SubjectTypeUser, userID).Find(&grants); err != nil {
+				return err
+			}
+			for _, grant := range grants {
+				if err := branchroom_model.RevokeGrant(txCtx, grant.ID, actor.ID, timeutil.TimeStampNow()); err != nil {
+					return err
+				}
+				if err := recordRepositoryGrantChange(txCtx, scope, grant.ID, actor, branchroom_model.SurfaceWeb, "", "grant_revoked"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func RecordRepositoryCollaboratorRemoval(ctx context.Context, repoID, userID int64, actor Actor) error {
+	return db.WithTx(ctx, func(txCtx context.Context) error {
+		if err := requireScopeOwnerTx(txCtx, repoID, actor, "Branchroom access does not exist"); err != nil {
+			return err
+		}
+		subject, err := user_model.GetUserByID(txCtx, userID)
+		if err != nil {
+			return err
+		}
+		scopes, err := branchroom_model.FindScopesByRepoID(txCtx, repoID)
+		if err != nil {
+			return err
+		}
+
+		details, err := json.Marshal(struct {
+			Username string `json:"grantee_username"`
+		}{subject.Name})
+		if err != nil {
+			return err
+		}
+		for _, scope := range scopes {
+			if scope.Kind != branchroom_model.ScopeKindRepository {
+				continue
+			}
+			if _, err := branchroom_model.RecordDecisionAndAudit(txCtx, scope, &branchroom_model.Decision{
+				Details: string(details), ScopeID: scope.ID, RepoID: repoID, ActorType: actor.Type, ActorID: actor.ID,
+				Action: branchroom_model.ActionManagePolicy, ResourceType: branchroom_model.ResourceTypeScope, ResourceID: scopeResourceID(scope.ID),
+				Surface: branchroom_model.SurfaceWeb, Result: branchroom_model.DecisionResultAllow, ReasonCode: "collaborator_removed", OrdinaryAllowed: true,
 			}); err != nil {
 				return err
 			}

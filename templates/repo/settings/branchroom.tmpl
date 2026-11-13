@@ -81,7 +81,7 @@
 									<button type="submit" id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
 								</form>
 							{{end}}
-							{{if ne .State "retired"}}
+							{{if and (ne .State "retired") (ne .WorkspaceState "purged")}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
 								<strong>{{ctx.Locale.Tr "repo.settings.branchroom.discovery_grants"}}</strong>
 								<div class="ui list">
@@ -89,9 +89,7 @@
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
 											{{template "repo/settings/branchroom_grant_expiry" .}}
-											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
-												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
-											</form>
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
@@ -119,9 +117,7 @@
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
 											{{template "repo/settings/branchroom_grant_expiry" .}}
-											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
-												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
-											</form>
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-grants/{{.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_grant"}}</button>
 											</form>
@@ -150,9 +146,7 @@
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
 											{{template "repo/settings/branchroom_grant_expiry" .}}
-											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
-												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
-											</form>
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-write-grants/{{.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
 											</form>
@@ -183,9 +177,7 @@
 											<span>{{$teamGrant.TeamName}}</span>
 											<span class="ui basic label">{{$teamGrant.Action}}</span>
 											{{template "repo/settings/branchroom_grant_expiry" .}}
-											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
-												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
-											</form>
+											{{template "repo/settings/branchroom_renew" (dict "RepoLink" $.RepoLink "ScopeID" $scope.ID "GrantID" .ID "Expiry" $.BranchroomRenewExpiry)}}
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/team-grants/{{$teamGrant.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
@@ -224,6 +216,23 @@
 				{{end}}
 			</div>
 		</div>
+
+        {{range $person := .BranchroomPeople}}
+        <div class="ui segment flex-text-block">
+            <span>{{$person.Name}}</span>
+            <button type="button" class="ui red basic button show-modal" data-modal="#branchroom-remove-person-{{$person.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.remove_person"}}</button>
+            <dialog class="modal-dialog" id="branchroom-remove-person-{{$person.ID}}">
+                <div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.remove_person"}}</div>
+                <form class="ui form" action="{{$.RepoLink}}/settings/branchroom/people/{{$person.ID}}/remove" method="post">
+                    <div class="content">
+                        <p>{{ctx.Locale.Tr "repo.settings.branchroom.remove_person_confirm" $person.Name}}</p>
+                        <div class="field"><label><input type="checkbox" name="remove_collaborator" value="true" checked> {{ctx.Locale.Tr "repo.settings.branchroom.remove_collaborator"}}</label></div>
+                    </div>
+                    {{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.branchroom.remove_person"))}}
+                </form>
+            </dialog>
+        </div>
+        {{end}}
 
 		{{if .BranchroomAuditScopes}}
 			<h4 class="ui top attached header">{{ctx.Locale.Tr "repo.settings.branchroom.audit.title"}}</h4>
