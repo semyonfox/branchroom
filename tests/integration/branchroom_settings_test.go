@@ -132,7 +132,7 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		body := resp.Body.String()
 		assert.Contains(t, body, string(branchroom_model.WorkspaceStateReady))
-		assert.Contains(t, body, "This direct grant allows restricted HTTPS pushes")
+		assert.Contains(t, body, "Allows HTTPS pushes with clone access and Write on the repository")
 		assert.NotContains(t, body, workspace.WorkspaceKey)
 		assert.NotContains(t, body, oldRouteKey)
 		assert.NotContains(t, body, workspace.RouteKey)

@@ -378,6 +378,7 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 
 		repository, err := repo_model.GetRepositoryByID(t.Context(), 1)
 		require.NoError(t, err)
+		require.NoError(t, git.CreateDelegateHooks(t.Context(), repository))
 		baseSHA, err := git.GetBranchCommitID(t.Context(), repository.CodeStorageRepo(), repository.DefaultBranch)
 		require.NoError(t, err)
 		scope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{
