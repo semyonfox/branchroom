@@ -46,25 +46,25 @@
 										<div class="tw-mt-2">
 											<button id="branchroom-workspace-purge-{{.ID}}" type="button" class="ui red basic button show-modal" data-modal="#branchroom-workspace-purge-modal-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"}}</button>
 										</div>
-										<div class="ui g-modal-confirm modal" id="branchroom-workspace-purge-modal-{{.ID}}">
+										<dialog class="modal-dialog" id="branchroom-workspace-purge-modal-{{.ID}}">
 											<div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"}}</div>
 											<div class="content"><p>{{ctx.Locale.Tr "repo.settings.branchroom.workspace_purge_confirm"}}</p></div>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/purge" method="post">
-												{{template "base/modal_actions_confirm" (dict "ModalButtonTypes" "confirm" "ModalButtonOkText" (ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"))}}
+												{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" (ctx.Locale.Tr "repo.settings.branchroom.workspace_purge"))}}
 											</form>
-										</div>
+										</dialog>
 									{{end}}
 									{{if .CanRotateRouteKey}}
 										<div class="tw-mt-2">
 											<button id="branchroom-route-key-rotate-{{.ID}}" type="button" class="ui basic button show-modal" data-modal="#branchroom-route-key-rotate-modal-{{.ID}}">{{ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url"}}</button>
 										</div>
-										<div class="ui g-modal-confirm modal" id="branchroom-route-key-rotate-modal-{{.ID}}">
+										<dialog class="modal-dialog" id="branchroom-route-key-rotate-modal-{{.ID}}">
 											<div class="header">{{ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url"}}</div>
 											<div class="content"><p>{{ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url_confirm"}}</p></div>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/route-key/rotate" method="post">
 												{{template "base/modal_actions_confirm" (dict "ModalButtonTypes" "confirm" "ModalButtonOkText" (ctx.Locale.Tr "repo.settings.branchroom.rotate_clone_url"))}}
 											</form>
-										</div>
+										</dialog>
 									{{end}}
 								</div>
 							{{else if .CanProvisionWorkspace}}
