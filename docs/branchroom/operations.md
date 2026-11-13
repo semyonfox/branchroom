@@ -110,11 +110,12 @@ or changing the backup procedure.
 3. Run `gitea doctor check --run branchroom`. If the binary or config path changed, run
    it with `--fix`.
 
-Branchroom's migrations were numbered 352 to 358 until the November 2026 upstream sync,
-when upstream took those numbers. They now run as 369 to 375. A database still at a
-version between 353 and 359 that has Branchroom tables is rewound to 352 on start, so
-upstream's migrations run and Branchroom's replay, which changes nothing they already
-created.
+Branchroom tracks its own migrations in the `branchroom_version` table, apart from
+upstream's numbering, so upstream releases can add migrations freely. Earlier Branchroom
+builds numbered them inside upstream's sequence, first 352 to 358 and then 369 to 375.
+On first start such a database is rewound to just before those numbers, upstream's
+migrations run, and Branchroom's replay under their own tracking. The replay changes
+nothing they already created.
 
 ## Incidents
 

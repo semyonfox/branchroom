@@ -445,17 +445,47 @@ func prepareMigrationTasks() []*migration {
 		newMigration(366, "Drop user_open_id table", v29.DropUserOpenIDTable),
 		newMigration(367, "Add latest_release_id to repository table", v29.AddLatestReleaseIDToRepository),
 		newMigration(368, "Add unique index for team name", v29.AddUniqueTeamNameIndex),
-
-		// Branchroom migrations, numbered 352 to 358 before the upstream sync, see rewindBranchroomLegacyVersion
-		newMigration(369, "Add Branchroom policy schema", v29.AddBranchroomPolicySchema),
-		newMigration(370, "Add Branchroom workspace schema", v29.AddBranchroomWorkspaceSchema),
-		newMigration(371, "Add Branchroom environment schema", v29.AddBranchroomEnvironmentSchema),
-		newMigration(372, "Add Branchroom workspace route keys", v29.AddBranchroomWorkspaceRouteKey),
-		newMigration(373, "Add Branchroom receive session schema", v29.AddBranchroomReceiveSessionSchema),
-		newMigration(374, "Add Branchroom receive session outcomes", v29.AddBranchroomReceiveSessionOutcomes),
-		newMigration(375, "Convert Branchroom audit hashes to varchar", v29.ConvertBranchroomAuditHashesToVarchar),
+		newMigration(369, "Add runner_name to action_task", v29.AddRunnerNameToActionTask),
 	}
 	return preparedMigrations
+}
+
+// BranchroomVersion tracks Branchroom's own migrations apart from upstream's numbering,
+// so upstream can add migrations without colliding with them
+type BranchroomVersion struct {
+	ID      int64 `xorm:"pk autoincr"`
+	Version int64 // number of Branchroom migrations applied
+}
+
+func prepareBranchroomMigrationTasks() []*migration {
+	return []*migration{
+		newMigration(1, "Add Branchroom policy schema", v29.AddBranchroomPolicySchema),
+		newMigration(2, "Add Branchroom workspace schema", v29.AddBranchroomWorkspaceSchema),
+		newMigration(3, "Add Branchroom environment schema", v29.AddBranchroomEnvironmentSchema),
+		newMigration(4, "Add Branchroom workspace route keys", v29.AddBranchroomWorkspaceRouteKey),
+		newMigration(5, "Add Branchroom receive session schema", v29.AddBranchroomReceiveSessionSchema),
+		newMigration(6, "Add Branchroom receive session outcomes", v29.AddBranchroomReceiveSessionOutcomes),
+		newMigration(7, "Convert Branchroom audit hashes to varchar", v29.ConvertBranchroomAuditHashesToVarchar),
+	}
+}
+
+// ExpectedBranchroomVersion returns how many Branchroom migrations a current database has applied
+func ExpectedBranchroomVersion() int64 {
+	return int64(len(prepareBranchroomMigrationTasks()))
+}
+
+// GetCurrentBranchroomVersion returns -1 when the database predates separate Branchroom tracking
+func GetCurrentBranchroomVersion(x base.EngineMigration) (int64, error) {
+	exists, err := x.IsTableExist(new(BranchroomVersion))
+	if err != nil || !exists {
+		return -1, err
+	}
+	current := &BranchroomVersion{ID: 1}
+	has, err := x.Get(current)
+	if err != nil || !has {
+		return -1, err
+	}
+	return current.Version, nil
 }
 
 // GetCurrentDBVersion returns the current db version
@@ -512,6 +542,13 @@ func EnsureUpToDate(ctx context.Context, x base.EngineMigration) error {
 		return fmt.Errorf(`current database version %d is not equal to the expected version %d. Please run "gitea [--config /path/to/app.ini] migrate" to update the database version`, currentDB, expectedDB)
 	}
 
+	currentBranchroom, err := GetCurrentBranchroomVersion(x)
+	if err != nil {
+		return err
+	}
+	if expected := ExpectedBranchroomVersion(); currentBranchroom != expected {
+		return fmt.Errorf(`current Branchroom database version %d is not equal to the expected version %d. Please run "gitea [--config /path/to/app.ini] migrate" to update the database version`, currentBranchroom, expected)
+	}
 	return nil
 }
 
@@ -523,24 +560,72 @@ func migrationIDNumberToDBVersion(idNumber int64) int64 {
 	return idNumber + 1
 }
 
-// branchroom databases from before the upstream sync numbered their own migrations 352 to 358,
-// numbers upstream has since used. none of upstream's ran there, so rewind to the fork point
-// and let the branchroom migrations, which are idempotent, run again at their new numbers
+// branchroom builds before separate tracking numbered their migrations inside upstream's
+// sequence, 352 to 358 and later 369 to 375, numbers upstream has since used. none of
+// upstream's own migrations at those numbers ran there, so rewind to just before them.
+// the branchroom migrations are idempotent and replay under their own tracking
 func rewindBranchroomLegacyVersion(x base.EngineMigration, currentVersion *Version) (int64, error) {
-	const forkVersion, legacyMaxVersion = 352, 359
-	if currentVersion.Version <= forkVersion || currentVersion.Version > legacyMaxVersion {
-		return currentVersion.Version, nil
+	tracked, err := x.IsTableExist(new(BranchroomVersion))
+	if err != nil || tracked {
+		return currentVersion.Version, err
 	}
 	legacy, err := x.IsTableExist("branchroom_scope")
 	if err != nil || !legacy {
 		return currentVersion.Version, err
 	}
-	log.Info("Rewinding Branchroom database version %d to %d to replay its migrations after upstream's", currentVersion.Version, forkVersion)
-	currentVersion.Version = forkVersion
+	rewound := currentVersion.Version
+	switch {
+	case rewound >= 353 && rewound <= 359:
+		rewound = 352
+	case rewound >= 370 && rewound <= 376:
+		rewound = 369
+	}
+	if rewound == currentVersion.Version {
+		return rewound, nil
+	}
+	log.Info("Rewinding Branchroom database version %d to %d to replay its migrations after upstream's", currentVersion.Version, rewound)
+	currentVersion.Version = rewound
 	if _, err := x.ID(1).Cols("version").Update(currentVersion); err != nil {
 		return 0, err
 	}
-	return forkVersion, nil
+	return rewound, nil
+}
+
+func migrateBranchroom(ctx context.Context, x base.EngineMigration, fresh bool) error {
+	migrations := prepareBranchroomMigrationTasks()
+	if err := x.Sync(new(BranchroomVersion)); err != nil {
+		return fmt.Errorf("sync: %w", err)
+	}
+	current := &BranchroomVersion{ID: 1}
+	has, err := x.Get(current)
+	if err != nil {
+		return fmt.Errorf("get: %w", err)
+	}
+	if !has {
+		current.ID = 0
+		if fresh {
+			current.Version = int64(len(migrations))
+		}
+		if _, err := x.Insert(current); err != nil {
+			return fmt.Errorf("insert: %w", err)
+		}
+	}
+	if current.Version > int64(len(migrations)) {
+		log.Fatal("Migration Error: your database has Branchroom migration version %d, newer than this release (%d). Use the correct release.", current.Version, len(migrations))
+		return nil
+	}
+	for _, m := range migrations[current.Version:] {
+		log.Info("Branchroom migration[%d]: %s", m.idNumber, m.description)
+		x.SetMapper(names.GonicMapper{})
+		if err := m.Migrate(ctx, x); err != nil {
+			return fmt.Errorf("branchroom migration[%d]: %s failed: %w", m.idNumber, m.description, err)
+		}
+		current.Version = m.idNumber
+		if _, err := x.ID(current.ID).Cols("version").Update(current); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Migrate database to current version
@@ -555,6 +640,7 @@ func Migrate(ctx context.Context, x base.EngineMigration) error {
 	}
 
 	currentVersion := &Version{ID: 1}
+	fresh := false
 	has, err := x.Get(currentVersion)
 	if err != nil {
 		return fmt.Errorf("get: %w", err)
@@ -562,6 +648,7 @@ func Migrate(ctx context.Context, x base.EngineMigration) error {
 		// If the version record does not exist, it is a fresh installation, and we can skip all migrations.
 		// XORM model framework will create all tables when initializing.
 		currentVersion.ID = 0
+		fresh = true
 		currentVersion.Version = maxDBVer
 		if _, err = x.Insert(currentVersion); err != nil {
 			return fmt.Errorf("insert: %w", err)
@@ -608,5 +695,5 @@ Please try upgrading to a lower version first (suggested v1.6.4), then upgrade t
 			return err
 		}
 	}
-	return nil
+	return migrateBranchroom(ctx, x, fresh)
 }
