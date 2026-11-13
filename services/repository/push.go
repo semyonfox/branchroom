@@ -97,6 +97,13 @@ func pushQueueHandleUpdates(optsList []*repo_module.PushUpdateOptions) error {
 
 		if opts.UserExtDoerData == "" {
 			_, pusher, err = user_model.GetPossibleUserByID(ctx, opts.PusherID)
+		} else if opts.PusherID > 0 {
+			// the push was authorised before it was queued, so retain its restrictions even after revocation
+			pusher, err = user_model.GetUserByID(ctx, opts.PusherID)
+			if err == nil {
+				pusher.ExtDoerData = user_model.NewTokenExtDoerData("", 0, "")
+				err = pusher.ExtDoerData.DecodeFromString(opts.UserExtDoerData)
+			}
 		} else {
 			pusher, err = user_model.GetDoerPermissionUser(ctx, opts.PusherID, opts.UserExtDoerData)
 		}
