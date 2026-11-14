@@ -178,3 +178,19 @@ type MergeUpstreamRequest struct {
 type MergeUpstreamResponse struct {
 	MergeStyle string `json:"merge_type"`
 }
+
+// PathReviewerRule requires approvals for changes matching a path glob.
+type PathReviewerRule struct {
+	Pattern string `json:"pattern"`
+	Team    string `json:"team"`
+	// TeamID is returned for named teams, including teams that have since been deleted.
+	// readOnly: true
+	TeamID            int64 `json:"team_id"`
+	CodeOwners        bool  `json:"code_owners"`
+	RequiredApprovals int64 `json:"required_approvals"`
+}
+
+// SetPathReviewerRulesOptions replaces all path reviewer rules for a protected branch.
+type SetPathReviewerRulesOptions struct {
+	Rules []PathReviewerRule `json:"rules"`
+}

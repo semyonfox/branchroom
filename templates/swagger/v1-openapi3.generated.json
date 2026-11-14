@@ -983,6 +983,19 @@
         },
         "description": "PackageList"
       },
+      "PathReviewerRules": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/PathReviewerRule"
+              },
+              "type": "array"
+            }
+          }
+        },
+        "description": "PathReviewerRules"
+      },
       "Project": {
         "content": {
           "application/json": {
@@ -8618,6 +8631,37 @@
         "type": "object",
         "x-go-package": "gitea.dev/modules/structs"
       },
+      "PathReviewerRule": {
+        "properties": {
+          "code_owners": {
+            "type": "boolean",
+            "x-go-name": "CodeOwners"
+          },
+          "pattern": {
+            "type": "string",
+            "x-go-name": "Pattern"
+          },
+          "required_approvals": {
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "RequiredApprovals"
+          },
+          "team": {
+            "type": "string",
+            "x-go-name": "Team"
+          },
+          "team_id": {
+            "description": "TeamID is returned for named teams, including teams that have since been deleted.",
+            "format": "int64",
+            "readOnly": true,
+            "type": "integer",
+            "x-go-name": "TeamID"
+          }
+        },
+        "title": "PathReviewerRule requires approvals for changes matching a path glob.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
       "PayloadCommit": {
         "description": "PayloadCommit represents a commit",
         "properties": {
@@ -10369,6 +10413,20 @@
             "x-go-name": "Version"
           }
         },
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "SetPathReviewerRulesOptions": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/PathReviewerRule"
+            },
+            "type": "array",
+            "x-go-name": "Rules"
+          }
+        },
+        "title": "SetPathReviewerRulesOptions replaces all path reviewer rules for a protected branch.",
         "type": "object",
         "x-go-package": "gitea.dev/modules/structs"
       },
@@ -19904,6 +19962,103 @@
           }
         },
         "summary": "Create a branch protections for a repository",
+        "tags": [
+          "repository"
+        ]
+      }
+    },
+    "/repos/{owner}/{repo}/branch_protections/path_reviewers/{name}": {
+      "get": {
+        "operationId": "repoGetPathReviewerRules",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "protected branch rule name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PathReviewerRules"
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "summary": "List path reviewer rules for a protected branch",
+        "tags": [
+          "repository"
+        ]
+      },
+      "put": {
+        "operationId": "repoSetPathReviewerRules",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "protected branch rule name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPathReviewerRulesOptions"
+              }
+            }
+          },
+          "required": true,
+          "x-originalParamName": "body"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PathReviewerRules"
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "summary": "Replace path reviewer rules for a protected branch",
         "tags": [
           "repository"
         ]
