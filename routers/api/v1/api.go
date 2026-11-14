@@ -876,6 +876,9 @@ func buildAuthGroup() *auth.Group {
 }
 
 func limitedTokenRouteAllowed(ctx *context.APIContext, doer *user_model.User) bool {
+	if ctx.Req.URL.Path == "/api/mcp" || ctx.Req.URL.Path == "/api/mcp/" {
+		return true // each tool dispatches through the REST permission checks
+	}
 	if ctx.PathParam("reponame") != "" && strings.HasPrefix(ctx.Req.URL.Path, "/api/v1/repos/") {
 		return true
 	}
