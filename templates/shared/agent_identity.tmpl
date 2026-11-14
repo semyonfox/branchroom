@@ -1,0 +1,3 @@
+{{if .}}
+ <span class="ui small basic label">via {{.Agent}}{{if .TaskURL}} for <a href="{{.TaskURL}}" rel="nofollow noreferrer">task</a>{{end}}{{if .Sponsor}} · {{.Sponsor}}{{end}}</span>
+{{end}}

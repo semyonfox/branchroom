@@ -12,6 +12,7 @@ import (
 
 	audit_model "gitea.dev/models/audit"
 	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	user_model "gitea.dev/models/user"
 	api "gitea.dev/modules/structs"
@@ -67,7 +68,13 @@ func ListAccessTokens(ctx *context.APIContext) {
 			ctx.APIErrorInternal(err)
 			return
 		}
+		identity, err := branchroom_model.GetTokenIdentity(ctx, tokens[i].ID)
+		if err != nil {
+			ctx.APIErrorInternal(err)
+			return
+		}
 		apiTokens[i] = &api.AccessToken{
+			AgentIdentity:  identity,
 			ID:             tokens[i].ID,
 			ExpiresAt:      tokens[i].ExpiresAt(),
 			Repositories:   names,
@@ -111,8 +118,9 @@ func CreateAccessToken(ctx *context.APIContext) {
 	form := web.GetForm[*api.CreateAccessTokenOption](ctx)
 
 	t := &auth_model.AccessToken{
-		UID:  ctx.ContextUser.ID,
-		Name: form.Name,
+		UID:           ctx.ContextUser.ID,
+		Name:          form.Name,
+		AgentIdentity: form.AgentIdentity,
 	}
 
 	if form.ExpiresAt != nil {
@@ -168,6 +176,10 @@ func CreateAccessToken(ctx *context.APIContext) {
 		}
 	}
 
+	if err := branchroom_model.ValidateAgentIdentity(t.AgentIdentity); err != nil {
+		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 	if err := auth_model.NewAccessToken(ctx, t); err != nil {
 		ctx.APIErrorInternal(err)
 		return
@@ -176,6 +188,7 @@ func CreateAccessToken(ctx *context.APIContext) {
 	audit.Record(ctx, audit_model.UserAccessTokenAdd, ctx.ContextUser, "token", t.Name, "token_scope", t.Scope)
 
 	ctx.JSON(http.StatusCreated, &api.AccessToken{
+		AgentIdentity:  t.AgentIdentity,
 		Name:           t.Name,
 		Token:          t.Token,
 		ID:             t.ID,

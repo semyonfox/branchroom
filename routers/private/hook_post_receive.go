@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	audit_model "gitea.dev/models/audit"
+	branchroom_model "gitea.dev/models/branchroom"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/git"
@@ -90,6 +91,12 @@ func HookPostReceive(ctx *gitea_context.PrivateContext) {
 	repo := ctx.Repo.Repository
 	wasEmpty := repo.IsEmpty
 	updates := hookPostReceiveCollectPushUpdates(opts, repo)
+	for i, ref := range opts.RefFullNames {
+		if err := branchroom_model.RecordPushReceipt(ctx, opts.UserExtDoerData, repo.ID, string(ref), opts.OldCommitIDs[i], opts.NewCommitIDs[i]); err != nil {
+			log.Error("record agent push receipt: %v", err)
+		}
+	}
+
 	hookPostReceiveUpdateRepoByOptions(ctx, opts, repo) // push options are only honored while the repo is still empty
 	hookPostReceiveSyncDatabaseBranches(ctx, opts, repo, updates)
 

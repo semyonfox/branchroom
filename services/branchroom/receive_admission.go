@@ -28,9 +28,10 @@ const receiveAdmissionLifetime = time.Minute
 const receiveAdmissionBearerEntropyLen = 32
 
 type IssueReceiveAdmissionRequest struct {
-	RepoID   int64
-	RouteKey string
-	UserID   int64
+	Credential string
+	RepoID     int64
+	RouteKey   string
+	UserID     int64
 }
 
 type ReceiveAdmissionCredential struct {
@@ -220,6 +221,10 @@ func IssueReceiveAdmission(ctx context.Context, request IssueReceiveAdmissionReq
 			ExpiresUnix:      admission.now.AddDuration(receiveAdmissionLifetime),
 		}
 		if err := branchroom_model.InsertReceiveSession(txCtx, session); err != nil {
+			credential.Clear()
+			return nil, errReceiveAdmissionDenied
+		}
+		if err := branchroom_model.RecordAgentAction(txCtx, request.Credential, "receive", session.ID); err != nil {
 			credential.Clear()
 			return nil, errReceiveAdmissionDenied
 		}

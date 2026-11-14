@@ -274,6 +274,32 @@ with the same size limits and placeholder exclusions. Matches use the same
 redaction and bypass policy as built-in matches, including admin notices.
 Matches of eight characters or fewer are fully hidden.
 
+## Agent tokens and push receipts
+
+New personal access tokens start with `brpat_` followed by 40 hexadecimal
+characters. Existing hex tokens still authenticate. Runner registration tokens
+are unchanged. Secret push protection recognises the new format, including live
+tokens issued by this server.
+
+When creating a token in account settings or through the API, optionally supply
+an agent name, an HTTP or HTTPS task URL and a sponsor. API clients send
+`agent_identity` with `agent`, `task_url` and `sponsor`. These are declarations by
+the token owner, not verified model or sponsor identities. Token permissions and
+repository restrictions still apply.
+
+The server records that identity when the token creates an issue, pull request,
+comment or review. The web page shows a small attribution marker and API responses
+include `agent_identity`. Revoking or regenerating the token does not erase earlier
+attribution. Actions made with a password, SSH key or ordinary token have no agent
+marker. Commit trailers do not supply this evidence.
+
+Accepted Git pushes made with an agent token record the ref, old and new object
+IDs, token ID, agent and task. The commit page and PR commits list show receipts
+for pushed tips. Ordinary repository receipts are stored separately from the
+Branchroom audit chain. Restricted workspace pushes include identity with their
+existing receive outcome evidence. A rejected or unconfirmed restricted push is
+not evidence that Git accepted the refs.
+
 ## PR factory labels
 
 Import the **Branchroom** label template into each repository. The scoped

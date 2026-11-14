@@ -1,4 +1,7 @@
 {
+  "settings.token_agent": "Agent name (optional)",
+  "settings.token_task": "Task URL (optional)",
+  "settings.token_sponsor": "Sponsor (optional)",
   "repo.branchroom.entry": "Restricted workspace",
   "repo.settings.branchroom.remove_person": "Remove person",
   "repo.settings.branchroom.remove_collaborator": "Also remove as a repository collaborator",

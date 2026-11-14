@@ -1717,6 +1717,9 @@
       },
       "AccessToken": {
         "properties": {
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "created_at": {
             "description": "The timestamp when the token was created",
             "format": "date-time",
@@ -1761,7 +1764,7 @@
             "x-go-name": "Scopes"
           },
           "sha1": {
-            "description": "The SHA1 hash of the access token",
+            "description": "The token value, returned only when creating the token",
             "type": "string",
             "x-go-name": "Token"
           },
@@ -2578,6 +2581,26 @@
         "type": "object",
         "x-go-package": "gitea.dev/modules/structs"
       },
+      "AgentIdentity": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "x-go-name": "Agent"
+          },
+          "sponsor": {
+            "type": "string",
+            "x-go-name": "Sponsor"
+          },
+          "task_url": {
+            "format": "uri",
+            "type": "string",
+            "x-go-name": "TaskURL"
+          }
+        },
+        "title": "AgentIdentity is metadata declared by the token owner, recorded by the server.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
       "AnnotatedTag": {
         "description": "AnnotatedTag represents an annotated tag",
         "properties": {
@@ -3234,6 +3257,9 @@
       "Comment": {
         "description": "Comment represents a comment on a commit or issue",
         "properties": {
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "assets": {
             "description": "Attachments contains files attached to the comment",
             "items": {
@@ -3677,6 +3703,9 @@
       "CreateAccessTokenOption": {
         "description": "CreateAccessTokenOption options when create access token",
         "properties": {
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "expires_at": {
             "format": "date-time",
             "type": "string",
@@ -7358,6 +7387,9 @@
       "Issue": {
         "description": "Issue represents an issue in a repository",
         "properties": {
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "assets": {
             "items": {
               "$ref": "#/components/schemas/Attachment"
@@ -9117,6 +9149,9 @@
             "type": "integer",
             "x-go-name": "Additions"
           },
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "allow_maintainer_edit": {
             "description": "Whether maintainers can edit the pull request",
             "type": "boolean",
@@ -9490,6 +9525,9 @@
       "PullReview": {
         "description": "PullReview represents a pull request review",
         "properties": {
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "body": {
             "type": "string",
             "x-go-name": "Body"
@@ -9558,6 +9596,9 @@
       "PullReviewComment": {
         "description": "PullReviewComment represents a comment on a pull request review",
         "properties": {
+          "agent_identity": {
+            "$ref": "#/components/schemas/AgentIdentity"
+          },
           "body": {
             "type": "string",
             "x-go-name": "Body"

@@ -16,16 +16,21 @@ import (
 
 // ToAPIComment converts a issues_model.Comment to the api.Comment format for API usage
 func ToAPIComment(ctx context.Context, repo *repo_model.Repository, c *issues_model.Comment) *api.Comment {
+	identity, err := c.AgentIdentity(ctx)
+	if err != nil {
+		log.Error("load agent identity: %v", err)
+	}
 	return &api.Comment{
-		ID:          c.ID,
-		Poster:      ToAuthor(ctx, c.Poster, c.OriginalAuthor, nil),
-		HTMLURL:     c.HTMLURL(ctx),
-		IssueURL:    c.IssueURL(ctx),
-		PRURL:       c.PRURL(ctx),
-		Body:        c.Content,
-		Attachments: ToAPIAttachments(ctx, repo, c.Attachments),
-		Created:     c.CreatedUnix.AsTime(),
-		Updated:     c.UpdatedUnix.AsTime(),
+		AgentIdentity: identity,
+		ID:            c.ID,
+		Poster:        ToAuthor(ctx, c.Poster, c.OriginalAuthor, nil),
+		HTMLURL:       c.HTMLURL(ctx),
+		IssueURL:      c.IssueURL(ctx),
+		PRURL:         c.PRURL(ctx),
+		Body:          c.Content,
+		Attachments:   ToAPIAttachments(ctx, repo, c.Attachments),
+		Created:       c.CreatedUnix.AsTime(),
+		Updated:       c.UpdatedUnix.AsTime(),
 	}
 }
 

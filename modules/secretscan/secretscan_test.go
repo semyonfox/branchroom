@@ -17,6 +17,7 @@ func TestLine(t *testing.T) {
 	for _, c := range []struct {
 		line, kind string
 	}{
+		{"token=brpat_" + strings.Repeat("a1b2", 10), "Branchroom access token"},
 		{`aws_access_key_id = AKIA` + "Q3EGRKMT2OQ5VY7Z", "AWS access key"},
 		{`token: "` + ghToken + `"`, "GitHub token"},
 		{"-----BEGIN OPENSSH " + "PRIVATE KEY-----", "private key"},

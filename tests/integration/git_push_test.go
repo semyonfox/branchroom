@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
@@ -21,6 +22,7 @@ import (
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/secretscan"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	repo_service "gitea.dev/services/repository"
 	"gitea.dev/tests"
@@ -89,42 +91,63 @@ func TestGitPush(t *testing.T) {
 			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 			repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{Name: "repo-secret-push", DefaultBranch: "master"})
 			require.NoError(t, err)
+			token := &auth_model.AccessToken{UID: user.ID, Name: "live-secret", Scope: auth_model.AccessTokenScopeAll, AgentIdentity: &api.AgentIdentity{Agent: "Opus 5.5", TaskURL: "https://example.org/tasks/1"}}
+			require.NoError(t, auth_model.NewAccessToken(t.Context(), token))
 
 			gitPath := t.TempDir()
 			doGitInitTestRepository(gitPath)(t)
 			oldPath, oldUser := u.Path, u.User
 			defer func() { u.Path, u.User = oldPath, oldUser }()
 			u.Path = repo.FullName() + ".git"
-			u.User = url.UserPassword(user.LowerName, userPassword)
+			u.User = url.UserPassword(user.LowerName, token.Token)
 			doGitAddRemote(gitPath, "origin", u)(t)
 			doGitPushTestRepository(gitPath, "origin", "master")(t)
 
-			doGitCreateBranch(gitPath, "leak")(t)
-			doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
-				LocalRepoPath: gitPath, CheckoutBranch: "leak", TreeFilePath: ".env",
-				TreeFileContent: "INTERNAL_TOKEN=company_" + strings.Repeat("a1B2", 8) + "\n",
-			})(t)
-			doGitPushTestRepositoryFail(gitPath, "origin", "leak")(t)
-			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
+			for _, tc := range []struct {
+				branch, secret, kind, redacted string
+			}{
+				{"leak-token", token.Token, "Branchroom access token", token.Token[:8] + "********"},
+				{"leak-custom", "company_" + strings.Repeat("a1B2", 8), "internal token", "company_********"},
+			} {
+				t.Run(tc.branch, func(t *testing.T) {
+					doGitCheckoutBranch(gitPath, "master")(t)
+					doGitCreateBranch(gitPath, tc.branch)(t)
+					doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
+						LocalRepoPath: gitPath, CheckoutBranch: tc.branch, TreeFilePath: ".env",
+						TreeFileContent: "TOKEN=" + tc.secret + "\n",
+					})(t)
+					doGitPushTestRepositoryFail(gitPath, "origin", tc.branch)(t)
+					unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: tc.branch})
+					unittest.AssertNotExistsBean(t, &branchroom_model.PushReceipt{RepoID: repo.ID, Ref: "refs/heads/" + tc.branch})
 
-			// with the bypass turned off the option is refused
-			resetBypass := test.MockVariableValue(&setting.SecretScanning.AllowBypass, false)
-			doGitPushTestRepositoryFail(gitPath, "origin", "leak", "-o", "secret_scanning.allow=true")(t)
-			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
-			resetBypass()
+					// with the bypass turned off the option is refused
+					resetBypass := test.MockVariableValue(&setting.SecretScanning.AllowBypass, false)
+					t.Cleanup(resetBypass)
+					doGitPushTestRepositoryFail(gitPath, "origin", tc.branch, "-o", "secret_scanning.allow=true")(t)
+					unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: tc.branch})
+					resetBypass()
 
-			doGitPushTestRepository(gitPath, "origin", "leak", "-o", "secret_scanning.allow=true")(t)
-			unittest.AssertExistsAndLoadBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
-			notices, err := system_model.Notices(t.Context(), 1, 50)
-			require.NoError(t, err)
-			assert.True(t, slices.ContainsFunc(notices, func(n *system_model.Notice) bool {
-				if !strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch leak") {
-					return false
-				}
-				assert.Contains(t, n.Description, "internal token in .env (company_********)")
-				assert.NotContains(t, n.Description, strings.Repeat("a1B2", 8))
-				return true
-			}), "the bypass leaves an admin notice")
+					doGitPushTestRepository(gitPath, "origin", tc.branch, "-o", "secret_scanning.allow=true")(t)
+					unittest.AssertExistsAndLoadBean(t, &git_model.Branch{RepoID: repo.ID, Name: tc.branch})
+					notices, err := system_model.Notices(t.Context(), 1, 50)
+					require.NoError(t, err)
+					assert.True(t, slices.ContainsFunc(notices, func(n *system_model.Notice) bool {
+						if !strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch "+tc.branch) {
+							return false
+						}
+						assert.Contains(t, n.Description, tc.kind+" in .env ("+tc.redacted+")")
+						assert.NotContains(t, n.Description, tc.secret[8:])
+						return true
+					}), "the bypass leaves an admin notice")
+					receipt := unittest.AssertExistsAndLoadBean(t, &branchroom_model.PushReceipt{RepoID: repo.ID, Ref: "refs/heads/" + tc.branch, TokenID: token.ID})
+					assert.Equal(t, "Opus 5.5", receipt.Agent)
+					sha, _, err := gitcmd.NewCommand("rev-parse").AddDynamicArguments(tc.branch).WithDir(gitPath).RunStdString(t.Context())
+					require.NoError(t, err)
+					assert.Equal(t, strings.TrimSpace(sha), receipt.NewSHA)
+					assert.Equal(t, strings.Repeat("0", 40), receipt.OldSHA)
+					assert.Equal(t, token.AgentIdentity.TaskURL, receipt.TaskURL)
+				})
+			}
 		})
 
 		t.Run("PullRefs", func(t *testing.T) {

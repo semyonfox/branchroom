@@ -10,13 +10,14 @@ import (
 
 // AccessToken represents an API access token.
 type AccessToken struct {
-	ExpiresAt    *time.Time `json:"expires_at"`
-	Repositories []string   `json:"repositories"`
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
+	ExpiresAt     *time.Time     `json:"expires_at"`
+	Repositories  []string       `json:"repositories"`
 	// The unique identifier of the access token
 	ID int64 `json:"id"`
 	// The name of the access token
 	Name string `json:"name"`
-	// The SHA1 hash of the access token
+	// The token value, returned only when creating the token
 	Token string `json:"sha1"`
 	// The last eight characters of the token
 	TokenLastEight string `json:"token_last_eight"`
@@ -35,8 +36,9 @@ type AccessTokenList []*AccessToken
 // CreateAccessTokenOption options when create access token
 // swagger:model CreateAccessTokenOption
 type CreateAccessTokenOption struct {
-	ExpiresAt    *time.Time `json:"expires_at"`
-	Repositories []string   `json:"repositories"`
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
+	ExpiresAt     *time.Time     `json:"expires_at"`
+	Repositories  []string       `json:"repositories"`
 	// required: true
 	Name string `json:"name" binding:"Required"`
 	// example: ["all", "read:activitypub", "write:commitstatus", "read:issue", "write:misc", "read:notification", "read:organization", "read:package", "read:repository", "read:user"]

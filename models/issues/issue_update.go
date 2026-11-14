@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -384,6 +385,9 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 	}
 
 	if _, err := e.Insert(opts.Issue); err != nil {
+		return err
+	}
+	if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(doer), "issue", opts.Issue.ID); err != nil {
 		return err
 	}
 

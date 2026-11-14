@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	"gitea.dev/models/organization"
@@ -431,6 +432,10 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 		if _, err := sess.Insert(review); err != nil {
 			return nil, err
 		}
+		if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Reviewer), "review", review.ID); err != nil {
+			return nil, err
+		}
+
 		return review, nil
 	})
 }
@@ -1043,4 +1048,8 @@ func UpdateReviewsMigrationsByType(ctx context.Context, tp structs.GitServiceTyp
 			"original_author_id": 0,
 		})
 	return err
+}
+
+func (r *Review) AgentIdentity(ctx context.Context) (*structs.AgentIdentity, error) {
+	return branchroom_model.GetAgentAction(ctx, "review", r.ID)
 }

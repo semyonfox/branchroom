@@ -30,6 +30,7 @@ const ReviewStateUnknown = ""
 
 // PullReview represents a pull request review
 type PullReview struct {
+	AgentIdentity     *AgentIdentity  `json:"agent_identity,omitempty"`
 	ID                int64           `json:"id"`
 	Reviewer          *User           `json:"user"`
 	ReviewerTeam      *Team           `json:"team"`
@@ -53,11 +54,12 @@ type PullReview struct {
 
 // PullReviewComment represents a comment on a pull request review
 type PullReviewComment struct {
-	ID       int64  `json:"id"`
-	Body     string `json:"body"`
-	Poster   *User  `json:"user"`
-	Resolver *User  `json:"resolver"`
-	ReviewID int64  `json:"pull_request_review_id"`
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
+	ID            int64          `json:"id"`
+	Body          string         `json:"body"`
+	Poster        *User          `json:"user"`
+	Resolver      *User          `json:"resolver"`
+	ReviewID      int64          `json:"pull_request_review_id"`
 
 	// swagger:strfmt date-time
 	Created time.Time `json:"created_at"`

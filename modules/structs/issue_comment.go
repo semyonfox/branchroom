@@ -9,6 +9,7 @@ import (
 
 // Comment represents a comment on a commit or issue
 type Comment struct {
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
 	// ID is the unique identifier for the comment
 	ID int64 `json:"id"`
 	// HTMLURL is the web URL for viewing the comment

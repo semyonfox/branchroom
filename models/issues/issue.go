@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
@@ -784,6 +785,9 @@ func insertIssue(ctx context.Context, issue *Issue) error {
 	if _, err := sess.NoAutoTime().Insert(issue); err != nil {
 		return err
 	}
+	if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(issue.Poster), "issue", issue.ID); err != nil {
+		return err
+	}
 	issueLabels := make([]IssueLabel, 0, len(issue.Labels))
 	for _, label := range issue.Labels {
 		issueLabels = append(issueLabels, IssueLabel{
@@ -833,4 +837,8 @@ func ChangeIssueTimeEstimate(ctx context.Context, issue *Issue, doer *user_model
 		}
 		return nil
 	})
+}
+
+func (issue *Issue) AgentIdentity(ctx context.Context) (*api.AgentIdentity, error) {
+	return branchroom_model.GetAgentAction(ctx, "issue", issue.ID)
 }

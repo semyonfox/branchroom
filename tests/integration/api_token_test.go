@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -584,4 +585,35 @@ func TestAPITokenRepositoryBoundaries(t *testing.T) {
 			require.Error(t, err)
 		})
 	})
+}
+
+func TestBranchroomTokenFormats(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	token := createAPIAccessTokenWithoutCleanUp(t, "prefixed", user, []auth_model.AccessTokenScope{auth_model.AccessTokenScopeAll})
+	assert.True(t, strings.HasPrefix(token.Token, auth_model.AccessTokenPrefix))
+	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth(token.Token), http.StatusOK)
+	legacyToken := strings.TrimPrefix(token.Token, auth_model.AccessTokenPrefix)
+	assert.Len(t, legacyToken, 40)
+	stored, err := auth_model.GetAccessTokenByID(t.Context(), token.ID, user.ID)
+	require.NoError(t, err)
+	stored.TokenHash = auth_model.HashToken(legacyToken, stored.TokenSalt)
+	require.NoError(t, auth_model.UpdateAccessToken(t.Context(), stored))
+	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth(legacyToken), http.StatusOK)
+}
+
+func TestBranchroomAgentComment(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	identity := &api.AgentIdentity{Agent: "Opus 5.5", TaskURL: "https://example.org/tasks/1", Sponsor: "user2"}
+	req := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", &api.CreateAccessTokenOption{Name: "agent-comment", Scopes: []string{"all"}, AgentIdentity: identity}).AddBasicAuth("user2")
+	token := DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), api.AccessToken{})
+	assert.Equal(t, identity, token.AgentIdentity)
+	req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/issues/1/comments", &api.CreateIssueCommentOption{Body: "recorded by the server"}).AddTokenAuth(token.Token)
+	comment := DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), api.Comment{})
+	assert.Equal(t, identity, comment.AgentIdentity)
+	req = NewRequestf(t, "GET", "/api/v1/repos/user2/repo1/issues/comments/%d", comment.ID).AddTokenAuth(token.Token)
+	fetched := DecodeJSON(t, MakeRequest(t, req, http.StatusOK), api.Comment{})
+	assert.Equal(t, identity, fetched.AgentIdentity)
+	page := MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/issues/1"), http.StatusOK)
+	assert.Contains(t, page.Body.String(), "via Opus 5.5")
 }
