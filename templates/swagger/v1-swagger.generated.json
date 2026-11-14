@@ -7857,6 +7857,100 @@
         }
       }
     },
+    "/repos/{owner}/{repo}/branch_protections/path_reviewers/{name}": {
+      "get": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "repository"
+        ],
+        "summary": "List path reviewer rules for a protected branch",
+        "operationId": "repoGetPathReviewerRules",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "owner",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "protected branch rule name",
+            "name": "name",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/PathReviewerRules"
+          },
+          "default": {
+            "$ref": "#/responses/error"
+          }
+        }
+      },
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "repository"
+        ],
+        "summary": "Replace path reviewer rules for a protected branch",
+        "operationId": "repoSetPathReviewerRules",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "owner",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "protected branch rule name",
+            "name": "name",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SetPathReviewerRulesOptions"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/PathReviewerRules"
+          },
+          "default": {
+            "$ref": "#/responses/error"
+          }
+        }
+      }
+    },
     "/repos/{owner}/{repo}/branch_protections/priority": {
       "post": {
         "consumes": [
@@ -31132,6 +31226,37 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "PathReviewerRule": {
+      "type": "object",
+      "title": "PathReviewerRule requires approvals for changes matching a path glob.",
+      "properties": {
+        "code_owners": {
+          "type": "boolean",
+          "x-go-name": "CodeOwners"
+        },
+        "pattern": {
+          "type": "string",
+          "x-go-name": "Pattern"
+        },
+        "required_approvals": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "RequiredApprovals"
+        },
+        "team": {
+          "type": "string",
+          "x-go-name": "Team"
+        },
+        "team_id": {
+          "description": "TeamID is returned for named teams, including teams that have since been deleted.",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "TeamID",
+          "readOnly": true
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
     "PayloadCommit": {
       "description": "PayloadCommit represents a commit",
       "type": "object",
@@ -32860,6 +32985,20 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "SetPathReviewerRulesOptions": {
+      "type": "object",
+      "title": "SetPathReviewerRulesOptions replaces all path reviewer rules for a protected branch.",
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PathReviewerRule"
+          },
+          "x-go-name": "Rules"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
     "StopWatch": {
       "description": "StopWatch represent a running stopwatch",
       "type": "object",
@@ -34581,6 +34720,15 @@
         "type": "array",
         "items": {
           "$ref": "#/definitions/Package"
+        }
+      }
+    },
+    "PathReviewerRules": {
+      "description": "PathReviewerRules",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/PathReviewerRule"
         }
       }
     },

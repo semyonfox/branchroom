@@ -166,6 +166,9 @@ type swaggerParameterBodies struct {
 	UpdateBranchProtectionPriories api.UpdateBranchProtectionPriories
 
 	// in:body
+	SetPathReviewerRulesOptions api.SetPathReviewerRulesOptions
+
+	// in:body
 	CreateOAuth2ApplicationOptions api.CreateOAuth2ApplicationOptions
 
 	// in:body

@@ -523,3 +523,10 @@ type swaggerMergeUpstreamResponse struct {
 	// in:body
 	Body api.MergeUpstreamResponse `json:"body"`
 }
+
+// PathReviewerRules
+// swagger:response PathReviewerRules
+type swaggerResponsePathReviewerRules struct {
+	// in:body
+	Body []api.PathReviewerRule `json:"body"`
+}

@@ -31,6 +31,7 @@ const (
 	BlockerReviewRequests   ReadinessBlocker = "review_requests_pending"
 	BlockerCodeOwners       ReadinessBlocker = "code_owner_reviews_missing"
 	BlockerOutdated         ReadinessBlocker = "branch_outdated"
+	BlockerPathReviews      ReadinessBlocker = "path_reviews_missing"
 	BlockerProtectedFiles   ReadinessBlocker = "protected_files_changed"
 	BlockerDependencies     ReadinessBlocker = "dependencies_open"
 )
@@ -100,6 +101,11 @@ func GetReadiness(ctx context.Context, pr *issues_model.PullRequest) (*Readiness
 	block(pr.IsChecking(), BlockerChecking)
 	block(!r.Mergeable && !pr.IsChecking(), BlockerConflict)
 	if pb != nil {
+		pathReviews, err := HasRequiredPathReviews(ctx, pb, pr)
+		if err != nil {
+			return nil, err
+		}
+		block(!pathReviews, BlockerPathReviews)
 		checksGate := pb.EnableStatusCheck || len(r.RequiredChecks) > 0
 		block(checksGate && r.ChecksState.IsFailure(), BlockerChecksFailing)
 		block(checksGate && !r.ChecksState.IsSuccess() && !r.ChecksState.IsFailure(), BlockerChecksPending)

@@ -630,18 +630,23 @@ func DeleteProtectedBranch(ctx context.Context, repo *repo_model.Repository, id 
 		return err
 	}
 
-	protectedBranch := &ProtectedBranch{
-		RepoID: repo.ID,
-		ID:     id,
-	}
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		protectedBranch := &ProtectedBranch{
+			RepoID: repo.ID,
+			ID:     id,
+		}
 
-	if affected, err := db.GetEngine(ctx).Delete(protectedBranch); err != nil {
-		return err
-	} else if affected != 1 {
-		return fmt.Errorf("delete protected branch ID(%v) failed", id)
-	}
+		if affected, err := db.GetEngine(ctx).Delete(protectedBranch); err != nil {
+			return err
+		} else if affected != 1 {
+			return fmt.Errorf("delete protected branch ID(%v) failed", id)
+		}
 
-	return nil
+		if _, err := db.GetEngine(ctx).Where("protected_branch_id = ?", id).Delete(new(BranchroomPathReviewer)); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // removeIDsFromProtectedBranch is a helper function to remove IDs from protected branch options
