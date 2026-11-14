@@ -255,6 +255,25 @@ engine opens an issue in the affected repository when Branchroom refuses the
 update. The issue does not include the hook message, which contains the start
 of the match.
 
+### Custom secret patterns
+
+Site administrators can add named Go regular expressions in `app.ini`:
+
+```ini
+[repository.secret_scanning.patterns]
+internal_token = \bcompany_[A-Za-z0-9]{32}\b
+```
+
+Restart after editing the configuration. Invalid regexes and patterns that match
+empty text prevent startup, even when push protection is off. Go regexes run in
+linear time and do not support backreferences or lookaround. Keep the list small
+and test patterns against representative credentials before enabling them.
+
+Custom patterns supplement the built-in vendor list. They scan added lines only,
+with the same size limits and placeholder exclusions. Matches use the same
+redaction and bypass policy as built-in matches, including admin notices.
+Matches of eight characters or fewer are fully hidden.
+
 ## Path reviewer rules
 
 Repository administrators can require approvals for selected paths on a protected
