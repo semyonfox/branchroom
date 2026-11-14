@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Replace the live Branchroom binary with the tip of agentic/research from the
+# Replace the live Branchroom binary with the tip of main from the
 # private GitHub repo. Builds first, then stops the service, backs up, swaps
 # the binary and turns push protection on. A failed health check runs ROLLBACK.
 # usage: branchroom-deploy
@@ -14,7 +14,7 @@ mkdir -p "$GOCACHE"
 repo=/home/semyon/code/owned/labs/gitea
 live=/home/semyon/.local/share/branchroom
 build=/home/semyon/.local/share/branchroom-build
-branch=agentic/research
+branch=main
 unit=branchroom.service
 
 for cmd in git go node pnpm systemctl curl python3; do
@@ -38,6 +38,12 @@ install -m 0755 "$build/contrib/branchroom/deploy-live.sh" "$installed"
 after=$(sha256sum "$installed" | awk '{print $1}')
 if [ "$before" != "$after" ]; then
 	exec "$installed"
+fi
+
+# jenkins runs this on every push, so skip the stop and full backup when nothing changed
+if "$live/bin/gitea" --version 2>/dev/null | grep -q "g${sha:0:10}"; then
+	echo "live is already at ${sha:0:12}"
+	exit 0
 fi
 
 (
