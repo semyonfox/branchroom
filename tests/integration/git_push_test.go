@@ -19,6 +19,7 @@ import (
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/secretscan"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
 	repo_service "gitea.dev/services/repository"
@@ -82,6 +83,9 @@ func TestGitPush(t *testing.T) {
 		t.Run("SecretPushProtection", func(t *testing.T) {
 			defer tests.PrintCurrentTest(t)()
 			defer test.MockVariableValue(&setting.SecretScanning.PushProtection, true)()
+			scanner, err := secretscan.NewScanner(map[string]string{"internal token": `company_[A-Za-z0-9]{32}`})
+			require.NoError(t, err)
+			defer test.MockVariableValue(&setting.SecretScanningScanner, scanner)()
 			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 			repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{Name: "repo-secret-push", DefaultBranch: "master"})
 			require.NoError(t, err)
@@ -98,7 +102,7 @@ func TestGitPush(t *testing.T) {
 			doGitCreateBranch(gitPath, "leak")(t)
 			doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
 				LocalRepoPath: gitPath, CheckoutBranch: "leak", TreeFilePath: ".env",
-				TreeFileContent: "AWS_ACCESS_KEY_ID=AKIA" + "Q3EGRKMT2OQ5VY7Z\n",
+				TreeFileContent: "INTERNAL_TOKEN=company_" + strings.Repeat("a1B2", 8) + "\n",
 			})(t)
 			doGitPushTestRepositoryFail(gitPath, "origin", "leak")(t)
 			unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: "leak"})
@@ -114,7 +118,12 @@ func TestGitPush(t *testing.T) {
 			notices, err := system_model.Notices(t.Context(), 1, 50)
 			require.NoError(t, err)
 			assert.True(t, slices.ContainsFunc(notices, func(n *system_model.Notice) bool {
-				return strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch leak")
+				if !strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch leak") {
+					return false
+				}
+				assert.Contains(t, n.Description, "internal token in .env (company_********)")
+				assert.NotContains(t, n.Description, strings.Repeat("a1B2", 8))
+				return true
 			}), "the bypass leaves an admin notice")
 		})
 
