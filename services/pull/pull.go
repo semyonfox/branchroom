@@ -20,6 +20,7 @@ import (
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
+	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -376,6 +377,20 @@ type TestPullRequestOptions struct {
 	NewCommitID string
 }
 
+// cancelAutoMergeOnForcePush drops a scheduled auto-merge and leaves the same
+// timeline comment as a manual cancel. automerge imports this package, so the
+// model calls are used directly
+func cancelAutoMergeOnForcePush(ctx context.Context, doer *user_model.User, pr *issues_model.PullRequest) error {
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		n, err := pull_model.DeleteScheduledAutoMerge(ctx, pr.ID)
+		if err != nil || n == 0 {
+			return err
+		}
+		_, err = issues_model.CreateAutoMergeComment(ctx, issues_model.CommentTypePRUnScheduledToAutoMerge, pr, doer)
+		return err
+	})
+}
+
 // AddTestPullRequestTask adds new test tasks by given head/base repository and head/base branch,
 // and generate new patch for testing as needed.
 func AddTestPullRequestTask(opts TestPullRequestOptions) {
@@ -415,6 +430,14 @@ func AddTestPullRequestTask(opts TestPullRequestOptions) {
 			} else if commentCreated {
 				notify_service.PullRequestPushCommits(ctx, opts.Doer, pr, comment)
 			}
+			// a force-push replaces the commits a reviewer saw, so an armed auto-merge
+			// must not carry over to the new head
+			if opts.IsForcePush {
+				if err := cancelAutoMergeOnForcePush(ctx, opts.Doer, pr); err != nil {
+					log.Error("cancelAutoMergeOnForcePush: %v", err)
+				}
+			}
+
 			// The caller can be in a goroutine or a "push queue", "conflict check" can be time-consuming,
 			// and the concurrency should be limited, so the conflict check will be done in another queue
 			StartPullRequestCheckImmediately(ctx, pr)

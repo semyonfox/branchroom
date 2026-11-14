@@ -242,7 +242,10 @@ A push is rejected when its new commits add a credential with a recognisable
 format, such as an AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic
 or npm key, or a private key. The rejection names the file, the commit and the
 start of each match. A pusher who knows a match is not a secret can push again
-with `git push -o secret_scanning.allow=true`.
+with `git push -o secret_scanning.allow=true`. Each push that skips a match this
+way leaves a notice under Site Administration, System Notices, with the pusher,
+repository, branch, commit and the redacted matches. Set `ALLOW_BYPASS = false`
+in the same section to refuse the option.
 
 On the live host this is turned on. git-sync does not pass the override, so a
 commit GitHub already accepted and this check rejects stays on GitHub. That
@@ -251,6 +254,25 @@ after looking at the commit, pushes it once with the option above. The sync
 engine opens an issue in the affected repository when Branchroom refuses the
 update. The issue does not include the hook message, which contains the start
 of the match.
+
+### Custom secret patterns
+
+Site administrators can add named Go regular expressions in `app.ini`:
+
+```ini
+[repository.secret_scanning.patterns]
+internal_token = \bcompany_[A-Za-z0-9]{32}\b
+```
+
+Restart after editing the configuration. Invalid regexes and patterns that match
+empty text prevent startup, even when push protection is off. Go regexes run in
+linear time and do not support backreferences or lookaround. Keep the list small
+and test patterns against representative credentials before enabling them.
+
+Custom patterns supplement the built-in vendor list. They scan added lines only,
+with the same size limits and placeholder exclusions. Matches use the same
+redaction and bypass policy as built-in matches, including admin notices.
+Matches of eight characters or fewer are fully hidden.
 
 ## PR factory labels
 

@@ -138,7 +138,9 @@ func loadCommonSettingsFrom(cfg ConfigProvider) error {
 	}
 	loadTimeFrom(cfg)
 	loadRepositoryFrom(cfg)
-	loadSecretScanningFrom(cfg)
+	if err := loadSecretScanningFrom(cfg); err != nil {
+		return err
+	}
 	if err := loadAvatarsFrom(cfg); err != nil {
 		return err
 	}

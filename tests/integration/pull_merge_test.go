@@ -882,6 +882,60 @@ func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 	})
 }
 
+func TestPullAutoMergeCancelledByForcePush(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
+		session := loginUser(t, "user1")
+		user1 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+		forkedName := "repo1-force"
+		testRepoFork(t, session, "user2", "repo1", "user1", forkedName, "")
+		testEditFile(t, session, "user1", forkedName, "master", "README.md", "Hello, World (Edited)\n")
+		testPullCreate(t, session, "user1", forkedName, false, "master", "master", "Force push cancels auto merge")
+
+		baseRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerName: "user2", Name: "repo1"})
+		forkedRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerName: "user1", Name: forkedName})
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{
+			BaseRepoID: baseRepo.ID,
+			BaseBranch: "master",
+			HeadRepoID: forkedRepo.ID,
+			HeadBranch: "master",
+		})
+
+		// a pending status check keeps the scheduled merge waiting
+		req := NewRequestWithValues(t, "POST", "/user2/repo1/settings/branches/edit", map[string]string{
+			"rule_name":             "master",
+			"enable_push":           "true",
+			"enable_status_check":   "true",
+			"status_check_contexts": "gitea/actions",
+		})
+		session.MakeRequest(t, req, http.StatusOK)
+
+		defer test.MockVariableValue(&automergequeue.AddToQueue, func(automergequeue.AutoMergeItem) {})()
+		scheduled, err := automerge.ScheduleAutoMerge(t.Context(), user1, pr, repo_model.MergeStyleMerge, "auto merge test", false)
+		require.NoError(t, err)
+		require.True(t, scheduled)
+		unittest.AssertExistsAndLoadBean(t, &pull_model.AutoMerge{PullID: pr.ID})
+
+		// rebuild the head branch from develop, which drops the reviewed commit
+		token := getUserToken(t, "user1", auth_model.AccessTokenScopeWriteRepository)
+		opts := getChangeFilesOptions()
+		opts.BranchName = "develop"
+		opts.NewBranchName = "master"
+		opts.ForcePush = true
+		opts.Files = opts.Files[:1]
+		opts.Files[0].Path = "force-pushed.txt"
+		req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user1/"+forkedName+"/contents", opts).AddTokenAuth(token)
+		MakeRequest(t, req, http.StatusCreated)
+
+		assert.Eventually(t, func() bool {
+			return unittest.GetCount(t, &pull_model.AutoMerge{PullID: pr.ID}) == 0
+		}, 5*time.Second, 100*time.Millisecond)
+		unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{
+			IssueID: pr.IssueID,
+			Type:    issues_model.CommentTypePRUnScheduledToAutoMerge,
+		})
+	})
+}
+
 func TestPullAutoMergeAfterCommitStatusSucceedAndApproval(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
 		// create a pull request
