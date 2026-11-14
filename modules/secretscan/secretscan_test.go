@@ -48,3 +48,21 @@ func TestPatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []Finding{{Commit: "aaa", Path: ".env", Kind: "AWS access key", Redacted: "AKIAQ3EG********"}}, findings)
 }
+
+func TestCustomPatterns(t *testing.T) {
+	scanner, err := NewScanner(map[string]string{"internal": `company_[A-Za-z0-9]{32}`, "short": `tiny_[0-9]{2}`})
+	require.NoError(t, err)
+	token := "company_" + strings.Repeat("a1B2", 8)
+	findings, err := scanner.Patch(strings.NewReader("commit:aaa\n+++ b/.env\n+TOKEN="+token+"\n+tiny_12"), 5)
+	require.NoError(t, err)
+	assert.Equal(t, []Finding{
+		{Commit: "aaa", Path: ".env", Kind: "internal", Redacted: "company_********"},
+		{Commit: "aaa", Path: ".env", Kind: "short", Redacted: "*******"},
+	}, findings)
+	kind, _ := scanner.Line("ghp_" + strings.Repeat("a1B2", 9))
+	assert.Equal(t, "GitHub token", kind)
+	for _, expr := range []string{"[", "", "a*"} {
+		_, err := NewScanner(map[string]string{"invalid": expr})
+		require.Error(t, err)
+	}
+}

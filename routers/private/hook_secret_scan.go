@@ -42,7 +42,7 @@ func assertNoPushedSecrets(ctx *preReceiveContext, newCommitID, branchName strin
 	err := cmd.WithEnv(ctx.env).WithRepo(ctx.Repo.Repository).
 		WithPipelineFunc(func(gitCtx gitcmd.Context) error {
 			var err error
-			findings, err = secretscan.Patch(io.LimitReader(stdout, secretScanMaxPatchBytes), secretScanMaxFindings)
+			findings, err = setting.SecretScanningScanner.Patch(io.LimitReader(stdout, secretScanMaxPatchBytes), secretScanMaxFindings)
 			if err != nil {
 				return gitCtx.CancelPipeline(err)
 			}
