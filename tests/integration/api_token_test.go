@@ -593,9 +593,13 @@ func TestBranchroomTokenFormats(t *testing.T) {
 	token := createAPIAccessTokenWithoutCleanUp(t, "prefixed", user, []auth_model.AccessTokenScope{auth_model.AccessTokenScopeAll})
 	assert.True(t, strings.HasPrefix(token.Token, auth_model.AccessTokenPrefix))
 	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth(token.Token), http.StatusOK)
-	_, err := db.GetEngine(t.Context()).ID(1).Cols("scope").Update(&auth_model.AccessToken{Scope: auth_model.AccessTokenScopeAll})
+	legacyToken := strings.TrimPrefix(token.Token, auth_model.AccessTokenPrefix)
+	assert.Len(t, legacyToken, 40)
+	stored, err := auth_model.GetAccessTokenByID(t.Context(), token.ID, user.ID)
 	require.NoError(t, err)
-	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth("d2c6c1ba3890b309189a8e618c72a162e4efbf36"), http.StatusOK)
+	stored.TokenHash = auth_model.HashToken(legacyToken, stored.TokenSalt)
+	require.NoError(t, auth_model.UpdateAccessToken(t.Context(), stored))
+	MakeRequest(t, NewRequest(t, "GET", "/api/v1/user").AddTokenAuth(legacyToken), http.StatusOK)
 }
 
 func TestBranchroomAgentComment(t *testing.T) {

@@ -471,7 +471,8 @@ func prepareBranchroomMigrationTasks() []*migration {
 		newMigration(10, "Add Branchroom audit details", v29.AddBranchroomAuditDetails),
 		newMigration(11, "Preserve auto merge credentials", v29.AddAutoMergeCredentials),
 		newMigration(12, "Add saved replies", v29.AddSavedReplies),
-		newMigration(13, "Add Branchroom agent identity", v29.AddBranchroomAgentIdentity),
+		newMigration(13, "Add path reviewer rules", v29.AddPathReviewerRules),
+		newMigration(14, "Add Branchroom agent identity", v29.AddBranchroomAgentIdentity),
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -596,5 +597,81 @@ func TestPullReviewRangeComment(t *testing.T) {
 
 		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
 		assert.Contains(t, page.Body.String(), "lines 1 to 3")
+	})
+}
+
+func TestPathReviewers(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		for _, mode := range []string{"team", "codeowners"} {
+			t.Run(mode, func(t *testing.T) {
+				author := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+				org := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 3})
+				repo, err := repo_service.CreateRepositoryDirectly(t.Context(), author, org, repo_service.CreateRepoOptions{Name: "path-reviewers-" + mode, Readme: "Default", AutoInit: true, DefaultBranch: "main"}, true)
+				require.NoError(t, err)
+				team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 2})
+				require.NoError(t, repo_service.TeamAddRepository(t.Context(), team, repo))
+				_, err = files_service.ChangeRepoFiles(t.Context(), repo, author, &files_service.ChangeRepoFilesOptions{
+					OldBranch: "main", Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "CODEOWNERS", ContentReader: strings.NewReader("README.md @user4 @user5\n")}},
+				})
+				require.NoError(t, err)
+				changed, err := files_service.ChangeRepoFiles(t.Context(), repo, author, &files_service.ChangeRepoFilesOptions{
+					OldBranch: "main", NewBranch: "change", Files: []*files_service.ChangeRepoFile{{Operation: "update", TreePath: "README.md", ContentReader: strings.NewReader("changed\n")}},
+				})
+				require.NoError(t, err)
+				token := getUserToken(t, "user2", auth_model.AccessTokenScopeWriteRepository)
+				MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/"+repo.FullName()+"/pulls", &api.CreatePullRequestOption{Head: "change", Base: "main", Title: "path reviews"}).AddTokenAuth(token), http.StatusCreated)
+				pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "change"})
+				require.NoError(t, pr.LoadIssue(t.Context()))
+				pr.Issue.Repo = repo
+				pb := &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "main"}
+				require.NoError(t, pull_service.CreateOrUpdateProtectedBranch(t.Context(), repo, pb, git_model.WhitelistOptions{}))
+				endpoint := "/api/v1/repos/" + repo.FullName() + "/branch_protections/path_reviewers/main"
+				input := api.PathReviewerRule{Pattern: "README.md", Team: "team1", RequiredApprovals: 1}
+				if mode == "codeowners" {
+					input.Team, input.CodeOwners, input.RequiredApprovals = "", true, 2
+				}
+				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{Rules: []api.PathReviewerRule{input}}).AddTokenAuth(token), http.StatusOK)
+				deniedToken := getUserToken(t, "user4", auth_model.AccessTokenScopeWriteRepository)
+				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{}).AddTokenAuth(deniedToken), http.StatusForbidden)
+				invalid := input
+				invalid.RequiredApprovals = 0
+				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{Rules: []api.PathReviewerRule{invalid}}).AddTokenAuth(token), http.StatusUnprocessableEntity)
+				check := func(blocked bool) {
+					t.Helper()
+					readiness, err := pull_service.GetReadiness(t.Context(), pr)
+					require.NoError(t, err)
+					if blocked {
+						assert.Contains(t, readiness.Blockers, pull_service.BlockerPathReviews)
+						require.ErrorIs(t, pull_service.CheckPullBranchProtections(t.Context(), pr, false), pull_service.ErrNotReadyToMerge)
+					} else {
+						assert.NotContains(t, readiness.Blockers, pull_service.BlockerPathReviews)
+						require.NoError(t, pull_service.CheckPullBranchProtections(t.Context(), pr, false))
+					}
+				}
+				approve := func(id int64) {
+					t.Helper()
+					reviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: id})
+					_, _, err := issues_model.SubmitReview(t.Context(), reviewer, pr.Issue, issues_model.ReviewTypeApprove, "approved", changed.Commit.SHA, false, nil)
+					require.NoError(t, err)
+				}
+				check(true)
+				approve(8)
+				check(true)
+				approve(4)
+				if mode == "codeowners" {
+					check(true)
+					approve(5)
+				}
+				check(false)
+				if mode == "team" {
+					review := unittest.AssertExistsAndLoadBean(t, &issues_model.Review{IssueID: pr.IssueID, ReviewerID: 4, Type: issues_model.ReviewTypeApprove})
+					_, err := db.GetEngine(t.Context()).ID(review.ID).Cols("dismissed").Update(&issues_model.Review{Dismissed: true})
+					require.NoError(t, err)
+					check(true)
+				}
+				require.NoError(t, git_model.DeleteProtectedBranch(t.Context(), repo, pb.ID))
+				unittest.AssertNotExistsBean(t, &git_model.BranchroomPathReviewer{ProtectedBranchID: pb.ID})
+			})
+		}
 	})
 }

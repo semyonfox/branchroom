@@ -284,3 +284,20 @@ func TestNewProtectBranchPriority(t *testing.T) {
 		assert.Equal(t, ProtectedBranchConfig{}, loaded.ProtectedBranchConfig)
 	})
 }
+
+func TestPathReviewerRuleValidation(t *testing.T) {
+	for _, rule := range []BranchroomPathReviewer{
+		{Pattern: "src/**", TeamID: 2, RequiredApprovals: 2},
+		{Pattern: "*.go", CodeOwners: true, RequiredApprovals: 1},
+	} {
+		require.NoError(t, ValidatePathReviewerRule(&rule))
+	}
+	for _, rule := range []BranchroomPathReviewer{
+		{Pattern: "src/**", RequiredApprovals: 1},
+		{Pattern: "[", CodeOwners: true, RequiredApprovals: 1},
+		{Pattern: "src/**", CodeOwners: true},
+		{Pattern: "src/**", TeamID: 2, CodeOwners: true, RequiredApprovals: 1},
+	} {
+		require.Error(t, ValidatePathReviewerRule(&rule))
+	}
+}

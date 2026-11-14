@@ -299,3 +299,33 @@ for pushed tips. Ordinary repository receipts are stored separately from the
 Branchroom audit chain. Restricted workspace pushes include identity with their
 existing receive outcome evidence. A rejected or unconfirmed restricted push is
 not evidence that Git accepted the refs.
+
+## Path reviewer rules
+
+Repository administrators can require approvals for selected paths on a protected
+branch. Create the branch protection first, then use
+`PUT /api/v1/repos/{owner}/{repo}/branch_protections/path_reviewers/{name}`:
+
+```json
+{"rules":[{"pattern":"src/**","team":"security","required_approvals":2}]}
+```
+
+Use the protected branch rule's name, including any wildcard. Patterns use the
+same path globs as protected files, with `/` separating directories. All matching
+rules apply. The named team must belong to the repository's organisation and have
+code write access. Membership is checked again when merging.
+
+To require the applicable CODEOWNERS owners instead, replace `team` with
+`"code_owners":true`. The target branch's CODEOWNERS file determines eligible
+reviewers. Each applicable ownership rule needs the specified number of distinct
+approvals. Missing owners, invalid ownership rules or a matching timeout block
+merging. The PR author cannot count towards either kind of rule.
+
+Only each reviewer's latest non-dismissed approval counts. Stale approvals follow
+the branch's existing stale-review policy. These rules apply to ordinary and
+automatic merges and appear as `path_reviews_missing` in readiness. Existing
+administrator and bypass permissions still apply.
+
+`GET` on the same endpoint lists the rules. `PUT` replaces the complete list and
+`{"rules":[]}` clears it. Invalid replacements leave the existing rules intact.
+Rules live in `branchroom_path_reviewer`, created by Branchroom migration 13.
