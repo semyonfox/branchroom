@@ -180,7 +180,9 @@ func NormalRoutes() *web.Router {
 	r.AfterRouting(common.MaintenanceModeHandler())
 
 	r.Mount("/", web_routers.Routes())
-	r.Mount("/api/v1", apiv1.Routes())
+	apiRoutes := apiv1.Routes()
+	r.Mount("/api/v1", apiRoutes)
+	r.Mount("/api/mcp", apiv1.MCPRoutes(apiRoutes))
 	r.Mount("/api/internal", private.Routes())
 
 	r.Post("/-/fetch-redirect", common.FetchRedirectDelegate)

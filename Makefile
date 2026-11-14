@@ -315,7 +315,7 @@ lint-md-fix: node_modules ## lint markdown files and fix issues
 
 .PHONY: lint-go
 lint-go: ## lint go files
-	GO=$(GO) GOLANGCI_LINT_PACKAGE=$(GOLANGCI_LINT_PACKAGE) $(GO) run ./tools/lint-go-all.go
+	GO=$(GO) GOLANGCI_LINT_PACKAGE=$(GOLANGCI_LINT_PACKAGE) $(GO) run ./tools/lint-go-all.go $(LINT_GO_ARGS)
 
 .PHONY: lint-go-fix
 lint-go-fix: ## lint go files and fix issues
