@@ -104,7 +104,7 @@ function createPalette() {
     try {
       const stored: unknown = JSON.parse(localUserSettings.getString('forge-palette-recent', '[]'));
       if (!Array.isArray(stored)) return [];
-      return stored.filter(isRecord).filter((item) => typeof item.label === 'string' && typeof item.url === 'string' && item.url.startsWith('/') && !item.url.startsWith('//'))
+      return stored.filter(isRecord).filter((item) => typeof item.label === 'string' && typeof item.url === 'string' && item.url.startsWith('/') && !item.url.startsWith('//') && item.url !== location.pathname + location.search)
         .map((item) => ({section: 'recent', label: String(item.label), url: String(item.url)}));
     } catch {
       return [];

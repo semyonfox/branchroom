@@ -218,9 +218,10 @@ if (paletteTrigger) {
       openPalette();
     }
   }, {capture: true});
-  try {
+  if (!/^\/user\/(login|sign_up|forgot_password|recover_account|activate)/.test(location.pathname)) try {
     const stored: unknown = JSON.parse(localUserSettings.getString('forge-palette-recent', '[]'));
-    const recent = Array.isArray(stored) ? stored.filter((item) => item && typeof item === 'object' && typeof item.url === 'string' && typeof item.label === 'string' && item.url.startsWith('/') && !item.url.startsWith('//') && item.url !== location.pathname + location.search) : [];
+    // same title means the same page to the reader, like / and /inbox
+    const recent = Array.isArray(stored) ? stored.filter((item) => item && typeof item === 'object' && typeof item.url === 'string' && typeof item.label === 'string' && item.url.startsWith('/') && !item.url.startsWith('//') && item.url !== location.pathname + location.search && item.label !== document.title) : [];
     localUserSettings.setString('forge-palette-recent', JSON.stringify([{url: location.pathname + location.search, label: document.title}, ...recent].slice(0, 8)));
   } catch { /* storage can be disabled */ }
 }
