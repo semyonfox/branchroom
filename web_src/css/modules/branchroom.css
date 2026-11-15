@@ -89,6 +89,19 @@ h1, h2, h3, h4, h5, h6, .ui.header {
   border-radius: 0 0 8px 8px;
 }
 
+/* a search result is one card: its fragments are divided, not boxed */
+.repo-search-result .ui.attached.segment:not(:last-child) {
+  border-radius: 0;
+}
+
+.repo-search-result .ui.attached.segment:has(+ .ui.attached.segment:not(.bottom)) {
+  border-bottom-style: dashed;
+}
+
+.repo-search-result .ui.bottom.attached.segment {
+  border-radius: 0 0 8px 8px;
+}
+
 .ui.top.attached.header {
   background: var(--color-box-header);
   border-radius: 8px 8px 0 0;
