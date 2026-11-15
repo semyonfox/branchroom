@@ -16,6 +16,7 @@
   "forge.palette.error": "Some sources could not be loaded. Try typing again.",
   "forge.palette.hint": "↑ ↓ move · Enter open · Tab next section · Esc close",
   "forge.palette.inbox_detail": "What needs you",
+  "forge.pull.size_hint": "Size by lines changed: XS under 10, S under 30, M under 100, L under 500, XL above",
   "forge.palette.explore_detail": "Find repositories, people and organisations",
   "forge.palette.your_settings": "Your settings",
   "forge.palette.settings_detail": "Profile, keys, tokens and appearance",

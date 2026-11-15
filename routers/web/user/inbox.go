@@ -29,9 +29,6 @@ func Inbox(ctx *context.Context) {
 		if group.Kind == "triage" && !result.CanTriage {
 			continue
 		}
-		if group.Kind == "needs" {
-			ctx.Data["InboxNeedsCount"] = group.Count
-		}
 		if group.Kind != view && group.Count > busiest.Count {
 			busiest = group
 		}

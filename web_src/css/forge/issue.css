@@ -225,3 +225,25 @@
   color: var(--color-text);
   font-weight: var(--font-weight-semibold);
 }
+
+.forge-pull-facts {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
+.forge-chip {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-label-bg);
+  color: var(--color-text-light);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.forge-chip-new {
+  background: var(--color-yellow-badge-bg);
+  color: var(--color-yellow-badge);
+}

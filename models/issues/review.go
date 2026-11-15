@@ -408,15 +408,20 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 			review.ReviewerID = opts.Reviewer.ID
 
 			reviewCond := builder.Eq{"reviewer_id": opts.Reviewer.ID, "issue_id": opts.Issue.ID}
+			// an agent reviewing with a person's token leaves that person's own request and decision standing
+			byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(opts.Reviewer))
+			if err != nil {
+				return nil, err
+			}
 			// make sure user review requests are cleared
-			if opts.Type != ReviewTypePending {
+			if opts.Type != ReviewTypePending && !byAgent {
 				if _, err := sess.Where(reviewCond.And(builder.Eq{"type": ReviewTypeRequest})).Delete(new(Review)); err != nil {
 					return nil, err
 				}
 			}
 			// make sure if the created review gets dismissed no old review surface
 			// other types can be ignored, as they don't affect branch protection
-			if opts.Type == ReviewTypeApprove || opts.Type == ReviewTypeReject {
+			if (opts.Type == ReviewTypeApprove || opts.Type == ReviewTypeReject) && !byAgent {
 				if _, err := sess.Where(reviewCond.And(builder.In("type", ReviewTypeApprove, ReviewTypeReject))).
 					Cols("dismissed").Update(&Review{Dismissed: true}); err != nil {
 					return nil, err
@@ -486,7 +491,12 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	defer committer.Close()
 	sess := db.GetEngine(ctx)
 
-	isApproveOrReject := reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject
+	// a person's agent reviews alongside them, it never stands in for their own decision or approval
+	byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(doer))
+	if err != nil {
+		return nil, nil, err
+	}
+	isApproveOrReject := (reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject) && !byAgent
 	official := false
 	if isApproveOrReject {
 		if official, err = IsOfficialReviewer(ctx, issue, doer); err != nil {
@@ -536,7 +546,7 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 		}
 
 		// make sure the leftover review request is cleared, consistent with CreateReview
-		if reviewType != ReviewTypePending {
+		if reviewType != ReviewTypePending && !byAgent {
 			if _, err := sess.Where(builder.Eq{"reviewer_id": doer.ID, "issue_id": issue.ID, "type": ReviewTypeRequest}).
 				Delete(new(Review)); err != nil {
 				return nil, nil, err

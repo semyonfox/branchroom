@@ -277,14 +277,16 @@ func TestAPIInbox(t *testing.T) {
 	require.Len(t, result.Groups[2].Items, 3)
 	var agentNames []string
 	for _, item := range result.Groups[2].Items {
-		require.NotNil(t, item.Agent)
+		if item.Agent == nil {
+			// a comment is activity on someone else's item, so it shows as an event and never as authorship
+			assert.Contains(t, item.Reason, "recent-agent")
+			continue
+		}
 		agentNames = append(agentNames, item.Agent.Name)
 		assert.Equal(t, "sponsor", item.Agent.Sponsor)
-		if item.Agent.Name == "test-agent" {
-			assert.Equal(t, "https://example.org/task", item.Agent.TaskURL)
-		}
+		assert.Equal(t, "https://example.org/task", item.Agent.TaskURL)
 	}
-	assert.ElementsMatch(t, []string{"test-agent", "test-agent", "recent-agent"}, agentNames)
+	assert.ElementsMatch(t, []string{"test-agent", "test-agent"}, agentNames)
 	require.Len(t, result.Groups[3].Items, 2)
 	assert.Equal(t, "You were mentioned in an unread notification.", result.Groups[3].Items[0].Reason)
 	tokenText := getUserToken(t, "user2", auth_model.AccessTokenScopeReadIssue, auth_model.AccessTokenScopeReadRepository)

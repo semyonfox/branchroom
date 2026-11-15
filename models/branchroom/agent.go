@@ -121,6 +121,20 @@ type AgentAction struct {
 
 func (AgentAction) TableName() string { return "branchroom_agent_action" }
 
+// IsAgentCredential reports whether the credential is an access token carrying an agent identity
+func IsAgentCredential(ctx context.Context, credential string) (bool, error) {
+	idText, ok := strings.CutPrefix(credential, "access-token:")
+	if !ok {
+		return false, nil
+	}
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil {
+		return false, err
+	}
+	identity, err := GetTokenIdentity(ctx, id)
+	return identity != nil, err
+}
+
 func RecordAgentAction(ctx context.Context, credential, kind string, targetID int64) error {
 	idText, ok := strings.CutPrefix(credential, "access-token:")
 	if !ok {

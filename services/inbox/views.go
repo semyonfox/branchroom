@@ -10,13 +10,10 @@ import (
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	perm_model "gitea.dev/models/perm"
-	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
-	"gitea.dev/modules/git"
 	api "gitea.dev/modules/structs"
-	"gitea.dev/services/gitdiff"
 	pull_service "gitea.dev/services/pull"
 
 	"xorm.io/builder"
@@ -79,40 +76,22 @@ func canTriage(ctx context.Context, doer *user_model.User) (bool, error) {
 }
 
 func triageDetails(ctx context.Context, issue *issues_model.Issue, item *api.InboxItem, readiness *pull_service.Readiness) error {
-	if err := issue.LoadPoster(ctx); err != nil {
-		return err
-	}
-	p, err := access_model.GetDoerRepoPermission(ctx, issue.Repo, issue.Poster)
+	trust, err := posterTrust(ctx, issue)
 	if err != nil {
 		return err
 	}
-	item.Trust = "contributor"
-	if p.IsAdmin() || p.CanWrite(unit.TypeCode) {
-		item.Trust = "maintainer"
-	} else if p.IsMemberOrCollaborator() {
-		item.Trust = "collaborator"
-	} else if issue.IsPull {
-		merged, err := issues_model.HasMergedPullRequestInRepo(ctx, issue.RepoID, issue.PosterID)
-		if err != nil {
-			return err
+	item.Trust = trust
+	if !issue.IsPull {
+		// issues have no merged-PR history to judge by
+		if trust == "first-time contributor" {
+			item.Trust = "contributor"
 		}
-		if !merged {
-			item.Trust = "first-time contributor"
-		}
+		return nil
 	}
-	if issue.IsPull && readiness != nil {
-		gitRepo, closer, err := git.RepositoryFromContextOrOpen(ctx, issue.Repo)
-		if err != nil {
-			return err
-		}
-		defer closer.Close()
-		stat, err := gitdiff.GetDiffShortStat(ctx, gitRepo, &gitdiff.DiffCommonOptions{BeforeCommitID: issue.PullRequest.MergeBase, AfterCommitID: readiness.HeadSHA})
-		if err != nil {
-			return err
-		}
-		item.Size = sizeLabel(stat.TotalAddition + stat.TotalDeletion)
+	if readiness != nil {
+		item.Size, err = pullSize(ctx, issue)
 	}
-	return nil
+	return err
 }
 
 func sizeLabel(lines int) string {

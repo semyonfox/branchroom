@@ -13,6 +13,7 @@ import (
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/modules/log"
 	"gitea.dev/services/context"
+	inbox_service "gitea.dev/services/inbox"
 )
 
 // StopwatchTmplInfo is a view on a stopwatch specifically for template rendering
@@ -65,11 +66,26 @@ func notificationUnreadCount(ctx *context.Context) int64 {
 	return count
 }
 
+func inboxNeedsCount(ctx *context.Context) int {
+	if ctx.Doer == nil {
+		return 0
+	}
+	count, err := inbox_service.GetNeedsCount(ctx, ctx.Doer)
+	if err != nil {
+		if !errors.Is(err, goctx.Canceled) {
+			log.Error("Unable to count inbox items for user:%-v: %v", ctx.Doer, err)
+		}
+		return 0
+	}
+	return count
+}
+
 type pageGlobalDataType struct {
 	IsSigned    bool
 	IsSiteAdmin bool
 
 	GetNotificationUnreadCount func() int64
+	GetInboxNeedsCount         func() int
 	GetActiveStopwatch         func() *StopwatchTmplInfo
 }
 
@@ -78,6 +94,7 @@ func PageGlobalData(ctx *context.Context) {
 	data.IsSigned = ctx.Doer != nil
 	data.IsSiteAdmin = ctx.Doer != nil && ctx.Doer.IsAdmin
 	data.GetNotificationUnreadCount = sync.OnceValue(func() int64 { return notificationUnreadCount(ctx) })
+	data.GetInboxNeedsCount = sync.OnceValue(func() int { return inboxNeedsCount(ctx) })
 	data.GetActiveStopwatch = sync.OnceValue(func() *StopwatchTmplInfo { return getActiveStopwatch(ctx) })
 	ctx.Data["PageGlobalData"] = data
 }

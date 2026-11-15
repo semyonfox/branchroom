@@ -31,6 +31,12 @@
 								<a class="item" href="?q={{$root.Keyword}}&type={{$root.ViewType}}&state={{$root.State}}&labels={{$label.ID}}{{if ne $listType "milestone"}}&milestone={{$root.MilestoneID}}{{end}}&assignee={{$root.AssigneeID}}&poster={{$root.PosterID}}{{if $root.ShowArchivedLabels}}&archived=true{{end}}">{{ctx.RenderUtils.RenderLabel $label}}</a>
 							{{- end -}}
 						</span>
+						{{with and $root.PullFacts (index $root.PullFacts $issue.ID)}}
+							<span class="forge-pull-facts">
+								{{if .Size}}<span class="forge-chip" data-tooltip-content="{{ctx.Locale.Tr "forge.pull.size_hint"}}">{{.Size}}</span>{{end}}
+								<span class="forge-chip{{if eq .Trust "first-time contributor"}} forge-chip-new{{end}}">{{.Trust}}</span>
+							</span>
+						{{end}}
 					</div>
 					{{if $issue.TotalTrackedTime}}
 					<div class="tw-text-text-light flex-text-block">
