@@ -1,9 +1,6 @@
 <div class="repo-overview-layout">
 <div class="repo-overview-main">
 {{template "repo/view_content_toolbar" .}}
-<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
-	{{template "repo/view_content" .}}
-</section>
 {{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
 <section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
 	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
@@ -14,6 +11,9 @@
 	<label for="repo-overview-readme-expand" class="repo-overview-readme-more"><span class="repo-overview-readme-show">{{ctx.Locale.Tr "repo.overview.full_readme"}}</span><span class="repo-overview-readme-hide">{{ctx.Locale.Tr "repo.overview.less_readme"}}</span></label>
 </section>
 {{end}}
+<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
+	{{template "repo/view_content" .}}
+</section>
 </div>
 
 <aside class="repo-overview-side" aria-label="{{ctx.Locale.Tr "repo.overview.about"}}">
