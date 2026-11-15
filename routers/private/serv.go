@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	asymkey_model "gitea.dev/models/asymkey"
+	audit_model "gitea.dev/models/audit"
 	deploykey_model "gitea.dev/models/deploykey"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -18,8 +19,10 @@ import (
 	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/private"
+	"gitea.dev/modules/reqctx"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
+	audit_service "gitea.dev/services/audit"
 	"gitea.dev/services/context"
 	repo_service "gitea.dev/services/repository"
 	wiki_service "gitea.dev/services/wiki"
@@ -298,6 +301,13 @@ func ServCommand(ctx *context.PrivateContext) {
 			ctx.PrivateInternalErrorf("Failed to initialize the wiki in %-v, error: %v", repo, err)
 			return
 		}
+	}
+
+	if verb == git.CmdVerbUploadPack || verb == git.CmdVerbUploadArchive || verb == git.CmdVerbReceivePack {
+		if store := reqctx.GetRequestDataStore(ctx); store != nil {
+			audit_service.SetRequestInfo(store, audit_model.OriginSSH, ctx.FormString("remote"))
+		}
+		audit_service.RecordGitAccess(ctx, user, repo, verb == git.CmdVerbReceivePack, results.IsWiki)
 	}
 
 	gitRepo := util.Iif(results.IsWiki, repo.WikiStorageRepo(), repo.CodeStorageRepo())

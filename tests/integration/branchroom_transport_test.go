@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	audit_model "gitea.dev/models/audit"
 	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -21,6 +22,7 @@ import (
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
+	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git"
@@ -498,6 +500,31 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name(), ""))
 			_, _, err = gitcmd.NewCommand("fetch").AddDynamicArguments(u.JoinPath("user2", "repo1.git").String(), secondAllowedCommit).WithDir(publicClone).RunStdString(t.Context())
 			assert.Error(t, err)
+		})
+
+		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {
+			defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
+			_, stderr, pushErr := gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:refs/heads/fix-public").WithDir(cloneDir).RunStdString(t.Context())
+			require.Error(t, pushErr)
+			assert.Contains(t, stderr, "restricted workspace")
+			_, _, refErr := gitcmd.NewCommand("show-ref", "--verify", "--quiet", "refs/heads/fix-public").WithRepo(repository.CodeStorageRepo()).RunStdString(t.Context())
+			assert.Error(t, refErr)
+			events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "restricted_commit_public_push_refused", events[len(events)-1].ReasonCode)
+			unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryRestrictedRefused, ActorID: ordinaryWriter.ID, ScopeID: repository.ID})
+			unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryGitWrite, ActorID: ordinaryWriter.ID, ScopeID: repository.ID})
+
+			adminURL := *u.JoinPath("user2", "repo1.git")
+			adminURL.User = url.UserPassword("user2", userPassword)
+			_, _, pushErr = gitcmd.NewCommand("push").AddDynamicArguments(adminURL.String(), "HEAD:refs/heads/published-fix").WithDir(cloneDir).RunStdString(t.Context())
+			require.NoError(t, pushErr)
+			assert.Equal(t, secondAllowedCommit, branchroomObjectID(t, repository.CodeStorageRepo(), "refs/heads/published-fix"))
+			events, err = branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "restricted_commit_published_by_admin", events[len(events)-1].ReasonCode)
+			require.NoError(t, branchroom_model.VerifyScopeAuditChain(t.Context(), scope))
+			unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryGitPush, ActorID: repository.OwnerID, ScopeID: repository.ID})
 		})
 
 		t.Run("an unsafe restricted root hides private refs", func(t *testing.T) {

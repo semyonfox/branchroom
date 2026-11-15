@@ -11,4 +11,6 @@ const (
 	OriginAPI    Origin = "api"
 	OriginCLI    Origin = "cli"
 	OriginSystem Origin = "system"
+	OriginGit    Origin = "git"
+	OriginSSH    Origin = "ssh"
 )

@@ -25,6 +25,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/util"
+	audit_service "gitea.dev/services/audit"
 	gitea_context "gitea.dev/services/context"
 )
 
@@ -362,6 +363,7 @@ func ServeRepoArchive(ctx *gitea_context.Base, archiveReq *ArchiveRequest) error
 		archiveReq.CommitID,
 	))
 	downloadName := archiveReq.Repo.Name + "-" + archiveReq.GetArchiveName()
+	audit_service.RecordArchiveDownload(ctx, archiveReq.Repo, downloadName)
 
 	if setting.Repository.StreamArchives || len(archiveReq.Paths) > 0 {
 		// Use weak ETag because the bytes also depend on the git version, compression level and repo config

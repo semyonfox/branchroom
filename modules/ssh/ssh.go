@@ -78,6 +78,7 @@ func sessionHandler(session *sshSession) int {
 		"SSH_ORIGINAL_COMMAND="+session.rawCmd,
 		"SKIP_MINWINSVC=1",
 		"GIT_PROTOCOL="+gitProtocol,
+		"SSH_CONNECTION="+sshConnection(session.conn),
 	)
 
 	stdout, err := cmd.StdoutPipe()
@@ -347,4 +348,11 @@ func InitDefaultHostKeys(path string) (keyFiles []string, _ error) {
 		keyFiles = append(keyFiles, keyPath)
 	}
 	return keyFiles, errors.Join(errs...)
+}
+
+// sshConnection formats the client and server address like OpenSSH's SSH_CONNECTION, so serv can audit the client
+func sshConnection(conn *gossh.ServerConn) string {
+	client, clientPort, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	server, serverPort, _ := net.SplitHostPort(conn.LocalAddr().String())
+	return strings.Join([]string{client, clientPort, server, serverPort}, " ")
 }
