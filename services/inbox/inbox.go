@@ -5,6 +5,7 @@ package inbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"gitea.dev/modules/httplib"
 	"gitea.dev/modules/optional"
 	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/util"
 	pull_service "gitea.dev/services/pull"
 
 	"xorm.io/builder"
@@ -112,13 +114,16 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 			headCond := builder.NewCond()
 			for _, issue := range issues {
 				r, err := pull_service.GetReadiness(ctx, issue.PullRequest)
+				if errors.Is(err, util.ErrNotExist) {
+					continue // a pull request whose head ref is gone has no readiness, and must not take the inbox down
+				}
 				if err != nil {
 					return nil, fmt.Errorf("get: %w", err)
 				}
 				readiness[issue.ID] = r
 				headCond = headCond.Or(builder.Eq{"issue_id": issue.ID, "commit_id": r.HeadSHA})
 			}
-			if len(issues) > 0 {
+			if headCond.IsValid() {
 				var reviewedIDs []int64
 				err := db.GetEngine(ctx).Table("review").Distinct("issue_id").Where(headCond).And(builder.Eq{"reviewer_id": doer.ID, "dismissed": false}).In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment).And(humanReview()).Find(&reviewedIDs)
 				if err != nil {
@@ -159,7 +164,7 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 				r = readiness[issue.ID]
 				if r == nil {
 					r, err = pull_service.GetReadiness(ctx, issue.PullRequest)
-					if err != nil {
+					if err != nil && !errors.Is(err, util.ErrNotExist) {
 						return nil, fmt.Errorf("get: %w", err)
 					}
 					readiness[issue.ID] = r
@@ -195,6 +200,9 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 				}
 				item.Action = api.InboxAction{Label: "Review", URL: item.HTMLURL + "/files"}
 			case "blocked":
+				if r == nil {
+					continue
+				}
 				item.Reason, item.Action = blockedReason(r, item.HTMLURL)
 				if item.Reason == "" {
 					continue
