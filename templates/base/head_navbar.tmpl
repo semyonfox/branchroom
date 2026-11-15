@@ -3,13 +3,31 @@
 		<span class="forge-mark" aria-hidden="true"></span><span class="forge-wordmark">{{AppName}}</span>
 	</a>
 
-	<form class="forge-search" action="{{AppSubUrl}}/explore/repos" role="search">
+	<form class="forge-search" id="forge-palette-trigger" action="{{AppSubUrl}}/explore/repos" role="search">
 		<label class="global-shortcut-wrapper">
 			{{svg "octicon-search"}}
-			<input type="search" name="q" aria-label="{{ctx.Locale.Tr "forge.search"}}" placeholder="{{ctx.Locale.Tr "forge.search"}}">
+			<input type="search" name="q" aria-haspopup="dialog" aria-controls="forge-palette" aria-keyshortcuts="Control+K Meta+K" aria-label="{{ctx.Locale.Tr "forge.search"}}" placeholder="{{ctx.Locale.Tr "forge.search"}}">
 			<kbd data-global-init="onGlobalShortcut" data-shortcut-keys="/">/</kbd>
 		</label>
 	</form>
+	<dialog id="forge-palette" class="forge-palette"
+		aria-label="{{ctx.Locale.Tr "forge.palette.title"}}"
+		data-repo-link="{{.RepoLink}}"
+		data-signed-in="{{.IsSigned}}"
+		{{if .Repository}}data-default-branch="{{.Repository.DefaultBranch}}"{{end}}
+		data-recent="{{ctx.Locale.Tr "forge.palette.recent"}}"
+		data-repositories="{{ctx.Locale.Tr "forge.palette.repositories"}}"
+		data-files="{{ctx.Locale.Tr "forge.palette.files"}}"
+		data-issues="{{ctx.Locale.Tr "forge.palette.issues"}}"
+		data-commands="{{ctx.Locale.Tr "forge.palette.commands"}}"
+		data-inbox="{{ctx.Locale.Tr "forge.inbox"}}"
+		data-new-repository="{{ctx.Locale.Tr "new_repo"}}"
+		data-new-issue="{{ctx.Locale.Tr "repo.issues.new"}}"
+		data-empty="{{ctx.Locale.Tr "forge.palette.empty"}}"
+		data-loading="{{ctx.Locale.Tr "forge.palette.loading"}}"
+		data-error="{{ctx.Locale.Tr "forge.palette.error"}}"
+		data-hint="{{ctx.Locale.Tr "forge.palette.hint"}}"
+	></dialog>
 	{{if and .IsSigned (not .MustChangePassword)}}
 		{{template "base/head_navbar_icons"}}
 		{{if not ctx.Consts.RepoUnitTypePullRequests.UnitGlobalDisabled}}
