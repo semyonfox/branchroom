@@ -408,15 +408,21 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 			review.ReviewerID = opts.Reviewer.ID
 
 			reviewCond := builder.Eq{"reviewer_id": opts.Reviewer.ID, "issue_id": opts.Issue.ID}
+			// an agent reviewing with a person's token leaves that person's own request and decision standing
+			byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(opts.Reviewer))
+			if err != nil {
+				return nil, err
+			}
+			byAgent = byAgent && !opts.Reviewer.IsTypeBot()
 			// make sure user review requests are cleared
-			if opts.Type != ReviewTypePending {
+			if opts.Type != ReviewTypePending && !byAgent {
 				if _, err := sess.Where(reviewCond.And(builder.Eq{"type": ReviewTypeRequest})).Delete(new(Review)); err != nil {
 					return nil, err
 				}
 			}
 			// make sure if the created review gets dismissed no old review surface
 			// other types can be ignored, as they don't affect branch protection
-			if opts.Type == ReviewTypeApprove || opts.Type == ReviewTypeReject {
+			if (opts.Type == ReviewTypeApprove || opts.Type == ReviewTypeReject) && !byAgent {
 				if _, err := sess.Where(reviewCond.And(builder.In("type", ReviewTypeApprove, ReviewTypeReject))).
 					Cols("dismissed").Update(&Review{Dismissed: true}); err != nil {
 					return nil, err
@@ -432,8 +438,11 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 		if _, err := sess.Insert(review); err != nil {
 			return nil, err
 		}
-		if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Reviewer), "review", review.ID); err != nil {
-			return nil, err
+		// a pending draft belongs to whoever submits it, so credit waits for SubmitReview
+		if opts.Type != ReviewTypePending {
+			if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Reviewer), "review", review.ID); err != nil {
+				return nil, err
+			}
 		}
 
 		return review, nil
@@ -486,7 +495,13 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	defer committer.Close()
 	sess := db.GetEngine(ctx)
 
-	isApproveOrReject := reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject
+	// a person's agent reviews alongside them, it never stands in for their own decision or approval
+	byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(doer))
+	if err != nil {
+		return nil, nil, err
+	}
+	byAgent = byAgent && !doer.IsTypeBot()
+	isApproveOrReject := (reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject) && !byAgent
 	official := false
 	if isApproveOrReject {
 		if official, err = IsOfficialReviewer(ctx, issue, doer); err != nil {
@@ -534,9 +549,14 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 		if _, err := sess.ID(review.ID).Cols("content, type, official, commit_id, stale").Update(review); err != nil {
 			return nil, nil, err
 		}
+		if reviewType != ReviewTypePending {
+			if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(doer), "review", review.ID); err != nil {
+				return nil, nil, err
+			}
+		}
 
 		// make sure the leftover review request is cleared, consistent with CreateReview
-		if reviewType != ReviewTypePending {
+		if reviewType != ReviewTypePending && !byAgent {
 			if _, err := sess.Where(builder.Eq{"reviewer_id": doer.ID, "issue_id": issue.ID, "type": ReviewTypeRequest}).
 				Delete(new(Review)); err != nil {
 				return nil, nil, err
@@ -592,13 +612,23 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	return review, comm, committer.Commit()
 }
 
+// personsOwnReviewCond leaves out reviews an agent made with a person's token, so they never stand in for the person's decision.
+// Bot accounts are agents in their own right and keep their reviews.
+func personsOwnReviewCond() builder.Cond {
+	return builder.Or(
+		builder.NotIn("id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review"})),
+		builder.In("reviewer_id", builder.Select("id").From("`user`").Where(builder.Eq{"type": user_model.UserTypeBot})),
+	)
+}
+
 // GetReviewByIssueIDAndUserID get the latest review of reviewer for a pull request
 func GetReviewByIssueIDAndUserID(ctx context.Context, issueID, userID int64) (*Review, error) {
 	review := new(Review)
 
 	has, err := db.GetEngine(ctx).Where(
 		builder.In("type", ReviewTypeApprove, ReviewTypeReject, ReviewTypeRequest).
-			And(builder.Eq{"issue_id": issueID, "reviewer_id": userID, "original_author_id": 0})).
+			And(builder.Eq{"issue_id": issueID, "reviewer_id": userID, "original_author_id": 0}).
+			And(personsOwnReviewCond())).
 		Desc("id").
 		Get(review)
 	if err != nil {

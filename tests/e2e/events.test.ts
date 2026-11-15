@@ -16,8 +16,8 @@ test.describe('events', () => {
       apiCreateRepo(request, {name: repoName, autoInit: false, headers: apiUserHeaders(owner)}),
       loginUser(page, owner),
     ]);
-    await page.goto('/');
-    const badge = page.locator('#navbar .notification_count');
+    await page.goto('/inbox');
+    const badge = page.locator('.forge-inbox-views .notification_count');
     await expect(badge).toBeHidden();
 
     await expect(page.locator('html[data-user-events-connected]')).toBeAttached();
@@ -101,6 +101,8 @@ test.describe('events', () => {
     ]);
     await page.goto(`/${name}/${name}/issues/1`);
 
+    // an unused time tracker lives under More options
+    await page.getByText('More options').click();
     await page.getByRole('button', {name: 'Start timer'}).click();
 
     // After the click the page reloads; the sidebar should now show the Stop/Discard

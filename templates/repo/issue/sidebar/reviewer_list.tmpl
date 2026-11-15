@@ -7,9 +7,9 @@
 >
 	<input type="hidden" class="combo-value" name="reviewer_ids">{{/* match CreateIssueForm */}}
 	<div class="ui dropdown full-width {{if or (not $hasCandidates) (not $data.CanChooseReviewer)}}disabled{{end}}">
-		<a class="fixed-text muted">
-			<strong>{{ctx.Locale.Tr "repo.issues.review.reviewers"}}</strong> {{if $data.CanChooseReviewer}}{{svg "octicon-gear"}}{{end}}
-		</a>
+		<button type="button" class="fixed-text muted btn tw-w-full">
+			<strong>{{ctx.Locale.Tr "repo.issues.review.reviewers"}}</strong> {{if $data.CanChooseReviewer}}<span class="forge-picker-edit">{{ctx.Locale.Tr "repo.issues.edit"}}</span>{{end}}
+		</button>
 		<div class="menu flex-items-menu">
 			{{if $hasCandidates}}
 				<div class="ui icon search input">
@@ -63,7 +63,7 @@
 							{{svg "octicon-x" 20}}
 						</a>
 					{{end}}
-					{{if .Review.Stale}}
+					{{if and .Review.Stale (not .Review.Dismissed)}}
 						<span data-tooltip-content="{{ctx.Locale.Tr "repo.issues.is_stale"}}">{{svg "octicon-hourglass" 16}}</span>
 					{{end}}
 					{{if .CanChange}}
@@ -81,10 +81,11 @@
 							</a>
 						{{end}}
 					{{end}}
-					<span {{if .Review.TooltipContent}}data-tooltip-content="{{ctx.Locale.Tr .Review.TooltipContent}}"{{end}}>
-						{{svg (printf "octicon-%s" .Review.Type.Icon) 16 .Review.HTMLTypeColorClass}}
+					<span {{if .Review.Dismissed}}data-tooltip-content="{{ctx.Locale.Tr "repo.conversation.dismissed"}}"{{else if .Review.TooltipContent}}data-tooltip-content="{{ctx.Locale.Tr .Review.TooltipContent}}"{{end}}>
+						{{if .Review.Dismissed}}{{svg "octicon-x" 16 "tw-text-text-light"}}{{else}}{{svg (printf "octicon-%s" .Review.Type.Icon) 16 .Review.HTMLTypeColorClass}}{{end}}<small>{{if .Requested}}{{ctx.Locale.Tr "repo.conversation.pending_review"}}{{else if .Review.Dismissed}}{{ctx.Locale.Tr "repo.conversation.dismissed"}}{{else if eq .Review.Type 1}}{{ctx.Locale.Tr "repo.conversation.approved"}}{{else if eq .Review.Type 3}}{{ctx.Locale.Tr "repo.conversation.changes_requested"}}{{else}}{{ctx.Locale.Tr "repo.conversation.commented"}}{{end}}</small>
 					</span>
 				</div>
+				{{if .Review}}<div class="forge-review-agent tw-w-full">{{template "shared/agent_label" (.Review.AgentIdentity ctx)}}</div>{{end}}
 			</div>
 		{{end}}
 		{{range $data.OriginalReviews}}

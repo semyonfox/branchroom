@@ -1,0 +1,13 @@
+<section class="forge-next-step forge-turn-{{.Tone}} flex-left-right" aria-label="{{ctx.Locale.Tr "repo.conversation.details"}}">
+	<strong>
+		{{if or (eq .Key "repo.conversation.your_checks") (eq .Key "repo.conversation.linked_open")}}
+			{{ctx.Locale.Tr .Key .Count}}
+		{{else if .Actor}}
+			{{ctx.Locale.Tr .Key .Actor}}
+		{{else}}
+			{{ctx.Locale.Tr .Key}}
+		{{end}}
+		{{if and (eq .Tone "ready") .Unresolved}} · {{ctx.Locale.TrN .Unresolved "repo.conversation.unresolved_1" "repo.conversation.unresolved_n" .Unresolved}}{{end}}
+	</strong>
+	{{if .Action}}<a class="ui small basic button" href="{{.URL}}" data-palette-action="{{if eq .Action "repo.conversation.merge"}}{{ctx.Locale.Tr "repo.conversation.go_to_merge"}}{{else}}{{ctx.Locale.Tr .Action}}{{end}}" data-palette-key="n">{{ctx.Locale.Tr .Action}}</a>{{end}}
+</section>

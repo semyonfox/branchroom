@@ -1,7 +1,24 @@
 {{$isTreePathRoot := not .TreeNames}}
 
 <div class="repo-view-content-data tw-hidden" data-document-title="{{ctx.RootData.Title}}" data-document-title-common="{{ctx.RootData.PageTitleCommon}}"></div>
-{{template "repo/sub_menu" .}}
+{{if not .PageIsRepoOverview}}{{template "repo/sub_menu" .}}{{end}}
+{{if not .PageIsRepoOverview}}{{template "repo/view_content_toolbar" .}}{{end}}
+{{if .IsViewFile}}
+	{{template "repo/view_file" .}}
+{{else if .IsBlame}}
+	{{template "repo/blame" .}}
+{{else}}{{/* IsViewDirectory */}}
+	{{if $isTreePathRoot}}
+		{{template "repo/code/upstream_diverging_info" .}}
+	{{end}}
+	{{template "repo/view_list" .}}
+	{{if and (not .PageIsRepoOverview) .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
+		{{template "repo/view_file" .}}
+	{{end}}
+{{end}}
+
+{{define "repo/view_content_toolbar"}}
+{{$isTreePathRoot := not .TreeNames}}
 <div class="repo-button-row">
 	<div class="repo-button-row-left">
 	{{if not $isTreePathRoot}}
@@ -20,7 +37,7 @@
 		"ShowViewAllRefsEntry" true
 	}}
 
-	{{if and .PullRequestCtx.CanCreateNewPull .RefFullName.IsBranch}}
+	{{if and (not .PageIsRepoOverview) .PullRequestCtx.CanCreateNewPull .RefFullName.IsBranch}}
 		{{$compareLink := .PullRequestCtx.MakeDefaultCompareLink .BranchName}}
 		<a id="new-pull-request" role="button" class="ui compact basic button" href="{{QueryBuild $compareLink "expand" 1}}"
 			data-tooltip-content="{{ctx.Locale.Tr "repo.pulls.compare_changes"}}">
@@ -47,6 +64,13 @@
 					{{$p := index $.Paths $i}}<span class="section"><a href="{{$.BranchLink}}/{{PathEscapeSegments $p}}" title="{{$v}}">{{$v}}</a></span>
 				{{- end -}}
 			{{- end -}}
+		</span>
+	{{end}}
+	{{if .PageIsRepoOverview}}
+		<span class="repo-overview-refs muted-links">
+			<a href="{{.RepoLink}}/branches">{{.BranchesCount}} {{ctx.Locale.TrN .BranchesCount "repo.branch" "repo.branches"}}</a>
+			<span aria-hidden="true">·</span>
+			<a href="{{.RepoLink}}/tags">{{.NumTags}} {{ctx.Locale.TrN .NumTags "repo.tag" "repo.tags"}}</a>
 		</span>
 	{{end}}
 	</div>
@@ -128,16 +152,4 @@
 		{{end}}
 	</div>
 </div>
-{{if .IsViewFile}}
-	{{template "repo/view_file" .}}
-{{else if .IsBlame}}
-	{{template "repo/blame" .}}
-{{else}}{{/* IsViewDirectory */}}
-	{{if $isTreePathRoot}}
-		{{template "repo/code/upstream_diverging_info" .}}
-	{{end}}
-	{{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
-		{{template "repo/view_file" .}}
-	{{end}}
-	{{template "repo/view_list" .}}
 {{end}}

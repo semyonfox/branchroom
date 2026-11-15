@@ -16,6 +16,9 @@ import (
 // swagger:parameters parameterBodies
 type swaggerParameterBodies struct {
 	// in:body
+	InboxStateOptions api.InboxStateOptions
+
+	// in:body
 	AddCollaboratorOption api.AddCollaboratorOption
 
 	// in:body

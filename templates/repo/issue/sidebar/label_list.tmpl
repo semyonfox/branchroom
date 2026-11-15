@@ -6,9 +6,9 @@
 >
 	<input class="combo-value" name="label_ids" type="hidden" value="{{$data.SelectedLabelIDs}}">
 	<div class="ui dropdown full-width {{if not $pageMeta.CanModifyIssueOrPull}}disabled{{end}}">
-		<a class="fixed-text muted">
-			<strong>{{ctx.Locale.Tr "repo.issues.new.labels"}}</strong> {{if $pageMeta.CanModifyIssueOrPull}}{{svg "octicon-gear"}}{{end}}
-		</a>
+		<button type="button" class="fixed-text muted btn tw-w-full">
+			<strong>{{ctx.Locale.Tr "repo.issues.new.labels"}}</strong> {{if $pageMeta.CanModifyIssueOrPull}}<span class="forge-picker-edit">{{ctx.Locale.Tr "repo.issues.edit"}}</span>{{end}}
+		</button>
 		<div class="menu">
 			{{if not $data.AllLabels}}
 				<div class="item disabled">{{ctx.Locale.Tr "repo.issues.new.no_items"}}</div>
@@ -49,7 +49,7 @@
 		{{range $data.AllLabels}}
 			{{if .IsChecked}}
 				<a class="item" href="{{$listBaseLink}}?labels={{.ID}}">
-					{{- ctx.RenderUtils.RenderLabel . -}}
+					<span class="forge-label-dot" style="background-color: {{.Color}}"></span><span>{{.Name}}</span>
 				</a>
 			{{end}}
 		{{end}}

@@ -1,0 +1,375 @@
+.repo-overview.ui.container {
+  width: 1280px;
+}
+
+.repo-overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+  gap: 24px;
+  align-items: start;
+}
+
+.repo-overview-card {
+  border: 1px solid var(--color-secondary);
+  border-radius: 8px;
+  background: var(--color-box-body);
+  margin-bottom: 20px;
+  min-width: 0;
+}
+
+.repo-overview-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.repo-overview-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-secondary);
+}
+
+.repo-overview-section:first-child {
+  padding-top: 0;
+}
+
+.repo-overview-section:last-child {
+  border-bottom: 0;
+}
+
+.repo-overview-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.repo-overview-section h2 a {
+  color: inherit;
+}
+
+.repo-overview-count {
+  color: var(--color-text-light);
+  font-weight: var(--font-weight-normal);
+}
+
+.repo-overview-description {
+  margin-bottom: 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.repo-overview-facts,
+.repo-overview-links,
+.repo-overview-people {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.repo-overview-facts a,
+.repo-overview-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-light);
+  overflow-wrap: anywhere;
+}
+
+.repo-overview-facts a:hover,
+.repo-overview-links a:hover {
+  color: var(--color-primary);
+}
+
+.repo-overview-facts li,
+.repo-overview-links li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-light);
+}
+
+.repo-overview-topics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.repo-overview-status,
+.repo-overview-release {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-overview-release {
+  align-items: flex-start;
+  color: inherit;
+}
+
+.repo-overview-release svg {
+  margin-top: 2px;
+  color: var(--color-success-text);
+}
+
+.repo-overview-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-text-light);
+}
+
+.status-success .repo-overview-dot {
+  background: var(--color-success-text);
+}
+
+.status-error .repo-overview-dot,
+.status-failure .repo-overview-dot {
+  background: var(--color-error-text);
+}
+
+.status-pending .repo-overview-dot,
+.status-warning .repo-overview-dot {
+  background: var(--color-warning-text);
+}
+
+.repo-overview-agents {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  color: var(--color-text-light);
+}
+
+.repo-overview-card-heading h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.repo-overview-mcp code {
+  font-size: 12px;
+}
+
+.repo-overview-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  font-size: 13px;
+}
+
+.repo-overview-readme-body {
+  position: relative;
+  max-height: none;
+  padding: 0 24px;
+}
+
+.repo-overview-readme-clipped .repo-overview-readme-body::after {
+  content: "";
+  position: absolute;
+  top: 540px;
+  inset-inline: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--color-box-body));
+  pointer-events: none;
+}
+
+.repo-overview-readme-body .markup {
+  max-width: 75ch;
+  padding: 8px 0 20px;
+}
+
+.repo-overview-readme-toggle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.repo-overview-readme-more {
+  display: none;
+  padding: 12px 24px 20px;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 13px;
+}
+
+.repo-overview-readme-toggle:focus-visible ~ .repo-overview-readme-more {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -4px;
+}
+
+.repo-overview-readme-hide,
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-more .repo-overview-readme-show {
+  display: none;
+}
+
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-more .repo-overview-readme-hide {
+  display: inline;
+}
+
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-body {
+  max-height: none;
+}
+
+.repo-overview-readme-clipped .repo-overview-readme-toggle:checked ~ .repo-overview-readme-body::after {
+  display: none;
+}
+
+.repo-overview-main .repo-button-row {
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.repo-overview-files #repo-files-table {
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+}
+
+.repo-overview-files .repo-file-last-commit {
+  background: var(--color-box-body);
+}
+
+.repo-overview-main .repo-button-row-left,
+.repo-overview-main .repo-button-row-right {
+  gap: 12px;
+}
+
+@media (width <= 1023px) {
+  .repo-overview-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (width <= 767px) {
+  .repo-overview-card-heading {
+    padding: 16px;
+  }
+
+  .repo-overview-readme-body {
+    padding-inline: 16px;
+  }
+
+  .repo-overview-main .repo-button-row-left,
+  .repo-overview-main .repo-button-row-right {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .repo-overview-main .repo-button-row-right {
+    flex-direction: row;
+  }
+
+  .repo-overview-main .repo-file-search-container {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .repo-overview-main .repo-file-search-container .ui.input,
+  .repo-overview-main .repo-file-search-container input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .repo-overview-readme-more {
+    min-height: 44px;
+  }
+}
+
+.repo-overview-downloads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-overview-download {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 6px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.repo-overview-download .muted {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.repo-overview-contributors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repo-overview-contributors a {
+  position: relative;
+}
+
+.repo-overview-contributors svg {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  background: var(--color-box-body);
+  border-radius: 3px;
+}
+
+.repo-overview-readme-clipped .repo-overview-readme-body {
+  max-height: 600px;
+  overflow: hidden;
+}
+
+.repo-overview-readme-clipped .repo-overview-readme-more {
+  display: block;
+}
+
+.repo-overview-readme-clipped .repo-overview-readme-toggle:checked ~ .repo-overview-readme-body {
+  max-height: none;
+}
+
+@media (width <= 767px) {
+  .forge-repo-navigation::before,
+  .forge-repo-navigation::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 24px;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .forge-repo-navigation::before {
+    left: 0;
+    background: linear-gradient(to right, var(--color-body), transparent);
+  }
+
+  .forge-repo-navigation::after {
+    right: 0;
+    background: linear-gradient(to left, var(--color-body), transparent);
+  }
+
+  .forge-tabs-start-clipped::before,
+  .forge-tabs-end-clipped::after {
+    opacity: 1;
+  }
+}

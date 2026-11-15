@@ -429,6 +429,10 @@ func ViewIssue(ctx *context.Context) {
 		prViewInfo.MergeBoxData.ReloadingInterval = 1 // in dev env, force using the reloading logic to make sure it won't break
 	}
 
+	prepareIssueConversation(ctx, issue, pageMetaData, prViewInfo)
+	if ctx.Written() {
+		return
+	}
 	ctx.HTML(http.StatusOK, tplIssueView)
 }
 
@@ -450,7 +454,22 @@ func ViewPullMergeBox(ctx *context.Context) {
 	if ctx.Written() {
 		return
 	}
+	if err := issue.LoadPoster(ctx); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	pageMetaData := &IssuePageMetaData{Repository: ctx.Repo.Repository, Issue: issue, ReviewersData: &issueSidebarReviewersData{}}
+	pageMetaData.retrieveReviewersData(ctx)
+	if ctx.Written() {
+		return
+	}
+	prepareIssueConversation(ctx, issue, pageMetaData, prViewInfo)
+	if ctx.Written() {
+		return
+	}
+
 	ctx.Data["PullMergeBoxReloading"] = issue.PullRequest.IsChecking()
+	ctx.Data["IsRepoAdmin"] = ctx.Repo.Permission.IsAdmin()
 
 	// TODO: it should use a dedicated struct to render the pull merge box, to make sure all data is prepared correctly
 	ctx.Data["IsIssuePoster"] = ctx.IsSigned && issue.IsPoster(ctx.Doer.ID)
