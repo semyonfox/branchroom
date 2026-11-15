@@ -11,6 +11,7 @@ type TopicSearchResponse = {topics: Array<{topic_name: string}>};
 type TopicSearchResult = {description: string, 'data-value': string};
 
 export function initRepoTopicBar() {
+  initRepoHomeLayout();
   const mgrBtn = document.querySelector<HTMLButtonElement>('#manage_topic');
   if (!mgrBtn) return;
 
@@ -144,4 +145,43 @@ export function initRepoTopicBar() {
       $addedChoice[0].setAttribute('data-text', addedValue);
     },
   });
+}
+
+function initRepoHomeLayout() {
+  const tabs = document.querySelector<HTMLElement>('.forge-repo-tabs');
+  if (tabs) {
+    const items = tabs.querySelectorAll<HTMLElement>(':scope > .item');
+    const first = items[0];
+    const last = items[items.length - 1];
+    const edges = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === first) tabs.parentElement!.classList.toggle('forge-tabs-start-clipped', entry.intersectionRatio < 1);
+        if (entry.target === last) tabs.parentElement!.classList.toggle('forge-tabs-end-clipped', entry.intersectionRatio < 1);
+      }
+    }, {root: tabs, threshold: 1});
+    if (first) edges.observe(first);
+    if (last) edges.observe(last);
+    const revealActive = () => {
+      const active = tabs.querySelector<HTMLElement>(':scope > .active');
+      if (active && tabs.scrollWidth > tabs.clientWidth) {
+        tabs.scrollLeft = active.offsetLeft - tabs.offsetLeft - (tabs.clientWidth - active.offsetWidth) / 2;
+      }
+    };
+    new ResizeObserver(revealActive).observe(tabs);
+    revealActive();
+  }
+
+  const readme = document.querySelector<HTMLElement>('.repo-overview-readme');
+  if (!readme) return;
+  const body = readme.querySelector<HTMLElement>('.repo-overview-readme-body')!;
+  const content = body.querySelector<HTMLElement>('.markup')!;
+  const toggle = readme.querySelector<HTMLInputElement>('.repo-overview-readme-toggle')!;
+  const measure = () => {
+    const clipped = content.scrollHeight > 720;
+    readme.classList.toggle('repo-overview-readme-clipped', clipped);
+    toggle.disabled = !clipped;
+    if (!clipped) toggle.checked = false;
+  };
+  new ResizeObserver(measure).observe(content);
+  measure();
 }

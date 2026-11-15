@@ -25,35 +25,6 @@ import (
 	"xorm.io/builder"
 )
 
-const repoHomeViewSetting = "repo_home_view"
-
-func prepareRepoHomeView(ctx *context.Context) {
-	isHome := strings.TrimSuffix(ctx.Req.URL.Path, "/") == ctx.Repo.RepoLink
-	view := ctx.FormString("view")
-	explicit := view == "overview" || view == "code"
-	if !isHome {
-		view = "code"
-	}
-	if ctx.Doer != nil {
-		if explicit && (isHome || ctx.FormString("view") == "code") {
-			if err := user_model.SetUserSetting(ctx, ctx.Doer.ID, repoHomeViewSetting, view); err != nil {
-				ctx.ServerErrorAuto(err)
-				return
-			}
-		} else if isHome {
-			var err error
-			view, err = user_model.GetUserSetting(ctx, ctx.Doer.ID, repoHomeViewSetting, "overview")
-			if err != nil {
-				ctx.ServerErrorAuto(err)
-				return
-			}
-		}
-	}
-	if isHome && view != "code" {
-		ctx.Data["PageIsRepoOverview"] = true
-	}
-}
-
 func prepareRepoOverviewFacts(ctx *context.Context) {
 	repo := ctx.Repo.Repository
 	userIDs, err := access_model.GetUserIDsWithAnyUnitAccess(ctx, repo, perm_model.AccessModeWrite, unit_model.TypeCode)
@@ -96,13 +67,14 @@ func prepareRepoOverviewFacts(ctx *context.Context) {
 	}
 
 	push := new(activities.Action)
-	has, err := db.GetEngine(ctx).Cols("created_unix").Where("repo_id = ? AND op_type = ?", repo.ID, activities.ActionCommitRepo).OrderBy("created_unix DESC").Get(push)
+	has, err := db.GetEngine(ctx).Cols("created_unix", "ref_name").Where("repo_id = ? AND op_type = ?", repo.ID, activities.ActionCommitRepo).OrderBy("created_unix DESC").Get(push)
 	if err != nil {
 		ctx.ServerErrorAuto(err)
 		return
 	}
 	if has {
 		ctx.Data["OverviewLastPush"] = push.CreatedUnix
+		ctx.Data["OverviewLastPushBranch"] = push.GetBranch()
 	}
 
 	if err := prepareOverviewContributors(ctx); err != nil {
@@ -251,6 +223,7 @@ func prepareOverviewContributors(ctx *context.Context) error {
 		person := overviewContributor{Name: author.Name, Email: author.Email, User: user}
 		if user != nil {
 			person.Name = user.DisplayName()
+			person.Agent = user.Type == user_model.UserTypeBot
 		}
 		contributors = append(contributors, person)
 	}
@@ -258,7 +231,7 @@ func prepareOverviewContributors(ctx *context.Context) error {
 	contributors = contributors[:min(8, len(contributors))]
 	userIDs := make([]int64, 0, len(contributors))
 	for _, person := range contributors {
-		if person.User != nil {
+		if person.Agent {
 			userIDs = append(userIDs, person.User.ID)
 		}
 	}
@@ -295,12 +268,11 @@ func prepareOverviewContributors(ctx *context.Context) error {
 
 		for i := range contributors {
 			person := &contributors[i]
-			if person.User == nil {
+			if !person.Agent {
 				continue
 			}
 			for _, agent := range agents {
 				if agent.UID == person.User.ID {
-					person.Agent = true
 					if agent.Sponsor != "" {
 						person.Sponsor = agent.Sponsor
 						break

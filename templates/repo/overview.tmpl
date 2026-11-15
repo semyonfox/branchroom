@@ -1,19 +1,19 @@
 <div class="repo-overview-layout">
 <div class="repo-overview-main">
 {{template "repo/view_content_toolbar" .}}
+<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
+	{{template "repo/view_content" .}}
+</section>
 {{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
 <section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
 	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
 		{{if and .IsSigned .CanEditReadmeFile (.Permission.CanWrite ctx.Consts.RepoUnitTypeCode)}}<a href="{{.RepoLink}}/_edit/{{PathEscapeSegments .BranchName}}/{{PathEscapeSegments .FileTreePath}}">{{ctx.Locale.Tr "edit"}}</a>{{end}}
 	</div>
-	<input id="repo-overview-readme-expand" class="repo-overview-readme-toggle" type="checkbox" aria-controls="repo-overview-readme-body">
+	<input id="repo-overview-readme-expand" class="repo-overview-readme-toggle" disabled type="checkbox" aria-controls="repo-overview-readme-body">
 	<div id="repo-overview-readme-body" class="repo-overview-readme-body non-diff-file-content" data-global-init="initRepoFileView" data-raw-file-link="{{.RawFileLink}}"><div class="markup {{.MarkupType}}">{{if .RenderAsMarkup}}{{.FileContent}}{{else}}<pre>{{.FileContent}}</pre>{{end}}</div></div>
 	<label for="repo-overview-readme-expand" class="repo-overview-readme-more"><span class="repo-overview-readme-show">{{ctx.Locale.Tr "repo.overview.full_readme"}}</span><span class="repo-overview-readme-hide">{{ctx.Locale.Tr "repo.overview.less_readme"}}</span></label>
 </section>
 {{end}}
-<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
-	{{template "repo/view_content" .}}
-</section>
 </div>
 
 <aside class="repo-overview-side" aria-label="{{ctx.Locale.Tr "repo.overview.about"}}">
@@ -24,7 +24,7 @@
 			{{if .LatestCommitStatus}}
 				<li><a class="repo-overview-status status-{{.LatestCommitStatus.State}}" href="{{.RepoLink}}/commit/{{.CommitID}}"><span class="repo-overview-dot" aria-hidden="true"></span>{{.Repository.DefaultBranch}} {{ctx.Locale.Tr (printf "repo.overview.ci.%s" .LatestCommitStatus.State)}}</a></li>
 			{{end}}
-			{{if .OverviewLastPush}}<li>{{svg "octicon-history"}} {{ctx.Locale.Tr "repo.overview.last_push"}} {{DateUtils.TimeSince .OverviewLastPush}}</li>{{end}}
+			{{if .OverviewLastPush}}<li>{{svg "octicon-history"}} {{ctx.Locale.Tr "repo.overview.last_push"}}{{if and .OverviewLastPushBranch (ne .OverviewLastPushBranch .Repository.DefaultBranch)}} {{ctx.Locale.Tr "repo.overview.push_to"}} <code>{{.OverviewLastPushBranch}}</code>{{end}} {{DateUtils.TimeSince .OverviewLastPush}}</li>{{end}}
 			{{if .Repository.Website}}<li><a href="{{.Repository.Website}}">{{svg "octicon-link"}} {{.Repository.Website}}</a></li>{{end}}
 			{{range $group := .LicenseGroups}}<li><a href="{{$.RepoLink}}/src/{{$.RefTypeNameSubURL}}/{{PathEscapeSegments $group.LicensePath}}">{{svg "octicon-law"}} {{StringUtils.Join $group.LicenseNames ", "}}</a></li>{{end}}
 			{{if .CitationFileName}}
