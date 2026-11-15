@@ -187,7 +187,7 @@ h1, h2, h3, h4, h5, h6, .ui.header {
   font-weight: var(--font-weight-medium);
 }
 
-.ui.table tbody td {
+table.ui.table > tbody > tr > td { /* diff and code tables sit inside a div.ui.table and must keep their line height */
   height: 40px;
   padding-top: 8px;
   padding-bottom: 8px;
