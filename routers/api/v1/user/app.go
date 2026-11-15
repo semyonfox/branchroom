@@ -176,7 +176,7 @@ func CreateAccessToken(ctx *context.APIContext) {
 		}
 	}
 
-	if err := branchroom_model.ValidateAgentIdentity(t.AgentIdentity); err != nil {
+	if err := branchroom_model.PrepareTokenIdentity(ctx, t.UID, t.AgentIdentity); err != nil {
 		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 		return
 	}

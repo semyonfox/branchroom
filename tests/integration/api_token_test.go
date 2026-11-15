@@ -604,9 +604,10 @@ func TestBranchroomTokenFormats(t *testing.T) {
 
 func TestBranchroomAgentComment(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
-	identity := &api.AgentIdentity{Agent: "Opus 5.5", TaskURL: "https://example.org/tasks/1", Sponsor: "user2"}
+	identity := &api.AgentIdentity{Agent: "Harbour helper", Model: "Claude Opus 5.5", Harness: "T3 Code", TaskURL: "https://example.org/tasks/1"}
 	req := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", &api.CreateAccessTokenOption{Name: "agent-comment", Scopes: []string{"all"}, AgentIdentity: identity}).AddBasicAuth("user2")
 	token := DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), api.AccessToken{})
+	identity.Sponsor = "user2"
 	assert.Equal(t, identity, token.AgentIdentity)
 	req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/issues/1/comments", &api.CreateIssueCommentOption{Body: "recorded by the server"}).AddTokenAuth(token.Token)
 	comment := DecodeJSON(t, MakeRequest(t, req, http.StatusCreated), api.Comment{})
@@ -615,5 +616,11 @@ func TestBranchroomAgentComment(t *testing.T) {
 	fetched := DecodeJSON(t, MakeRequest(t, req, http.StatusOK), api.Comment{})
 	assert.Equal(t, identity, fetched.AgentIdentity)
 	page := MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/issues/1"), http.StatusOK)
-	assert.Contains(t, page.Body.String(), "via Opus 5.5")
+	assert.Contains(t, page.Body.String(), "Claude Opus 5.5")
+	assert.Contains(t, page.Body.String(), "T3 Code")
+	assert.Contains(t, page.Body.String(), "responsible: user2")
+	identity.Sponsor = "unknown-responsible-person"
+	req = NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", &api.CreateAccessTokenOption{Name: "unknown-responsible", Scopes: []string{"all"}, AgentIdentity: identity}).AddBasicAuth("user2")
+	response := MakeRequest(t, req, http.StatusUnprocessableEntity)
+	assert.Contains(t, response.Body.String(), "responsible person must be an existing active user")
 }

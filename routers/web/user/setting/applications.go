@@ -179,9 +179,9 @@ func CreateAccessToken(ctx *context.Context, owner *user_model.User) {
 		}
 	}
 
-	if agent := ctx.FormString("agent"); agent != "" || ctx.FormString("task_url") != "" || ctx.FormString("sponsor") != "" {
-		t.AgentIdentity = &api.AgentIdentity{Agent: agent, TaskURL: ctx.FormString("task_url"), Sponsor: ctx.FormString("sponsor")}
-		if err := branchroom_model.ValidateAgentIdentity(t.AgentIdentity); err != nil {
+	if agent := ctx.FormString("agent"); agent != "" || ctx.FormString("task_url") != "" || ctx.FormString("sponsor") != "" || ctx.FormString("model") != "" || ctx.FormString("harness") != "" {
+		t.AgentIdentity = &api.AgentIdentity{Agent: agent, TaskURL: ctx.FormString("task_url"), Sponsor: ctx.FormString("sponsor"), Model: ctx.FormString("model"), Harness: ctx.FormString("harness")}
+		if err := branchroom_model.PrepareTokenIdentity(ctx, owner.ID, t.AgentIdentity); err != nil {
 			ctx.JSONError(err.Error())
 			return
 		}
