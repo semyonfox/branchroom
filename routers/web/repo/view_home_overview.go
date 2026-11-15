@@ -164,10 +164,7 @@ type overviewAuthor struct {
 
 func prepareOverviewContributors(ctx *context.Context) error {
 	repo := ctx.Repo.Repository
-	commit, err := ctx.Repo.GitRepo.GetBranchCommit(ctx, repo.DefaultBranch)
-	if err != nil {
-		return err
-	}
+	commit := ctx.Repo.Commit // the default branch on record can be stale, the page has already resolved a real one
 	key := fmt.Sprintf("repo-overview-authors/%d/%s", repo.ID, commit.ID.String())
 	var authors []overviewAuthor
 	if hit, _ := ctx.Cache.GetJSON(key, &authors); !hit {
