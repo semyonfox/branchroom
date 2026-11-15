@@ -436,7 +436,7 @@ func buildIssueOverview(ctx *context.Context, unitType unit.Type) {
 	// In the future, we need something like github: "author:user1" to accept usernames directly.
 	posterUsername := ctx.FormString("poster")
 	ctx.Data["FilterPosterUsername"] = posterUsername
-	opts.PosterID = user.GetFilterUserIDByName(ctx, posterUsername)
+	opts.PosterID = user.GetPossibleDoerUserIDByName(ctx, posterUsername)
 	assigneeUsername := ctx.FormString("assignee")
 	ctx.Data["FilterAssigneeUsername"] = assigneeUsername
 	if isPullList {
@@ -445,7 +445,7 @@ func buildIssueOverview(ctx *context.Context, unitType unit.Type) {
 		ctx.Data["ChecksFilter"] = string(opts.PullChecks)
 		ctx.Data["ReviewFilter"] = string(opts.PullReview)
 	}
-	opts.AssigneeID = user.GetFilterUserIDByName(ctx, assigneeUsername)
+	opts.AssigneeID = user.GetPossibleDoerUserIDByName(ctx, assigneeUsername)
 
 	searchMode := ctx.FormString("search_mode")
 

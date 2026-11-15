@@ -530,3 +530,10 @@ type swaggerResponsePathReviewerRules struct {
 	// in:body
 	Body []api.PathReviewerRule `json:"body"`
 }
+
+// CodeSearchResults
+// swagger:response CodeSearchResults
+type swaggerResponseCodeSearchResults struct {
+	// in:body
+	Body api.CodeSearchResults `json:"body"`
+}
