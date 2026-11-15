@@ -5,6 +5,7 @@ package inbox
 
 import (
 	"context"
+	"strings"
 
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
@@ -45,9 +46,23 @@ func GetViews(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 	if err != nil {
 		return nil, err
 	}
+	result.Groups = append([]api.InboxGroup{needsGroup(result.Groups[:2])}, result.Groups[2:]...)
+	result.CanTriage, err = canTriage(ctx, doer)
+	return result, err
+}
+
+func GetNeedsCount(ctx context.Context, doer *user_model.User) (int, error) {
+	result, err := get(ctx, doer, []string{"decision", "blocked"})
+	if err != nil {
+		return 0, err
+	}
+	return needsGroup(result.Groups).Count, nil
+}
+
+func needsGroup(groups []api.InboxGroup) api.InboxGroup {
 	needs := api.InboxGroup{Kind: "needs", Items: []api.InboxItem{}}
 	seen := map[int64]bool{}
-	for _, group := range result.Groups[:2] {
+	for _, group := range groups {
 		for _, item := range group.Items {
 			if !seen[item.ID] && len(needs.Items) < groupLimit {
 				needs.Items = append(needs.Items, item)
@@ -56,9 +71,7 @@ func GetViews(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 		}
 	}
 	needs.Count = len(needs.Items)
-	result.Groups = append([]api.InboxGroup{needs}, result.Groups[2:]...)
-	result.CanTriage, err = canTriage(ctx, doer)
-	return result, err
+	return needs
 }
 
 func canTriage(ctx context.Context, doer *user_model.User) (bool, error) {
@@ -115,4 +128,34 @@ func sizeLabel(lines int) string {
 	default:
 		return "XL"
 	}
+}
+
+func triageReason(ctx context.Context, issueID int64) (string, error) {
+	var reviewers []struct{ Name string }
+	err := db.GetEngine(ctx).Table("review").Select("`user`.name").
+		Join("INNER", "user", "`user`.id = review.reviewer_id").
+		Where(builder.Eq{"review.issue_id": issueID, "review.type": issues_model.ReviewTypeRequest}).
+		OrderBy("`user`.name").Find(&reviewers)
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, reviewer := range reviewers {
+		names = append(names, reviewer.Name)
+	}
+	var teams []struct{ Name string }
+	err = db.GetEngine(ctx).Table("review").Select("team.name").
+		Join("INNER", "team", "team.id = review.reviewer_team_id").
+		Where(builder.Eq{"review.issue_id": issueID, "review.type": issues_model.ReviewTypeRequest}).
+		OrderBy("team.name").Find(&teams)
+	if err != nil {
+		return "", err
+	}
+	for _, team := range teams {
+		names = append(names, team.Name)
+	}
+	if len(names) > 0 {
+		return "Review requested from " + strings.Join(names, ", ") + ".", nil
+	}
+	return "No assignee or review yet.", nil
 }

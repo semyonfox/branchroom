@@ -96,3 +96,15 @@
   .forge-inbox-title { min-height: 44px; }
   .forge-inbox-primary { min-height: 44px; }
 }
+
+#navbar .forge-inbox-count {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 5px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+}

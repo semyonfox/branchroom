@@ -24,9 +24,16 @@ func Inbox(ctx *context.Context) {
 		view = "needs"
 	}
 	found := false
+	var busiest api.InboxGroup
 	for _, group := range result.Groups {
 		if group.Kind == "triage" && !result.CanTriage {
 			continue
+		}
+		if group.Kind == "needs" {
+			ctx.Data["InboxNeedsCount"] = group.Count
+		}
+		if group.Kind != view && group.Count > busiest.Count {
+			busiest = group
 		}
 		if group.Kind == view {
 			ctx.Data["InboxItems"] = group.Items
@@ -37,6 +44,7 @@ func Inbox(ctx *context.Context) {
 		ctx.NotFound()
 		return
 	}
+	ctx.Data["InboxBusiest"] = busiest
 	ctx.Data["PageIsDashboard"] = true
 	ctx.Data["Title"] = ctx.Locale.TrString("inbox.title")
 	ctx.Data["Inbox"] = result

@@ -36,11 +36,11 @@
 		</div>
 	{{end}}
 
-	{{$notificationUnreadCount := call $data.GetNotificationUnreadCount -}}
-	<a class="item forge-inbox" href="{{AppSubUrl}}/notifications" data-tooltip-content="{{ctx.Locale.Tr "notifications"}}" data-shortcut-keys="g n">
+	{{$inboxNeedsCount := ctx.RootData.InboxNeedsCount -}}
+	<a class="item forge-inbox" href="{{AppSubUrl}}/inbox" data-tooltip-content="{{ctx.Locale.Tr "forge.inbox"}}" data-shortcut-keys="g n">
 		<div class="tw-relative flex-text-block">
 			{{svg "octicon-inbox"}}<span class="forge-inbox-label">{{ctx.Locale.Tr "forge.inbox"}}</span>
-			<span class="notification_count{{if not $notificationUnreadCount}} tw-hidden{{end}}">{{$notificationUnreadCount}}</span>
+			<span class="forge-inbox-count{{if not $inboxNeedsCount}} tw-hidden{{end}}">{{$inboxNeedsCount}}</span>
 		</div>
 	</a>
 {{end}}
