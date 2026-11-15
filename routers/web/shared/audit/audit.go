@@ -29,7 +29,7 @@ type ViewOptions struct {
 	PageData map[string]any
 }
 
-var filterableOrigins = []audit_model.Origin{audit_model.OriginUI, audit_model.OriginAPI, audit_model.OriginCLI, audit_model.OriginSystem}
+var filterableOrigins = []audit_model.Origin{audit_model.OriginUI, audit_model.OriginAPI, audit_model.OriginCLI, audit_model.OriginGit, audit_model.OriginSSH, audit_model.OriginSystem}
 
 // SearchOptionsFromRequest builds the event query from the request filters and
 // publishes the applied values to ctx.Data so the filter form can render its

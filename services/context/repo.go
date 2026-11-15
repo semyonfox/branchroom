@@ -18,6 +18,7 @@ import (
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	packages_model "gitea.dev/models/packages"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	unit_model "gitea.dev/models/unit"
@@ -657,6 +658,28 @@ func repoAssignmentPrepareTemplateData(ctx *Context, data *repoAssignmentPrepare
 	if err != nil {
 		ctx.ServerErrorAuto(err)
 		return
+	}
+
+	// readers skip tabs with nothing in them, writers keep them so they can add the first item
+	ctx.Data["ShowPackagesTab"] = ctx.Repo.Permission.CanWrite(unit_model.TypePackages)
+	if ctx.Repo.Permission.CanRead(unit_model.TypePackages) {
+		hasPackages, err := packages_model.HasRepositoryPackages(ctx, repo.ID)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		ctx.Data["HasRepositoryPackages"] = hasPackages
+		ctx.Data["ShowPackagesTab"] = hasPackages || ctx.Repo.Permission.CanWrite(unit_model.TypePackages)
+	}
+	ctx.Data["ShowProjectsTab"] = repo.NumProjects > 0 || ctx.Repo.Permission.CanWrite(unit_model.TypeProjects)
+	ctx.Data["ShowWikiTab"] = ctx.Repo.Permission.CanWrite(unit_model.TypeWiki)
+	if ctx.Repo.Permission.CanRead(unit_model.TypeWiki) {
+		hasWiki, err := git.IsRepositoryExist(ctx, repo.WikiStorageRepo())
+		if err != nil {
+			log.Error("IsRepositoryExist(wiki): %v", err)
+		}
+		ctx.Data["HasRepositoryWiki"] = hasWiki
+		ctx.Data["ShowWikiTab"] = hasWiki || ctx.Repo.Permission.CanWrite(unit_model.TypeWiki)
 	}
 
 	ctx.Data["Title"] = repo.Owner.Name + "/" + repo.Name

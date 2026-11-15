@@ -5,6 +5,8 @@
 package repo
 
 import (
+	"bufio"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	audit_model "gitea.dev/models/audit"
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
@@ -29,9 +32,11 @@ import (
 	"gitea.dev/modules/httplib"
 	"gitea.dev/modules/log"
 	repo_module "gitea.dev/modules/repository"
+	"gitea.dev/modules/reqctx"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
+	audit_service "gitea.dev/services/audit"
 	"gitea.dev/services/context"
 	repo_service "gitea.dev/services/repository"
 
@@ -416,6 +421,16 @@ func serviceRPC(ctx *context.Context, service string) {
 			return
 		}
 	}
+
+	// a protocol v2 clone lists refs in its own request before fetching, so only the fetch counts as a read
+	body := bufio.NewReader(reqBody)
+	if head, _ := body.Peek(64); service == ServiceTypeReceivePack || !bytes.Contains(head, []byte("command=ls-refs")) {
+		if store := reqctx.GetRequestDataStore(ctx); store != nil {
+			audit_service.SetRequestInfo(store, audit_model.OriginGit, httplib.RemoteHost(ctx.Req))
+		}
+		audit_service.RecordGitAccess(ctx, ctx.Doer, h.repo, service == ServiceTypeReceivePack, h.isWiki)
+	}
+	reqBody = io.NopCloser(body)
 
 	// set SSH_ORIGINAL_COMMAND to allow pre-receive and post-receive hooks
 	gitCmdEnvs := prepareGitCmdEnvs(ctx, h, "SSH_ORIGINAL_COMMAND="+service)

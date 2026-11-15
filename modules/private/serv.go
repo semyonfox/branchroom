@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"strings"
 
 	asymkey_model "gitea.dev/models/asymkey"
 	"gitea.dev/models/perm"
@@ -58,6 +60,10 @@ func ServCommand(ctx context.Context, keyID int64, ownerName, repoName string, m
 		mode,
 	)
 	reqURL += "&verb=" + url.QueryEscape(verb)
+	// SSH_CONNECTION starts with the client address, set by OpenSSH and by the built-in server
+	if client, _, ok := strings.Cut(os.Getenv("SSH_CONNECTION"), " "); ok {
+		reqURL += "&remote=" + url.QueryEscape(client)
+	}
 	// reqURL += "&lfs_verb=" + url.QueryEscape(lfsVerb) // TODO: actually there is no use of this parameter. In the future, the URL construction should be more flexible
 	_ = lfsVerb
 	req := newInternalRequestAPI(ctx, reqURL, "GET")

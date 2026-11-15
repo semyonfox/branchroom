@@ -1,0 +1,5 @@
+{{if .}}<section id="conversation-checks" class="forge-check-list">
+ <strong>{{ctx.Locale.Tr "repo.conversation.checks_title"}}</strong>
+ {{range .Checks}}<a class="flex-text-block tw-py-2" href="{{.TargetURL}}"><span class="forge-state-dot {{if .State.IsSuccess}}tw-text-green{{else if or .State.IsFailure .State.IsError}}tw-text-red{{else}}tw-text-yellow{{end}}"></span><span class="tw-break-anywhere">{{.Context}}</span></a>{{end}}
+ {{if .Pending}}<span class="tw-text-text-light">{{ctx.Locale.Tr "repo.conversation.pending"}}</span>{{end}}
+</section>{{end}}

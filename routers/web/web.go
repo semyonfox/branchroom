@@ -526,6 +526,8 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	// Especially some AJAX requests, we can reduce middleware number to improve performance.
 
 	m.Get("/", optSignInHome, Home)
+	m.Get("/inbox", reqSignIn, user.Inbox)
+	m.Post("/inbox/state", reqSignIn, user.InboxAction)
 	m.Get("/sitemap.xml", sitemapEnabled, optExploreSignIn, HomeSitemap)
 	m.Group("/.well-known", func() {
 		m.Get("/openid-configuration", auth.OIDCWellKnown)
@@ -1227,6 +1229,9 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/scopes/{scopeID}/audit/export", repo_setting.BranchroomEvidence)
 			m.Post("/workspaces", web.Bind[*forms.BranchroomWorkspaceForm](), repo_setting.BranchroomWorkspacePost)
 			m.Post("/scopes/{scopeID}/route-key/rotate", repo_setting.BranchroomWorkspaceRouteKeyRotatePost)
+			m.Post("/access", web.Bind[*forms.BranchroomAccessForm](), repo_setting.BranchroomAccessPost)
+			m.Post("/scopes/{scopeID}/people/{userID}/revoke", repo_setting.BranchroomPersonRevokePost)
+			m.Post("/scopes/{scopeID}/people/{userID}/renew", repo_setting.BranchroomPersonRenewPost)
 			m.Post("/grants", web.Bind[*forms.BranchroomDiscoveryGrantForm](), repo_setting.BranchroomDiscoveryGrantPost)
 			m.Post("/scopes/{scopeID}/grants/{grantID}/renew", repo_setting.BranchroomGrantRenewPost)
 			m.Post("/scopes/{scopeID}/grants/{grantID}/revoke", repo_setting.BranchroomDiscoveryGrantRevokePost)

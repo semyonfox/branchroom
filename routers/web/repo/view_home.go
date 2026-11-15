@@ -221,11 +221,11 @@ func prepareHomeSidebarLatestRelease(ctx *context.Context) {
 	}
 
 	if release != nil {
-		if err = release.LoadAttributes(ctx); err != nil {
-			ctx.ServerErrorAuto(err)
-			return
-		}
+		release.Repo = ctx.Repo.Repository
 		ctx.Data["LatestRelease"] = release
+		if err := prepareOverviewDownloads(ctx, release); err != nil {
+			ctx.ServerErrorAuto(err)
+		}
 	}
 }
 
@@ -475,6 +475,7 @@ func Home(ctx *context.Context) {
 		return
 	}
 
+	ctx.Data["PageIsRepoOverview"] = strings.TrimSuffix(ctx.Req.URL.Path, "/") == ctx.Repo.RepoLink
 	prepareHomeTreeSideBarSwitch(ctx)
 
 	// get the current git entry which doer user is currently looking at.
@@ -503,11 +504,11 @@ func Home(ctx *context.Context) {
 		prepareFuncs = append(prepareFuncs,
 			checkOutdatedBranch,
 			prepareUpstreamDivergingInfo,
-			prepareHomeSidebarLicenses,
-			prepareHomeSidebarCitationFile,
-			prepareHomeSidebarLanguageStats,
-			prepareHomeSidebarLatestRelease,
 		)
+	}
+
+	if ctx.Data["PageIsRepoOverview"] == true {
+		prepareFuncs = append(prepareFuncs, prepareHomeSidebarLicenses, prepareHomeSidebarCitationFile, prepareHomeSidebarLanguageStats, prepareHomeSidebarLatestRelease, prepareRepoOverviewFacts)
 	}
 
 	for _, prepare := range prepareFuncs {

@@ -45,9 +45,11 @@ async function confirm(page: Page, name: string) {
   await submit(page, page.locator('dialog[open]').getByRole('button', {name}));
 }
 
-async function grant(page: Page, prefix: string, button: string, username: string) {
-  await page.locator(`[id^="${prefix}"]`).fill(username);
-  await submit(page, page.getByRole('button', {name: button}));
+async function setAccess(page: Page, username: string, access: string) {
+  const form = page.locator('.branchroom-access-form');
+  await form.getByLabel('User name').fill(username);
+  await form.getByLabel('Access').selectOption({label: access});
+  await submit(page, form.getByRole('button', {name: 'Save access'}));
 }
 
 test('restricted workspace end to end: provision, clone, push, rotate, revoke, purge, delete', async ({page, browser, request}) => {
@@ -69,10 +71,9 @@ test('restricted workspace end to end: provision, clone, push, rotate, revoke, p
     await expect(page.getByRole('button', {name: 'Rotate clone URL'})).toBeVisible();
 
     expect((await handoffURL(browser, member, owner, repo)).status).toBe(404);
-    await grant(page, 'branchroom-grant-user-', 'Allow seeing this workspace', member);
+    await setAccess(page, member, 'Can see it exists');
     expect((await handoffURL(browser, member, owner, repo)).status).toBe(404);
-    await grant(page, 'branchroom-source-grant-user-', 'Allow cloning and fetching', member);
-    await grant(page, 'branchroom-source-write-grant-user-', 'Allow pushing', member);
+    await setAccess(page, member, 'Can clone and push');
 
     const first = await handoffURL(browser, member, owner, repo);
     expect(first.status).toBe(200);
@@ -95,7 +96,7 @@ test('restricted workspace end to end: provision, clone, push, rotate, revoke, p
     expect(rotated.value).not.toBe(first.value);
     await git(work, 'ls-remote', withCredentials(rotated.value, member));
 
-    await submit(page, page.locator('form[action*="/source-grants/"]').getByRole('button', {name: 'Revoke'}));
+    await setAccess(page, member, 'Can see it exists');
     expect((await handoffURL(browser, member, owner, repo)).status).toBe(404);
     await expect(git(work, 'ls-remote', withCredentials(rotated.value, member))).rejects.toThrow();
 

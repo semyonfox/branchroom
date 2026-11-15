@@ -39,6 +39,7 @@ import (
 	"gitea.dev/routers/web/shared/user"
 	"gitea.dev/services/context"
 	feed_service "gitea.dev/services/feed"
+	inbox_service "gitea.dev/services/inbox"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
 
@@ -596,6 +597,12 @@ func buildIssueOverview(ctx *context.Context, unitType unit.Type) {
 		return
 	}
 	ctx.Data["Issues"] = issues
+	pullFacts, err := inbox_service.ListPullFacts(ctx, issues)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	ctx.Data["PullFacts"] = pullFacts
 
 	approvalCounts, err := issues.GetApprovalCounts(ctx)
 	if err != nil {

@@ -1,0 +1,9 @@
+{{$props := .Props}}
+{{$admin := .IsAdmin}}
+{{if $props}}
+	{{range $props.mergeStyles}}
+		{{if and .allowed (ne .name $props.defaultMergeStyle) (or (ne .name "manually-merged") $admin)}}
+			<button type="button" class="btn interact-fg show-modal tw-block tw-py-3" data-modal="#forge-merge-{{.name}}">{{.textDoMerge}}</button>
+		{{end}}
+	{{end}}
+{{end}}

@@ -1,0 +1,3 @@
+{{if .}}
+ <span class="forge-agent-label"><span class="forge-agent-tag">{{.Agent}} · {{ctx.Locale.Tr "repo.conversation.agent"}}</span>{{if or .Model .Harness}} · {{if .Model}}{{.Model}}{{end}}{{if and .Model .Harness}} {{ctx.Locale.Tr "repo.conversation.agent_in"}} {{end}}{{if .Harness}}{{.Harness}}{{end}}{{end}}{{if .TaskURL}} {{ctx.Locale.Tr "repo.conversation.agent_task"}} <a href="{{.TaskURL}}" rel="nofollow noreferrer">{{ctx.Locale.Tr "repo.conversation.task"}}</a>{{end}}{{if .Sponsor}} · {{ctx.Locale.Tr "repo.conversation.agent_responsible"}}: {{.Sponsor}}{{end}}</span>
+{{end}}

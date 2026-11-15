@@ -1,0 +1,118 @@
+.forge-palette {
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 96px);
+  margin: 80px auto 0;
+  padding: 0;
+  border: 1px solid var(--color-secondary);
+  border-radius: 10px;
+  background: var(--color-box-body);
+  color: var(--color-text);
+  box-shadow: 0 20px 60px #0004;
+  overflow: hidden;
+}
+
+.forge-palette::backdrop {
+  background: color-mix(in srgb, var(--color-overlay-backdrop) 60%, transparent);
+}
+
+.forge-palette-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-secondary);
+}
+
+.forge-palette-header input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 16px;
+}
+
+.forge-palette-header > span {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-light);
+  font-size: 12px;
+}
+
+.forge-palette-results {
+  max-height: min(480px, calc(100dvh - 240px));
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.forge-palette-section {
+  padding: 12px 10px 6px;
+  color: var(--color-text-light);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.forge-palette-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.forge-palette-option > span {
+  overflow-wrap: anywhere;
+}
+
+.forge-palette-option[aria-selected="true"] {
+  background: var(--color-primary-light-7);
+  color: var(--color-primary);
+}
+
+.forge-palette-files {
+  font-family: var(--fonts-monospace);
+}
+
+.forge-palette-status:not(:empty),
+.forge-palette-hint {
+  padding: 12px 16px;
+  color: var(--color-text-light);
+  font-size: 12px;
+}
+
+.forge-palette-hint {
+  border-top: 1px solid var(--color-secondary);
+}
+
+@media (max-width: 600px) {
+  .forge-palette {
+    width: 100%;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0 0 10px 10px;
+  }
+
+  .forge-palette-results {
+    max-height: calc(100dvh - 160px);
+  }
+}
+
+.forge-palette-option > span > small {
+  display: block;
+  color: var(--color-text-light-2);
+  font-size: 12px;
+}
+
+.forge-palette-option[aria-selected="true"] > span > small {
+  color: var(--color-text-light);
+}

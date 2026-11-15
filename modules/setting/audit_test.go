@@ -18,9 +18,9 @@ func TestLoadAuditFrom(t *testing.T) {
 		cfg      string
 		expected AuditRecordOutput
 	}{
-		{name: "DisabledByDefault", cfg: "", expected: AuditRecordOutputDisabled},
+		{name: "DatabaseByDefault", cfg: "", expected: AuditRecordOutputDatabase},
 		{name: "Database", cfg: "[audit]\nRECORD_OUTPUT = Database\n", expected: AuditRecordOutputDatabase},
-		{name: "Empty", cfg: "[audit]\nRECORD_OUTPUT =\n", expected: AuditRecordOutputDisabled},
+		{name: "EmptyKeepsDefault", cfg: "[audit]\nRECORD_OUTPUT =\n", expected: AuditRecordOutputDatabase},
 		{name: "Invalid", cfg: "[audit]\nRECORD_OUTPUT = nonsense\n", expected: AuditRecordOutputDisabled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

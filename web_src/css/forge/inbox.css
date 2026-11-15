@@ -1,0 +1,110 @@
+.forge-inbox-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 28px;
+  padding-top: 28px;
+  padding-bottom: 28px;
+}
+.forge-inbox-views {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.forge-inbox-views a {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border-radius: var(--border-radius);
+  color: var(--color-text);
+}
+.forge-inbox-views [aria-current="page"] {
+  background: var(--color-box-body);
+  box-shadow: inset 0 0 0 1px var(--color-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+.forge-inbox-main { min-width: 0; }
+.forge-inbox-form {
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  background: var(--color-box-body);
+}
+.forge-inbox-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-box-header);
+}
+.forge-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-secondary);
+}
+.forge-inbox-row:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.forge-inbox-select {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.forge-inbox-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.forge-inbox-title {
+  display: inline-flex;
+  align-items: center;
+  font-weight: var(--font-weight-semibold);
+}
+.forge-inbox-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+  color: var(--color-text-light-2);
+  font-size: 12px;
+}
+.forge-inbox-reason {
+  padding: 8px 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  background: var(--color-input-background);
+  color: var(--color-text);
+  font-size: inherit;
+}
+.forge-inbox-empty { padding: 32px; text-align: center; }
+.forge-inbox .ui.button,
+.forge-inbox select { margin: 0; }
+.forge-inbox select { min-height: 44px; }
+@media (max-width: 767px) {
+  .forge-inbox-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .forge-inbox-views { flex-direction: row; overflow-x: auto; }
+  .forge-inbox-views a { flex: 0 0 auto; }
+  .forge-inbox-row { flex-wrap: wrap; }
+  .forge-inbox-content { flex-basis: calc(100% - 68px); }
+  .forge-inbox-primary { margin-inline-start: 56px !important; } /* align the action with the stacked title */
+}
+
+@media (max-width: 767.98px) {
+  .forge-inbox-select { min-width: 44px; min-height: 44px; }
+  .forge-inbox-title { min-height: 44px; }
+  .forge-inbox-primary { min-height: 44px; }
+}
+
+#navbar .forge-inbox-count {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 5px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+}

@@ -29,6 +29,7 @@ import (
 	shared_user "gitea.dev/routers/web/shared/user"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
+	inbox_service "gitea.dev/services/inbox"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
 )
@@ -593,6 +594,12 @@ func prepareIssueFilterAndList(ctx *context.Context, milestoneID int64, projectI
 		return
 	}
 
+	pullFacts, err := inbox_service.ListPullFacts(ctx, issues)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	ctx.Data["PullFacts"] = pullFacts
 	ctx.Data["Issues"] = issues
 	ctx.Data["CommitLastStatus"] = lastStatus
 	ctx.Data["CommitStatuses"] = commitStatuses

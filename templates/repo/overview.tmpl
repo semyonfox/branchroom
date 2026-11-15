@@ -1,0 +1,119 @@
+<div class="repo-overview-layout">
+<div class="repo-overview-main">
+{{template "repo/view_content_toolbar" .}}
+<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
+	{{template "repo/view_content" .}}
+</section>
+{{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
+<section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
+	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
+		{{if and .IsSigned .CanEditReadmeFile (.Permission.CanWrite ctx.Consts.RepoUnitTypeCode)}}<a href="{{.RepoLink}}/_edit/{{PathEscapeSegments .BranchName}}/{{PathEscapeSegments .FileTreePath}}">{{ctx.Locale.Tr "edit"}}</a>{{end}}
+	</div>
+	<input id="repo-overview-readme-expand" class="repo-overview-readme-toggle" disabled type="checkbox" aria-controls="repo-overview-readme-body">
+	<div id="repo-overview-readme-body" class="repo-overview-readme-body non-diff-file-content" data-global-init="initRepoFileView" data-raw-file-link="{{.RawFileLink}}"><div class="markup {{.MarkupType}}">{{if .RenderAsMarkup}}{{.FileContent}}{{else}}<pre>{{.FileContent}}</pre>{{end}}</div></div>
+	<label for="repo-overview-readme-expand" class="repo-overview-readme-more"><span class="repo-overview-readme-show">{{ctx.Locale.Tr "repo.overview.full_readme"}}</span><span class="repo-overview-readme-hide">{{ctx.Locale.Tr "repo.overview.less_readme"}}</span></label>
+</section>
+{{end}}
+</div>
+
+<aside class="repo-overview-side" aria-label="{{ctx.Locale.Tr "repo.overview.about"}}">
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.about"}}</h2>
+		{{if .Repository.Description}}<div class="repo-overview-description">{{.Repository.DescriptionHTML ctx}}</div>{{end}}
+		<ul class="repo-overview-facts">
+			{{if .LatestCommitStatus}}
+				<li><a class="repo-overview-status status-{{.LatestCommitStatus.State}}" href="{{.RepoLink}}/commit/{{.CommitID}}"><span class="repo-overview-dot" aria-hidden="true"></span>{{.Repository.DefaultBranch}} {{ctx.Locale.Tr (printf "repo.overview.ci.%s" .LatestCommitStatus.State)}}</a></li>
+			{{end}}
+			{{if .OverviewLastPush}}<li>{{svg "octicon-history"}} {{ctx.Locale.Tr "repo.overview.last_push"}}{{if and .OverviewLastPushBranch (ne .OverviewLastPushBranch .Repository.DefaultBranch)}} {{ctx.Locale.Tr "repo.overview.push_to"}} <code>{{.OverviewLastPushBranch}}</code>{{end}} {{DateUtils.TimeSince .OverviewLastPush}}</li>{{end}}
+			{{if .Repository.Website}}<li><a href="{{.Repository.Website}}">{{svg "octicon-link"}} {{.Repository.Website}}</a></li>{{end}}
+			{{range $group := .LicenseGroups}}<li><a href="{{$.RepoLink}}/src/{{$.RefTypeNameSubURL}}/{{PathEscapeSegments $group.LicensePath}}">{{svg "octicon-law"}} {{StringUtils.Join $group.LicenseNames ", "}}</a></li>{{end}}
+			{{if .CitationFileName}}
+				<li>{{template "repo/cite/cite_modal" .}}<a class="show-modal" href="#" data-modal="#cite-repo-modal">{{svg "octicon-cross-reference"}} {{ctx.Locale.Tr "repo.cite_this_repo"}}</a></li>
+			{{end}}
+			{{if not .DisableStars}}<li><a href="{{.RepoLink}}/stars">{{svg "octicon-star"}} {{CountFmt .Repository.NumStars}} {{ctx.Locale.TrN .Repository.NumStars "repo.star" "repo.stars"}}</a></li>{{end}}
+			<li><a href="{{.RepoLink}}/forks">{{svg "octicon-repo-forked"}} {{CountFmt .Repository.NumForks}} {{ctx.Locale.TrN .Repository.NumForks "repo.fork" "repo.forks"}}</a></li>
+		</ul>
+		<div class="repo-overview-topics">
+			{{/* the topic links must match initRepoTopicBar in repo-home.ts */}}
+			<span id="repo-topics" class="tw-contents">{{range $topic := .Topics}}<a class="repo-topic" href="{{AppSubUrl}}/explore/repos?q={{$topic.Name}}&topic=1">{{$topic.Name}}</a>{{end}}</span>
+			{{if and .Permission.IsAdmin (not .Repository.IsArchived)}}
+				<button type="button" id="manage_topic" class="btn interact-fg">{{ctx.Locale.Tr "repo.topic.manage_topics"}}</button>
+			{{end}}
+		</div>
+		{{if and .Permission.IsAdmin (not .Repository.IsArchived)}}
+			<div class="ui form tw-hidden tw-my-2" id="topic_edit">
+				<div class="ui fluid multiple search selection dropdown tw-flex-wrap tw-flex-1">
+					<input type="hidden" name="topics" value="{{range $i, $v := .Topics}}{{.Name}}{{if Eval $i "+" 1 "<" (len $.Topics)}},{{end}}{{end}}">
+					{{range .Topics}}
+						{{/* keep the same layout as Fomantic UI generated labels */}}
+						<a class="ui label transition visible tw-cursor-default tw-inline-block repo-topic" data-value="{{.Name}}">{{.Name}}{{svg "octicon-x" 16 "delete icon"}}</a>
+					{{end}}
+					<div class="text"></div>
+				</div>
+				<div class="flex-text-block tw-my-2">
+					<button type="button" class="ui primary button" id="save_topic" data-link="{{.RepoLink}}/topics">{{ctx.Locale.Tr "save"}}</button>
+					<button type="button" class="ui basic button" id="cancel_topic_edit">{{ctx.Locale.Tr "cancel"}}</button>
+				</div>
+			</div>
+		{{end}}
+	</section>
+
+	{{if .LatestRelease}}
+	<section class="repo-overview-section">
+		<h2><a href="{{.RepoLink}}/releases">{{ctx.Locale.Tr "repo.releases"}}</a> {{if .NumReleases}}<span class="repo-overview-count">{{CountFmt .NumReleases}}</span>{{end}}</h2>
+		<a class="repo-overview-release" href="{{.LatestRelease.Link}}">
+			{{svg "octicon-tag"}}
+			<span><strong>{{.LatestRelease.Title}}</strong> {{template "repo/release/label" (dict "Release" .LatestRelease "IsLatest" (not .LatestRelease.IsPrerelease))}}<br><span class="muted">{{.LatestRelease.TagName}} · {{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</span></span>
+		</a>
+	</section>
+	{{end}}
+
+	{{if .OverviewDownloads}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.download"}} <span class="repo-overview-count">{{.LatestRelease.TagName}}</span></h2>
+		<div class="repo-overview-downloads">
+			{{range $download := .OverviewDownloads}}
+				<a class="repo-overview-download" href="{{$download.Attachment.DownloadURL}}" data-palette-action="Download for {{$download.Platform}}"><span>{{$download.Label}}</span><span class="muted">{{$download.Arch}} {{$download.Attachment.Size | FormatByteSizeDecimal}}</span></a>
+			{{end}}
+			<a href="{{.LatestRelease.Link}}">{{ctx.Locale.Tr "repo.overview.all_files"}}</a>
+		</div>
+	</section>
+	{{end}}
+
+	{{if .OverviewMaintainers}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.maintainers"}}</h2>
+		<ul class="repo-overview-people">
+			{{range $person := .OverviewMaintainers}}<li class="flex-text-block"><a class="flex-text-inline tw-flex-1" href="{{$person.User.HomeLink}}">{{ctx.AvatarUtils.Avatar $person.User 24}}{{$person.User.DisplayName}}</a><span class="muted">{{ctx.Locale.Tr (printf "repo.overview.role.%s" $person.Role)}}</span></li>{{end}}
+		</ul>
+		{{if .OverviewMoreMaintainers}}<p class="muted">{{ctx.Locale.Tr "repo.overview.more_people" .OverviewMoreMaintainers}}</p>{{end}}
+	</section>
+	{{end}}
+
+	{{if .OverviewContributors}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.contributors"}} <span class="repo-overview-count">{{.OverviewContributorCount}}</span></h2>
+		<div class="repo-overview-contributors">
+			{{range $person := .OverviewContributors}}
+				{{if $person.User}}<a href="{{$person.User.HomeLink}}" data-tooltip-content="{{$person.Name}}{{if $person.Agent}} · {{ctx.Locale.Tr "repo.overview.agent"}}{{if $person.Sponsor}} · {{ctx.Locale.Tr "repo.overview.responsible" $person.Sponsor}}{{end}}{{end}}">{{ctx.AvatarUtils.Avatar $person.User 28}}{{if $person.Agent}}{{svg "octicon-dependabot" 12}}{{end}}</a>{{else}}<span data-tooltip-content="{{$person.Name}}">{{ctx.AvatarUtils.AvatarByEmail $person.Email $person.Name 28}}</span>{{end}}
+			{{end}}
+		</div>
+		{{range $person := .OverviewContributors}}{{if $person.Agent}}<p class="repo-overview-agents">{{svg "octicon-dependabot"}} <span>{{$person.Name}} · {{ctx.Locale.Tr "repo.overview.agent"}}{{if $person.Sponsor}} · {{ctx.Locale.Tr "repo.overview.responsible" $person.Sponsor}}{{end}}</span></p>{{end}}{{end}}
+	</section>
+	{{end}}
+
+	{{if .OverviewAgentFile}}<section class="repo-overview-section muted">{{ctx.Locale.Tr "repo.overview.agents_start"}} <a href="{{.RepoLink}}/src/{{.RefTypeNameSubURL}}/{{.OverviewAgentFile}}">{{.OverviewAgentFile}}</a> · {{ctx.Locale.Tr "repo.overview.mcp_at"}} <a href="{{AppSubUrl}}/api/mcp">/api/mcp</a></section>{{end}}
+
+	{{if and (not .IsEmptyRepo) .LanguageStats}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.repo_lang"}}</h2>
+		<div class="language-stats">
+			{{range .LanguageStats}}<div class="bar" style="width: {{.Percentage}}%; background-color: {{.Color}}" data-tooltip-content="{{.Language}}" data-tooltip-follow-cursor="horizontal"></div>{{end}}
+		</div>
+		<div class="language-stats-details">
+			{{range .LanguageStats}}<div class="item"><i class="color-icon" style="background-color: {{.Color}}"></i><strong class="tw-font-semibold">{{Iif (eq .Language "other") (ctx.Locale.Tr "repo.language_other") .Language}}</strong> {{.Percentage}}%</div>{{end}}
+		</div>
+	</section>
+	{{end}}
+</aside>
+</div>

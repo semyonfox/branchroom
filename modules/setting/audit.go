@@ -21,8 +21,9 @@ var Audit = struct {
 	RecordOutput  AuditRecordOutput `ini:"RECORD_OUTPUT"`
 	RetentionDays int64             `ini:"RETENTION_DAYS"`
 }{
-	RecordOutput:  AuditRecordOutputDisabled,
-	RetentionDays: 30,
+	// on by default here: restricted workspaces are only trustworthy if every access leaves a record
+	RecordOutput:  AuditRecordOutputDatabase,
+	RetentionDays: 365,
 }
 
 func loadAuditFrom(rootCfg ConfigProvider) {

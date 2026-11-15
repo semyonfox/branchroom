@@ -12,10 +12,12 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/private"
 	repo_module "gitea.dev/modules/repository"
+	"gitea.dev/modules/reqctx"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
@@ -91,9 +93,21 @@ func HookPostReceive(ctx *gitea_context.PrivateContext) {
 	repo := ctx.Repo.Repository
 	wasEmpty := repo.IsEmpty
 	updates := hookPostReceiveCollectPushUpdates(opts, repo)
+	pusher, err := user_model.GetDoerPermissionUser(ctx, opts.UserID, opts.UserExtDoerData)
+	if err != nil {
+		log.Error("load pusher %d for the audit log: %v", opts.UserID, err)
+	}
+	// this request comes from the server's own hook, the client address is on the repository:git:write event
+	if store := reqctx.GetRequestDataStore(ctx); store != nil {
+		audit.SetRequestInfo(store, audit_model.OriginGit, "")
+	}
 	for i, ref := range opts.RefFullNames {
 		if err := branchroom_model.RecordPushReceipt(ctx, opts.UserExtDoerData, repo.ID, string(ref), opts.OldCommitIDs[i], opts.NewCommitIDs[i]); err != nil {
 			log.Error("record agent push receipt: %v", err)
+		}
+		if pusher != nil {
+			audit.RecordAs(ctx, pusher, audit_model.RepositoryGitPush, repo,
+				"ref", string(ref), "old_commit", opts.OldCommitIDs[i], "new_commit", opts.NewCommitIDs[i])
 		}
 	}
 

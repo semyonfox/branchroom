@@ -20,9 +20,7 @@
 			{{if $canEditIssueTitle}}
 			<button type="button" id="issue-title-edit-show" class="ui small basic button">{{ctx.Locale.Tr "repo.issues.edit"}}</button>
 			{{end}}
-			{{if not .Issue.IsPull}}
-			<a role="button" class="ui small primary button" href="{{.RepoLink}}/issues/new{{if .NewIssueChooseTemplate}}/choose{{end}}">{{ctx.Locale.Tr "repo.issues.new"}}</a>
-			{{end}}
+			{{template "repo/issue/view_content/title_actions" .}}
 		</div>
 	</div>
 	{{if $canEditIssueTitle}}
@@ -38,21 +36,22 @@
 		</div>
 	</form>
 	{{end}}
-	<div class="issue-title-meta flex-text-block">
+	<div class="forge-status-card">
+		<div class="issue-title-meta flex-text-block">
 		{{if .HasMerged}}
-			<div class="ui purple label issue-state-label">{{svg "octicon-git-merge" 16 "tw-mr-1"}} {{if eq .Issue.PullRequest.Status 3}}{{ctx.Locale.Tr "repo.pulls.manually_merged"}}{{else}}{{ctx.Locale.Tr "repo.pulls.merged"}}{{end}}</div>
+			<span class="forge-state tw-text-purple"><span class="forge-state-dot"></span> {{ctx.Locale.Tr "repo.pulls.merged"}}</span>
 		{{else if .Issue.IsClosed}}
-			<div class="ui red label issue-state-label">{{svg (Iif .Issue.IsPull "octicon-git-pull-request-closed" "octicon-issue-closed")}} {{ctx.Locale.Tr "repo.issues.closed_title"}}</div>
+			<span class="forge-state tw-text-red"><span class="forge-state-dot"></span> {{ctx.Locale.Tr "repo.issues.closed_title"}}</span>
 		{{else if .Issue.IsPull}}
 			{{if .IsPullWorkInProgress}}
-				<div class="ui grey label issue-state-label">{{svg "octicon-git-pull-request-draft"}} {{ctx.Locale.Tr "repo.issues.draft_title"}}</div>
+				<span class="forge-state tw-text-grey"><span class="forge-state-dot"></span> {{ctx.Locale.Tr "repo.issues.draft_title"}}</span>
 			{{else}}
-				<div class="ui green label issue-state-label">{{svg "octicon-git-pull-request"}} {{ctx.Locale.Tr "repo.issues.open_title"}}</div>
+				<span class="forge-state tw-text-green"><span class="forge-state-dot"></span> {{ctx.Locale.Tr "repo.issues.open_title"}}</span>
 			{{end}}
 		{{else}}
-			<div class="ui green label issue-state-label">{{svg "octicon-issue-opened"}} {{ctx.Locale.Tr "repo.issues.open_title"}}</div>
+			<span class="forge-state tw-text-green"><span class="forge-state-dot"></span> {{ctx.Locale.Tr "repo.issues.open_title"}}</span>
 		{{end}}
-		<div class="flex-text-block">
+		<div class="forge-status-sentence">
 			{{if .Issue.IsPull}}
 				{{$headHref := .HeadTarget}}
 				{{if .HeadBranchLink}}
@@ -60,6 +59,9 @@
 				{{else}}
 					{{if .Issue.PullRequest.IsAgitFlow}}
 						{{$headHref = HTMLFormat `%s <a href="%s" target="_blank"><span class="ui label basic tiny" data-tooltip-content="%s">AGit</span></a>` $headHref "https://docs.gitea.com/usage/agit" (ctx.Locale.Tr "repo.pull.agit_documentation")}}
+					{{else if .Issue.PullRequest.HasMerged}}
+						{{/* a merged head branch is usually deleted on purpose, so it is not an error */}}
+						{{$headHref = HTMLFormat `<span data-tooltip-content="%s">%s</span>` (ctx.Locale.Tr "repo.pulls.head_branch_removed") $headHref}}
 					{{else}}
 						{{$headHref = HTMLFormat `<span class="tw-line-through" data-tooltip-content="%s">%s</span>` (ctx.Locale.Tr "form.target_branch_not_exist") $headHref}}
 					{{end}}
@@ -81,12 +83,14 @@
 						{{template "shared/user/namelink" .Issue.PullRequest.Merger}}
 						<span class="pull-desc">{{ctx.Locale.TrN .NumCommits "repo.pulls.merged_title_desc_1" "repo.pulls.merged_title_desc" .NumCommits $headHref $baseHref $mergedStr}}</span>
 					{{end}}
+					{{with .Issue.AgentIdentity ctx}}<span>· {{template "shared/user/namelink" $.Issue.Poster}} {{template "shared/agent_label" .}}</span>{{end}}
 				{{else}}
 					{{if .Issue.OriginalAuthor}}
 						<span id="pull-desc-display" class="pull-desc">{{.Issue.OriginalAuthor}} {{ctx.Locale.TrN .NumCommits "repo.pulls.title_desc_1" "repo.pulls.title_desc" .NumCommits $headHref $baseHref}}</span>
 					{{else}}
 						<span id="pull-desc-display" class="pull-desc">
 							{{template "shared/user/namelink" .Issue.Poster}}
+							{{template "shared/agent_label" (.Issue.AgentIdentity ctx)}}
 							{{ctx.Locale.TrN .NumCommits "repo.pulls.title_desc_1" "repo.pulls.title_desc" .NumCommits $headHref $baseHref}}
 						</span>
 					{{end}}
@@ -134,13 +138,30 @@
 						{{ctx.Locale.Tr "repo.issues.opened_by_fake" $createdStr .Issue.OriginalAuthor}}
 					{{else if gt .Issue.Poster.ID 0}}
 						{{ctx.Locale.Tr "repo.issues.opened_by" $createdStr .Issue.Poster.HomeLink .Issue.Poster.GetDisplayName}}
+						{{template "shared/agent_label" (.Issue.AgentIdentity ctx)}}
 					{{else}}
 						{{ctx.Locale.Tr "repo.issues.opened_by_fake" $createdStr .Issue.Poster.GetDisplayName}}
 					{{end}}
 					·
 					{{ctx.Locale.TrN .Issue.NumComments "repo.issues.num_comments_1" "repo.issues.num_comments" .Issue.NumComments}}
+					{{if .Conversation}}{{range .Conversation.Linked}} · <a href="{{.Link}}">#{{.Index}}</a>{{end}}{{end}}
 				</span>
 			{{end}}
 		</div>
 	</div>
+
+		{{if and .Conversation .Issue.IsPull}}<div class="forge-status-summary flex-text-block tw-flex-wrap">
+			<a href="#conversation-checks">{{ctx.Locale.Tr "repo.conversation.check_summary" .Conversation.Failing .Conversation.Pending .Conversation.Passing}}</a>
+			<span class="tw-min-w-0 tw-break-anywhere">
+				{{if .Conversation.ReviewCount}}{{ctx.Locale.TrN .Conversation.ReviewCount "repo.conversation.review_count_1" "repo.conversation.review_count_n" .Conversation.ReviewCount}}{{else if not .Conversation.Reviews}}{{ctx.Locale.Tr "repo.conversation.no_reviews"}}{{end}}
+				{{range $index, $review := .Conversation.Reviews}}
+					<span>{{if or $.Conversation.ReviewCount $index}}· {{end}}{{if $review.OriginalAuthor}}{{$review.OriginalAuthor}}{{else if $review.Reviewer}}{{$review.Reviewer.GetDisplayName}}{{else if $review.ReviewerTeam}}{{$review.ReviewerTeam.Name}}{{end}}:
+						{{if $review.Dismissed}}{{ctx.Locale.Tr "repo.conversation.dismissed"}}{{else if eq $review.Type 1}}{{ctx.Locale.Tr "repo.conversation.approved"}}{{else if eq $review.Type 3}}{{ctx.Locale.Tr "repo.conversation.changes_requested"}}{{else if eq $review.Type 4}}{{ctx.Locale.Tr "repo.conversation.pending_review"}}{{else}}{{ctx.Locale.Tr "repo.conversation.commented"}}{{end}}
+					</span>
+				{{end}}
+			</span>
+			<a href="{{.Issue.Link}}/files">{{ctx.Locale.Tr "repo.conversation.files" .NumFiles}}</a>
+		</div>{{end}}
+	</div>
+	{{if .Conversation}}{{template "repo/issue/view_content/next_step" .Conversation.Next}}{{end}}
 </div>

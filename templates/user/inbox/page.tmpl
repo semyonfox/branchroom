@@ -1,0 +1,60 @@
+{{template "base/head" .}}
+<div role="main" aria-label="{{.Title}}" class="page-content forge-inbox">
+ <div class="ui container forge-inbox-layout">
+  <nav class="forge-inbox-views" aria-label="{{ctx.Locale.Tr "inbox.views"}}">
+   {{range $group := .Inbox.Groups}}
+    {{if or (ne $group.Kind "triage") $.Inbox.CanTriage}}
+     <a href="{{AppSubUrl}}/inbox?view={{$group.Kind}}" {{if eq $.InboxView $group.Kind}}aria-current="page"{{end}}><span>{{ctx.Locale.Tr (printf "inbox.view_%s" $group.Kind)}}</span><span>{{$group.Count}}</span></a>
+    {{end}}
+   {{end}}
+   {{$unread := call .PageGlobalData.GetNotificationUnreadCount}}
+   <a href="{{AppSubUrl}}/notifications"><span>{{ctx.Locale.Tr "notifications"}}</span><span class="notification_count{{if not $unread}} tw-hidden{{end}}">{{$unread}}</span></a>
+  </nav>
+  <section class="forge-inbox-main">
+   {{template "base/alert" .}}
+   <h1>{{ctx.Locale.Tr (printf "inbox.view_%s" .InboxView)}}</h1>
+   {{if eq .InboxView "triage"}}<p class="text light-2">{{ctx.Locale.Tr "inbox.triage_description"}}</p>{{end}}
+   {{range $result := .InboxResults}}
+    <p role="status" class="ui message {{if $result.Error}}error{{else}}success{{end}}">#{{$result.ID}}: {{if $result.Error}}{{$result.Error}}{{else}}{{ctx.Locale.Tr "inbox.action_complete"}}{{end}}</p>
+   {{end}}
+   <form method="post" action="{{AppSubUrl}}/inbox/state" class="forge-inbox-form">
+    <input type="hidden" name="view" value="{{.InboxView}}">
+    <div class="forge-inbox-bulk tw-hidden">
+     <button type="submit" class="ui small button tw-min-h-[44px]" disabled name="action" value="done" data-palette-action="{{ctx.Locale.Tr "inbox.done"}}" data-palette-key="e">{{ctx.Locale.Tr "inbox.done"}} <kbd>e</kbd></button>
+     <button type="submit" class="ui small button tw-min-h-[44px]" disabled name="action" value="snooze-day" data-palette-action="{{ctx.Locale.Tr "inbox.snooze_day"}}" data-palette-key="s">{{ctx.Locale.Tr "inbox.snooze_day"}} <kbd>s</kbd></button>
+     <button type="submit" class="ui small button tw-min-h-[44px]" disabled name="action" value="snooze-week" data-palette-action="{{ctx.Locale.Tr "inbox.snooze_week"}}" data-palette-key="">{{ctx.Locale.Tr "inbox.snooze_week"}}</button>
+     <button type="submit" class="ui small button tw-min-h-[44px]" disabled name="action" value="assign" data-palette-action="{{ctx.Locale.Tr "inbox.assign"}}" data-palette-key="a">{{ctx.Locale.Tr "inbox.assign"}}</button>
+     <label for="inbox-close-reason" class="tw-sr-only">{{ctx.Locale.Tr "inbox.close_reason"}}</label>
+     <select id="inbox-close-reason" name="reason" class="forge-inbox-reason">
+      <option value="">{{ctx.Locale.Tr "inbox.choose_close_reason"}}</option>
+      <option value="duplicate">{{ctx.Locale.Tr "inbox.duplicate"}}</option>
+      <option value="not planned">{{ctx.Locale.Tr "inbox.not_planned"}}</option>
+      <option value="out of scope">{{ctx.Locale.Tr "inbox.out_of_scope"}}</option>
+      <option value="needs a rebase">{{ctx.Locale.Tr "inbox.needs_rebase"}}</option>
+     </select>
+     <button type="submit" class="ui small button tw-min-h-[44px]" disabled name="action" value="close" data-palette-action="{{ctx.Locale.Tr "inbox.close"}}" data-palette-key="">{{ctx.Locale.Tr "inbox.close"}}</button>
+     <p class="text light-2 forge-inbox-keys"><kbd>j</kbd> / <kbd>k</kbd> {{ctx.Locale.Tr "inbox.move"}} · <kbd>x</kbd> {{ctx.Locale.Tr "inbox.select_key"}} · <kbd>enter</kbd> {{ctx.Locale.Tr "inbox.open"}}</p>
+    </div>
+    {{range $item := .InboxItems}}
+     <article class="forge-inbox-row" tabindex="-1">
+      <label class="forge-inbox-select"><input type="checkbox" name="items" value="{{$item.ID}}" aria-label="{{ctx.Locale.Tr "inbox.select" $item.Title}}"></label>
+      <div class="forge-inbox-content">
+       <a class="forge-inbox-title" href="{{$item.HTMLURL}}">{{$item.Title}}</a>
+       <div class="forge-inbox-meta"><span>{{$item.Repo}} #{{$item.Index}} · {{$item.Kind}}</span>{{if $item.Size}}<span class="ui basic label">{{$item.Size}}</span>{{end}}{{if $item.Agent}}{{template "shared/agent_label" (dict "Agent" $item.Agent.Name "TaskURL" $item.Agent.TaskURL "Model" $item.Agent.Model "Harness" $item.Agent.Harness "Sponsor" $item.Agent.Sponsor)}}{{else if $item.Trust}}<span>{{$item.Trust}}</span>{{end}}{{if $item.Checks}}<span>{{ctx.Locale.Tr "inbox.checks"}}: {{$item.Checks}}</span>{{end}}{{DateUtils.TimeSince $item.CreatedAt}}</div>
+       {{if $item.Reason}}<div class="text light-2">{{$item.Reason}}</div>{{end}}
+      </div>
+      <a class="ui small basic button forge-inbox-primary" href="{{$item.Action.URL}}" data-palette-action="{{$item.Action.Label}} {{$item.Title}}" data-palette-key="enter">{{$item.Action.Label}}</a>
+     </article>
+    {{else}}
+     <div class="forge-inbox-empty">
+      <p>{{ctx.Locale.Tr "inbox.empty"}}</p>
+      {{if and (eq .InboxView "needs") .InboxBusiest.Count}}
+       <a href="{{AppSubUrl}}/inbox?view={{.InboxBusiest.Kind}}">{{ctx.Locale.Tr "inbox.other_view" (ctx.Locale.Tr (printf "inbox.view_%s" .InboxBusiest.Kind)) .InboxBusiest.Count}}</a>
+      {{end}}
+     </div>
+    {{end}}
+   </form>
+  </section>
+ </div>
+</div>
+{{template "base/footer" .}}
