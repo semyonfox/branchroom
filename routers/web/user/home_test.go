@@ -16,6 +16,7 @@ import (
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/commitstatus"
+	"gitea.dev/modules/container"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/services/context"
@@ -160,6 +161,11 @@ func TestHomeWorkAndUpdates(t *testing.T) {
 		{IssueID: 1, ReviewerID: 2, Type: issues_model.ReviewTypeApprove},
 	}
 	assert.Equal(t, "changes_requested", homePullState(pr, commitstatus.CommitStatusSuccess, reviews, nil))
+	agentAfterOwn := []*issues_model.Review{
+		{ID: 2, IssueID: 1, ReviewerID: 3, Type: issues_model.ReviewTypeApprove},
+		{ID: 1, IssueID: 1, ReviewerID: 3, Type: issues_model.ReviewTypeReject},
+	}
+	assert.Equal(t, "changes_requested", homePullState(pr, commitstatus.CommitStatusSuccess, agentAfterOwn, container.SetOf[int64](2)))
 	assert.Equal(t, "checks_failing", homePullState(pr, commitstatus.CommitStatusFailure, nil, nil))
 	assert.Equal(t, "checks_pending", homePullState(pr, "", nil, nil))
 	assert.Equal(t, "ready", homePullState(pr, commitstatus.CommitStatusSuccess, nil, nil))

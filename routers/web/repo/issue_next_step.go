@@ -276,7 +276,8 @@ func conversationReviews(reviews issues_model.ReviewList, agentReviews container
 			continue
 		}
 		// an agent working with a person's token never replaces that person's own decision
-		if previous != nil && agentReviews.Contains(review.ID) && !agentReviews.Contains(previous.ID) {
+		if previous != nil && agentReviews.Contains(review.ID) && !agentReviews.Contains(previous.ID) &&
+			(previous.Type == issues_model.ReviewTypeApprove || previous.Type == issues_model.ReviewTypeReject) {
 			continue
 		}
 		// comment reviews do not replace the decision used by GetReviewByIssueIDAndUserID

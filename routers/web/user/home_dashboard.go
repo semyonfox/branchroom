@@ -102,7 +102,7 @@ func prepareHomeWork(ctx *context.Context) error {
 	var reviews []*issues_model.Review
 	var branches []*git_model.Branch
 	if len(ids) > 0 {
-		if err := db.GetEngine(ctx).Cols("issue_id", "reviewer_id", "reviewer_team_id", "type").In("issue_id", ids).In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeRequest).
+		if err := db.GetEngine(ctx).Cols("id", "issue_id", "reviewer_id", "reviewer_team_id", "type").In("issue_id", ids).In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeRequest).
 			Where("dismissed = ?", false).Desc("id").Find(&reviews); err != nil {
 			return err
 		}
