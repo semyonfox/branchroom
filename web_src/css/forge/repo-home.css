@@ -144,17 +144,6 @@
   background: var(--color-warning-text);
 }
 
-.repo-overview-side .clone-buttons-combo {
-  display: flex;
-  width: 100%;
-  margin-bottom: 12px;
-}
-
-.repo-overview-side .clone-buttons-combo input {
-  flex: 1;
-  min-width: 0;
-}
-
 .repo-overview-agents {
   display: flex;
   align-items: center;
@@ -242,33 +231,29 @@
   display: none;
 }
 
-.repo-overview-files .repo-button-row {
-  padding: 16px;
-  margin: 0;
+.repo-overview-main .repo-button-row {
+  padding: 0;
+  margin: 0 0 16px;
 }
 
 .repo-overview-files #repo-files-table {
+  margin: 0;
   border: 0;
-  border-top: 1px solid var(--color-secondary);
-  border-radius: 0 0 8px 8px;
+  border-radius: 8px;
 }
 
 .repo-overview-files .repo-file-last-commit {
   background: var(--color-box-body);
 }
 
-.repo-overview-files .repo-button-row-left,
-.repo-overview-files .repo-button-row-right {
+.repo-overview-main .repo-button-row-left,
+.repo-overview-main .repo-button-row-right {
   gap: 12px;
 }
 
 @media (width <= 1023px) {
   .repo-overview-layout {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .repo-overview-side {
-    order: -1;
   }
 }
 
@@ -281,23 +266,63 @@
     padding-inline: 16px;
   }
 
-  .repo-overview-files .repo-button-row-left,
-  .repo-overview-files .repo-button-row-right {
+  .repo-overview-main .repo-button-row-left,
+  .repo-overview-main .repo-button-row-right {
     flex-wrap: wrap;
     width: 100%;
   }
 
-  .repo-overview-files .repo-button-row-right {
+  .repo-overview-main .repo-button-row-right {
     flex-direction: row;
   }
 
-  .repo-overview-files .repo-file-search-container {
+  .repo-overview-main .repo-file-search-container {
     flex: 1;
     min-width: 0;
   }
 
-  .repo-overview-side .clone-buttons-combo .button,
   .repo-overview-readme-more {
     min-height: 44px;
   }
+}
+
+.repo-overview-downloads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-overview-download {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 6px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.repo-overview-download .muted {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.repo-overview-contributors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repo-overview-contributors a {
+  position: relative;
+}
+
+.repo-overview-contributors svg {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  background: var(--color-box-body);
+  border-radius: 3px;
 }

@@ -1,5 +1,6 @@
 <div class="repo-overview-layout">
 <div class="repo-overview-main">
+{{template "repo/view_content_toolbar" .}}
 {{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
 <section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
 	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
@@ -57,16 +58,6 @@
 		{{end}}
 	</section>
 
-	<section class="repo-overview-section">
-		<h2>{{ctx.Locale.Tr "repo.overview.start_here"}}</h2>
-		{{template "repo/clone_buttons" dict "CloneButtonOriginLink" .CloneButtonOriginLink}}
-		<ul class="repo-overview-links">
-			{{if .DownloadArchiveLinkPrefix}}<li><a href="{{.DownloadArchiveLinkPrefix}}.zip" rel="nofollow">{{svg "octicon-file-zip"}} {{ctx.Locale.Tr "repo.download_zip"}}</a></li>{{end}}
-			{{if .OverviewAgentFile}}<li><a href="{{.RepoLink}}/src/{{.RefTypeNameSubURL}}/{{.OverviewAgentFile}}">{{svg "octicon-dependabot"}} {{ctx.Locale.Tr "repo.overview.agents_start"}} {{.OverviewAgentFile}}</a></li>{{end}}
-			<li class="repo-overview-mcp">{{svg "octicon-plug"}} <span>MCP <code>{{AppSubUrl}}/api/mcp</code></span> <a href="https://github.com/semyonfox/branchroom/blob/main/docs/branchroom/mcp.md">{{ctx.Locale.Tr "repo.overview.mcp_docs"}}</a></li>
-		</ul>
-	</section>
-
 	{{if .LatestRelease}}
 	<section class="repo-overview-section">
 		<h2><a href="{{.RepoLink}}/releases">{{ctx.Locale.Tr "repo.releases"}}</a> {{if .NumReleases}}<span class="repo-overview-count">{{CountFmt .NumReleases}}</span>{{end}}</h2>
@@ -77,15 +68,41 @@
 	</section>
 	{{end}}
 
-	{{if or .OverviewMaintainers .OverviewAgentCount}}
+	{{if .OverviewDownloads}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.download"}} <span class="repo-overview-count">{{.LatestRelease.TagName}}</span></h2>
+		<div class="repo-overview-downloads">
+			{{range $download := .OverviewDownloads}}
+				<a class="repo-overview-download" href="{{$download.Attachment.DownloadURL}}" data-palette-action="Download for {{$download.Platform}}"><span>{{$download.Label}}</span><span class="muted">{{$download.Arch}} {{$download.Attachment.Size | FormatByteSizeDecimal}}</span></a>
+			{{end}}
+			<a href="{{.LatestRelease.Link}}">{{ctx.Locale.Tr "repo.overview.all_files"}}</a>
+		</div>
+	</section>
+	{{end}}
+
+	{{if .OverviewMaintainers}}
 	<section class="repo-overview-section">
 		<h2>{{ctx.Locale.Tr "repo.overview.maintainers"}}</h2>
 		<ul class="repo-overview-people">
-			{{range $user := .OverviewMaintainers}}<li><a class="flex-text-inline" href="{{$user.HomeLink}}">{{ctx.AvatarUtils.Avatar $user 20}}{{$user.Name}}</a></li>{{end}}
+			{{range $person := .OverviewMaintainers}}<li class="flex-text-block"><a class="flex-text-inline tw-flex-1" href="{{$person.User.HomeLink}}">{{ctx.AvatarUtils.Avatar $person.User 24}}{{$person.User.DisplayName}}</a><span class="muted">{{ctx.Locale.Tr (printf "repo.overview.role.%s" $person.Role)}}</span></li>{{end}}
 		</ul>
-		{{if .OverviewAgentCount}}<p class="repo-overview-agents">{{svg "octicon-dependabot"}} {{ctx.Locale.TrN .OverviewAgentCount "repo.overview.agent_one" "repo.overview.agent_many" .OverviewAgentCount}}</p>{{end}}
+		{{if .OverviewMoreMaintainers}}<p class="muted">{{ctx.Locale.Tr "repo.overview.more_people" .OverviewMoreMaintainers}}</p>{{end}}
 	</section>
 	{{end}}
+
+	{{if .OverviewContributors}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.contributors"}} <span class="repo-overview-count">{{.OverviewContributorCount}}</span></h2>
+		<div class="repo-overview-contributors">
+			{{range $person := .OverviewContributors}}
+				{{if $person.User}}<a href="{{$person.User.HomeLink}}" data-tooltip-content="{{$person.Name}}{{if $person.Agent}} · {{ctx.Locale.Tr "repo.overview.agent"}}{{if $person.Sponsor}} · {{ctx.Locale.Tr "repo.overview.responsible" $person.Sponsor}}{{end}}{{end}}">{{ctx.AvatarUtils.Avatar $person.User 28}}{{if $person.Agent}}{{svg "octicon-dependabot" 12}}{{end}}</a>{{else}}<span data-tooltip-content="{{$person.Name}}">{{ctx.AvatarUtils.AvatarByEmail $person.Email $person.Name 28}}</span>{{end}}
+			{{end}}
+		</div>
+		{{range $person := .OverviewContributors}}{{if $person.Agent}}<p class="repo-overview-agents">{{svg "octicon-dependabot"}} <span>{{$person.Name}} · {{ctx.Locale.Tr "repo.overview.agent"}}{{if $person.Sponsor}} · {{ctx.Locale.Tr "repo.overview.responsible" $person.Sponsor}}{{end}}</span></p>{{end}}{{end}}
+	</section>
+	{{end}}
+
+	{{if .OverviewAgentFile}}<section class="repo-overview-section muted">{{ctx.Locale.Tr "repo.overview.agents_start"}} <a href="{{.RepoLink}}/src/{{.RefTypeNameSubURL}}/{{.OverviewAgentFile}}">{{.OverviewAgentFile}}</a> · {{ctx.Locale.Tr "repo.overview.mcp_at"}} <a href="{{AppSubUrl}}/api/mcp">/api/mcp</a></section>{{end}}
 
 	{{if and (not .IsEmptyRepo) .LanguageStats}}
 	<section class="repo-overview-section">
