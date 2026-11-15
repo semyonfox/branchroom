@@ -152,7 +152,14 @@
 
 		{{if and .Conversation .Issue.IsPull}}<div class="forge-status-summary flex-text-block tw-flex-wrap">
 			<a href="#conversation-checks">{{ctx.Locale.Tr "repo.conversation.check_summary" .Conversation.Failing .Conversation.Pending .Conversation.Passing}}</a>
-			<span>{{if .Conversation.ReviewActor}}{{ctx.Locale.Tr .Conversation.ReviewKey .Conversation.ReviewActor}}{{else}}{{ctx.Locale.Tr .Conversation.ReviewKey}}{{end}}</span>
+			<span class="tw-min-w-0 tw-break-anywhere">
+				{{if .Conversation.ReviewCount}}{{ctx.Locale.TrN .Conversation.ReviewCount "repo.conversation.review_count_1" "repo.conversation.review_count_n" .Conversation.ReviewCount}}{{else if not .Conversation.Reviews}}{{ctx.Locale.Tr "repo.conversation.no_reviews"}}{{end}}
+				{{range $index, $review := .Conversation.Reviews}}
+					<span>{{if or $.Conversation.ReviewCount $index}}· {{end}}{{if $review.OriginalAuthor}}{{$review.OriginalAuthor}}{{else if $review.Reviewer}}{{$review.Reviewer.GetDisplayName}}{{else if $review.ReviewerTeam}}{{$review.ReviewerTeam.Name}}{{end}}:
+						{{if $review.Dismissed}}{{ctx.Locale.Tr "repo.conversation.dismissed"}}{{else if eq $review.Type 1}}{{ctx.Locale.Tr "repo.conversation.approved"}}{{else if eq $review.Type 3}}{{ctx.Locale.Tr "repo.conversation.changes_requested"}}{{else if eq $review.Type 4}}{{ctx.Locale.Tr "repo.conversation.pending_review"}}{{else}}{{ctx.Locale.Tr "repo.conversation.commented"}}{{end}}
+					</span>
+				{{end}}
+			</span>
 			<a href="{{.Issue.Link}}/files">{{ctx.Locale.Tr "repo.conversation.files" .NumFiles}}</a>
 		</div>{{end}}
 	</div>

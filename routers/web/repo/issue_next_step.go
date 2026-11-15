@@ -4,9 +4,13 @@
 package repo
 
 import (
+	"cmp"
+	"slices"
+
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/services/context"
 )
 
@@ -22,6 +26,7 @@ type conversationNextInput struct {
 type conversationNextStep struct {
 	Key, Actor, Tone, Action, URL string
 	Count                         int
+	Unresolved                    int
 }
 
 func issueNextStep(in conversationNextInput) conversationNextStep {
@@ -72,12 +77,14 @@ type conversationSummary struct {
 	Next                      conversationNextStep
 	Checks                    []*git_model.CommitStatus
 	Failing, Pending, Passing int
-	ReviewKey, ReviewActor    string
+	ReviewCount               int
+	Reviews                   issues_model.ReviewList
 	Linked                    []*issues_model.Issue
 }
 
 func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, meta *IssuePageMetaData, pr *pullRequestViewInfo) {
-	summary := &conversationSummary{ReviewKey: "repo.conversation.no_reviews"}
+	summary := &conversationSummary{}
+	unresolved := 0
 	in := conversationNextInput{Pull: issue.IsPull, Closed: issue.IsClosed, Author: ctx.IsSigned && issue.IsPoster(ctx.Doer.ID), Writer: ctx.Repo.Permission.CanWriteIssuesOrPulls(issue.IsPull), AuthorName: issue.Poster.GetDisplayName(), Labels: len(issue.Labels)}
 	if len(issue.Assignees) > 0 {
 		in.Assignee = issue.Assignees[0].GetDisplayName()
@@ -133,29 +140,50 @@ func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, m
 		}
 		in.Merged, in.Draft, in.Checking = pull.HasMerged, pull.IsWorkInProgress(ctx), pull.IsChecking()
 		in.Conflict = !pull.IsStatusMergeable() && !pull.IsEmpty() && !in.Checking
-		for _, r := range meta.ReviewersData.CurrentPullReviewers {
-			if r.Requested {
-				in.WaitingReviews = true
+
+		reviews, err := issues_model.FindReviews(ctx, issues_model.FindReviewOptions{IssueID: issue.ID})
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		summary.ReviewCount, summary.Reviews = conversationReviews(reviews)
+		if err := summary.Reviews.LoadReviewers(ctx); err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		if err := summary.Reviews.LoadReviewersTeams(ctx); err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		for _, review := range summary.Reviews {
+			if review.Type == issues_model.ReviewTypeReject && !review.Dismissed {
+				in.Changes = true
 			}
-			if r.Requested && r.User != nil && ctx.IsSigned && r.User.ID == ctx.Doer.ID {
+		}
+		for _, reviewer := range meta.ReviewersData.CurrentPullReviewers {
+			for _, review := range summary.Reviews {
+				if review.ReviewerID == reviewer.ItemID && review.OriginalAuthorID == 0 && review.ReviewerTeamID == 0 {
+					reviewer.Review = review
+					reviewer.Requested = review.Type == issues_model.ReviewTypeRequest
+					reviewer.CanChange = meta.ReviewersData.CanChooseReviewer || (ctx.IsSigned && ctx.Doer.ID == review.ReviewerID &&
+						(review.Type == issues_model.ReviewTypeRequest || (review.Type == issues_model.ReviewTypeApprove && !issue.IsClosed && !pull.HasMerged && !issue.Repo.IsArchived)))
+					reviewer.CanBeDismissed = ctx.Repo.Permission.IsAdmin() && !issue.IsClosed && !pull.HasMerged && !review.Dismissed &&
+						(review.Type == issues_model.ReviewTypeApprove || review.Type == issues_model.ReviewTypeReject)
+					break
+				}
+			}
+			in.WaitingReviews = in.WaitingReviews || reviewer.Requested
+			if reviewer.Requested && reviewer.User != nil && ctx.IsSigned && reviewer.User.ID == ctx.Doer.ID {
 				in.Requested = true
 			}
-			if r.Review != nil && r.Review.Type == issues_model.ReviewTypeReject && !r.Review.Dismissed {
-				in.Changes = true
-				summary.ReviewKey = "repo.conversation.review_changes"
-				if r.User != nil {
-					summary.ReviewActor = r.User.GetDisplayName()
-				}
-			} else if !in.Changes && r.Review != nil && r.Review.Type == issues_model.ReviewTypeApprove {
-				summary.ReviewKey = "repo.conversation.review_approved"
-				if r.User != nil {
-					summary.ReviewActor = r.User.GetDisplayName()
-				}
-			}
 		}
-		if in.WaitingReviews && !in.Changes {
-			summary.ReviewKey = "repo.conversation.reviews"
+		comments, err := issues_model.FindComments(ctx, &issues_model.FindCommentsOptions{IssueID: issue.ID, Type: issues_model.CommentTypeCode})
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
 		}
+		unresolved = conversationUnresolvedCount(comments, reviews)
+
 		if box := pr.MergeBoxData; box != nil {
 			in.Blocked = len(box.infoCommitBlockers.items) > 0 || box.hasOverridableBlockers || (box.requireSigned && !box.willSign) || pr.IsPullRequestBroken
 			in.CanMerge = box.hasPermToMerge && box.canMergeNow
@@ -189,6 +217,7 @@ func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, m
 		}
 	}
 	summary.Next = issueNextStep(in)
+	summary.Next.Unresolved = unresolved
 	if in.LinkedIndex > 0 && !in.Closed {
 		summary.Next.Count = int(in.LinkedIndex)
 		for _, linked := range summary.Linked {
@@ -202,4 +231,75 @@ func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, m
 		summary.Next.URL = issue.Link() + "/files"
 	}
 	ctx.Data["Conversation"] = summary
+}
+
+func conversationReviews(reviews issues_model.ReviewList) (int, issues_model.ReviewList) {
+	type reviewerKey struct {
+		user, team, original int64
+		name                 string
+	}
+	latest := map[reviewerKey]*issues_model.Review{}
+	count := 0
+	for _, review := range reviews {
+		switch review.Type {
+		case issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment:
+			count++
+		case issues_model.ReviewTypeRequest:
+		default:
+			continue
+		}
+		key := reviewerKey{user: review.ReviewerID, team: review.ReviewerTeamID, original: review.OriginalAuthorID}
+		if review.OriginalAuthorID != 0 {
+			key.user = 0
+			if review.OriginalAuthorID == user_model.GhostUserID {
+				key.name = review.OriginalAuthor
+			}
+		}
+		previous := latest[key]
+		// comment reviews do not replace the decision used by GetReviewByIssueIDAndUserID
+		if previous != nil {
+			if review.Type == issues_model.ReviewTypeComment && previous.Type != issues_model.ReviewTypeComment {
+				continue
+			}
+			if review.ID <= previous.ID && !(previous.Type == issues_model.ReviewTypeComment && review.Type != issues_model.ReviewTypeComment) {
+				continue
+			}
+		}
+		latest[key] = review
+	}
+	result := make(issues_model.ReviewList, 0, len(latest))
+	for _, review := range latest {
+		result = append(result, review)
+	}
+	slices.SortFunc(result, func(a, b *issues_model.Review) int { return cmp.Compare(a.ID, b.ID) })
+	return count, result
+}
+
+func conversationUnresolvedCount(comments issues_model.CommentList, reviews issues_model.ReviewList) int {
+	submitted := map[int64]bool{}
+	for _, review := range reviews {
+		submitted[review.ID] = review.Type == issues_model.ReviewTypeApprove || review.Type == issues_model.ReviewTypeReject || review.Type == issues_model.ReviewTypeComment
+	}
+	type threadKey struct {
+		review int64
+		path   string
+		line   int64
+	}
+	threads := map[threadKey]*issues_model.Comment{}
+	for _, comment := range comments {
+		if !submitted[comment.ReviewID] {
+			continue
+		}
+		key := threadKey{review: comment.ReviewID, path: comment.TreePath, line: comment.Line}
+		if previous := threads[key]; previous == nil || comment.ID < previous.ID {
+			threads[key] = comment
+		}
+	}
+	count := 0
+	for _, thread := range threads {
+		if !thread.IsResolved() {
+			count++
+		}
+	}
+	return count
 }

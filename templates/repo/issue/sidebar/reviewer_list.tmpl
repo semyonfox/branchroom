@@ -63,7 +63,7 @@
 							{{svg "octicon-x" 20}}
 						</a>
 					{{end}}
-					{{if .Review.Stale}}
+					{{if and .Review.Stale (not .Review.Dismissed)}}
 						<span data-tooltip-content="{{ctx.Locale.Tr "repo.issues.is_stale"}}">{{svg "octicon-hourglass" 16}}</span>
 					{{end}}
 					{{if .CanChange}}
@@ -81,8 +81,8 @@
 							</a>
 						{{end}}
 					{{end}}
-					<span {{if .Review.TooltipContent}}data-tooltip-content="{{ctx.Locale.Tr .Review.TooltipContent}}"{{end}}>
-						{{svg (printf "octicon-%s" .Review.Type.Icon) 16 .Review.HTMLTypeColorClass}}<small>{{if .Requested}}{{ctx.Locale.Tr "repo.conversation.pending_review"}}{{else if eq .Review.Type 1}}{{ctx.Locale.Tr "repo.conversation.approved"}}{{else if eq .Review.Type 3}}{{ctx.Locale.Tr "repo.conversation.changes_requested"}}{{else}}{{ctx.Locale.Tr "repo.conversation.commented"}}{{end}}</small>
+					<span {{if .Review.Dismissed}}data-tooltip-content="{{ctx.Locale.Tr "repo.conversation.dismissed"}}"{{else if .Review.TooltipContent}}data-tooltip-content="{{ctx.Locale.Tr .Review.TooltipContent}}"{{end}}>
+						{{if .Review.Dismissed}}{{svg "octicon-x" 16 "tw-text-text-light"}}{{else}}{{svg (printf "octicon-%s" .Review.Type.Icon) 16 .Review.HTMLTypeColorClass}}{{end}}<small>{{if .Requested}}{{ctx.Locale.Tr "repo.conversation.pending_review"}}{{else if .Review.Dismissed}}{{ctx.Locale.Tr "repo.conversation.dismissed"}}{{else if eq .Review.Type 1}}{{ctx.Locale.Tr "repo.conversation.approved"}}{{else if eq .Review.Type 3}}{{ctx.Locale.Tr "repo.conversation.changes_requested"}}{{else}}{{ctx.Locale.Tr "repo.conversation.commented"}}{{end}}</small>
 					</span>
 				</div>
 				{{if .Review}}<div class="forge-review-agent tw-w-full">{{template "shared/agent_label" (.Review.AgentIdentity ctx)}}</div>{{end}}
