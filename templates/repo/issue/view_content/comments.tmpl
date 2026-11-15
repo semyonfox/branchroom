@@ -47,7 +47,7 @@
 								{{end}}
 								<span class="comment-text-line">
 									{{template "shared/user/authorlink" .Poster}}
-									{{template "shared/agent_identity" (.AgentIdentity ctx)}}
+									{{template "shared/agent_label" (.AgentIdentity ctx)}}
 									{{ctx.Locale.Tr "repo.issues.commented_at" .HashTag $createdStr}}
 								</span>
 							{{end}}
@@ -382,7 +382,7 @@
 						{{else}}
 							{{ctx.Locale.Tr "repo.issues.review.comment" $createdLink}}
 						{{end}}
-						{{if .Review}}{{template "shared/agent_identity" (.Review.AgentIdentity ctx)}}{{end}}
+						{{if .Review}}{{template "shared/agent_label" (.Review.AgentIdentity ctx)}}{{end}}
 						{{if and .Review .Review.Dismissed}}
 							<div class="ui small label">{{ctx.Locale.Tr "repo.issues.review.dismissed_label"}}</div>
 						{{end}}

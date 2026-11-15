@@ -1,0 +1,119 @@
+<div class="ui dropdown forge-title-actions">
+ <button type="button" class="ui small basic icon button" aria-label="{{ctx.Locale.Tr "more"}}">{{svg "octicon-kebab-horizontal"}}</button>
+ <div class="menu">
+{{if not .Issue.IsPull}}<a class="item" href="{{.RepoLink}}/issues/new{{if .NewIssueChooseTemplate}}/choose{{end}}">{{ctx.Locale.Tr "repo.issues.new"}}</a>{{end}}
+ <button type="button" class="item btn" data-clipboard-text="{{.Repository.FullName}}#{{.Issue.Index}}">{{ctx.Locale.Tr "repo.conversation.copy_reference"}}</button>
+ {{if and .IsSigned (not .Repository.IsArchived)}}<button type="button" class="item btn reference-issue" data-target="{{.Issue.HashTag}}-raw" data-modal="#reference-issue-modal" data-poster="{{.Issue.Poster.GetDisplayName}}" data-poster-username="{{.Issue.Poster.Name}}" data-reference="{{.Issue.HTMLURL ctx}}">{{ctx.Locale.Tr "repo.issues.context.reference_issue"}}</button>{{end}}
+{{if and .IsRepoAdmin (not .Repository.IsArchived)}}
+
+	{{/* Pin issue */}}
+	{{if or .PinEnabled .Issue.IsPinned}}
+		<form class="tw-mt-1 form-fetch-action single-button-form" method="post" {{if $.NewPinAllowed}}action="{{.Issue.Link}}/pin"{{else}}data-tooltip-content="{{ctx.Locale.Tr "repo.issues.max_pinned"}}"{{end}}>
+			<button type="submit" class="item btn {{if not $.NewPinAllowed}}disabled{{end}}">
+				{{if not .Issue.IsPinned}}
+					{{svg "octicon-pin"}}
+					{{ctx.Locale.Tr "pin"}}
+				{{else}}
+					{{svg "octicon-pin-slash"}}
+					{{ctx.Locale.Tr "unpin"}}
+				{{end}}
+			</button>
+		</form>
+	{{end}}
+
+	{{/* Lock/unlock conversation */}}
+	<button type="button" class="item btn show-modal{{if .Issue.IsLocked}} red{{end}}" data-modal="#lock-conversation">
+		{{if .Issue.IsLocked}}
+			{{svg "octicon-key"}} {{ctx.Locale.Tr "repo.issues.unlock"}}
+		{{else}}
+			{{svg "octicon-lock"}} {{ctx.Locale.Tr "repo.issues.lock"}}
+		{{end}}
+	</button>
+
+	<button type="button" class="item btn show-modal" data-modal="#sidebar-delete-issue">
+		{{svg "octicon-trash"}}
+		{{ctx.Locale.Tr "repo.issues.delete"}}
+	</button>
+
+{{end}}
+
+ {{if and .HasIssuesOrPullsWritePermission (not .Repository.IsArchived) (not .Issue.DeadlineUnix)}}<button type="button" class="item btn show-modal" data-modal="#forge-due-date">{{ctx.Locale.Tr "repo.conversation.set_due_date"}}</button>{{end}}
+ </div>
+</div>
+<dialog class="modal-dialog" id="lock-conversation">
+		<div class="header">
+			{{if .Issue.IsLocked}}
+				{{ctx.Locale.Tr "repo.issues.unlock.title"}}
+			{{else}}
+				{{ctx.Locale.Tr "repo.issues.lock.title"}}
+			{{end}}
+		</div>
+		<div class="content">
+			<div class="ui warning message">
+				{{if .Issue.IsLocked}}
+					{{ctx.Locale.Tr "repo.issues.unlock.notice_1"}}<br>
+					{{ctx.Locale.Tr "repo.issues.unlock.notice_2"}}<br>
+				{{else}}
+					{{ctx.Locale.Tr "repo.issues.lock.notice_1"}}<br>
+					{{ctx.Locale.Tr "repo.issues.lock.notice_2"}}<br>
+					{{ctx.Locale.Tr "repo.issues.lock.notice_3"}}<br>
+				{{end}}
+			</div>
+
+			<form class="ui form form-fetch-action" method="post" action="{{.Issue.Link}}{{if .Issue.IsLocked}}/unlock{{else}}/lock{{end}}">
+
+				{{if not .Issue.IsLocked}}
+					<div class="field">
+						<strong>{{ctx.Locale.Tr "repo.issues.lock.reason"}}</strong>
+					</div>
+
+					<div class="field">
+						<div class="ui fluid dropdown selection">
+							<input type="hidden" name="reason">
+							<div class="text"></div> {{svg "octicon-triangle-down" 14 "dropdown icon"}}
+							<div class="menu">
+								<div class="item" data-value=""></div>
+								{{range .LockReasons}}
+									<div class="item" data-value="{{.}}">{{.}}</div>
+								{{end}}
+							</div>
+						</div>
+					</div>
+				{{end}}
+
+				<div class="actions">
+					<button type="button" class="ui cancel button">{{ctx.Locale.Tr "settings.cancel"}}</button>
+					{{/* explicitly focus the submit button, otherwise the modal focuses and pops up the dropdown */}}
+					<button type="submit" class="ui red button" autofocus>
+						{{if .Issue.IsLocked}}
+							{{ctx.Locale.Tr "repo.issues.unlock_confirm"}}
+						{{else}}
+							{{ctx.Locale.Tr "repo.issues.lock_confirm"}}
+						{{end}}
+					</button>
+				</div>
+			</form>
+		</div>
+	</dialog>
+<dialog class="modal-dialog" id="sidebar-delete-issue">
+		<div class="header">
+			{{if .Issue.IsPull}}
+				{{ctx.Locale.Tr "repo.pulls.delete.title"}}
+			{{else}}
+				{{ctx.Locale.Tr "repo.issues.delete.title"}}
+			{{end}}
+		</div>
+		<div class="content">
+			<p>
+				{{if .Issue.IsPull}}
+					{{ctx.Locale.Tr "repo.pulls.delete.text"}}
+				{{else}}
+					{{ctx.Locale.Tr "repo.issues.delete.text"}}
+				{{end}}
+			</p>
+		</div>
+		<form action="{{.Issue.Link}}/delete" method="post">
+			{{template "base/modal_actions_confirm" .}}
+		</form>
+	</dialog>
+{{if and .HasIssuesOrPullsWritePermission (not .Repository.IsArchived) (not .Issue.DeadlineUnix)}}<dialog class="modal-dialog" id="forge-due-date"><div class="header">{{ctx.Locale.Tr "repo.conversation.set_due_date"}}</div><div class="content">{{template "repo/issue/sidebar/due_date" .}}</div></dialog>{{end}}

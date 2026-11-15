@@ -1,9 +1,6 @@
 {{$data := $.MergeBoxData}}
 {{$pull := $.PullRequest}}
-<details>
-	<summary class="tw-pl-1">{{/* align with other item icon & text */}}
-		<span class="tw-pl-2">{{ctx.Locale.Tr "repo.pulls.cmd_instruction_hint"}}</span>
-	</summary>
+
 	<div class="tw-my-[5px]">
 		<div>
 			<h3 class="tw-m-0">{{ctx.Locale.Tr "repo.pulls.cmd_instruction_checkout_title"}}</h3>
@@ -29,33 +26,39 @@
 		</div>
 		<div class="ui secondary segment tw-font-mono">
 			<div data-pull-merge-style="merge">
+<h4>{{ctx.Locale.Tr "repo.pulls.merge_pull_request"}}</h4>
 				<div>git checkout {{$args.BaseBranchArg}}</div>
 				<div>git merge --no-ff {{$args.LocalBranchArg}}</div>
 			</div>
-			<div class="tw-hidden" data-pull-merge-style="rebase">
+			<div data-pull-merge-style="rebase">
+<h4>{{ctx.Locale.Tr "repo.pulls.rebase_merge_pull_request"}}</h4>
 				<div>git checkout {{$args.BaseBranchArg}}</div>
 				<div>git merge --ff-only {{$args.LocalBranchArg}}</div>
 			</div>
-			<div class="tw-hidden" data-pull-merge-style="rebase-merge">
+			<div data-pull-merge-style="rebase-merge">
+<h4>{{ctx.Locale.Tr "repo.pulls.rebase_merge_commit_pull_request"}}</h4>
 				<div>git checkout {{$args.LocalBranchArg}}</div>
 				<div>git rebase {{$args.BaseBranchArg}}</div>
 				<div>git checkout {{$args.BaseBranchArg}}</div>
 				<div>git merge --no-ff {{$args.LocalBranchArg}}</div>
 			</div>
-			<div class="tw-hidden" data-pull-merge-style="squash">
+			<div data-pull-merge-style="squash">
+<h4>{{ctx.Locale.Tr "repo.pulls.squash_merge_pull_request"}}</h4>
 				<div>git checkout {{$args.BaseBranchArg}}</div>
 				<div>git merge --squash {{$args.LocalBranchArg}}</div>
 			</div>
-			<div class="tw-hidden" data-pull-merge-style="fast-forward-only">
+			<div data-pull-merge-style="fast-forward-only">
+<h4>{{ctx.Locale.Tr "repo.pulls.fast_forward_only_merge_pull_request"}}</h4>
 				<div>git checkout {{$args.BaseBranchArg}}</div>
 				<div>git merge --ff-only {{$args.LocalBranchArg}}</div>
 			</div>
-			<div class="tw-hidden" data-pull-merge-style="manually-merged">
+			{{if ctx.RootData.IsRepoAdmin}}<div data-pull-merge-style="manually-merged">
+<h4>{{ctx.Locale.Tr "repo.pulls.merge_manually"}}</h4>
 				<div>git checkout {{$args.BaseBranchArg}}</div>
 				<div>git merge {{$args.LocalBranchArg}}</div>
 			</div>
-			<div>git push {{$gitRemoteName}} {{$args.BaseBranchArg}}</div>
+			{{end}}
+<div>git push {{$gitRemoteName}} {{$args.BaseBranchArg}}</div>
 		</div>
 		{{end}}
 	</div>
-</details>
