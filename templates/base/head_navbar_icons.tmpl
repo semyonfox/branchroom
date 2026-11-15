@@ -37,9 +37,9 @@
 	{{end}}
 
 	{{$notificationUnreadCount := call $data.GetNotificationUnreadCount -}}
-	<a class="item" href="{{AppSubUrl}}/notifications" data-tooltip-content="{{ctx.Locale.Tr "notifications"}}" data-shortcut-keys="g n">
+	<a class="item forge-inbox" href="{{AppSubUrl}}/notifications" data-tooltip-content="{{ctx.Locale.Tr "notifications"}}" data-shortcut-keys="g n">
 		<div class="tw-relative flex-text-block">
-			{{svg "octicon-bell"}}
+			{{svg "octicon-inbox"}}<span class="forge-inbox-label">{{ctx.Locale.Tr "forge.inbox"}}</span>
 			<span class="notification_count{{if not $notificationUnreadCount}} tw-hidden{{end}}">{{$notificationUnreadCount}}</span>
 		</div>
 	</a>
