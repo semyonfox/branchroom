@@ -1,6 +1,6 @@
 <div class="issue-content-right forge-side-lists" id="conversation-details" data-global-init="initRepoIssueSidebar">
 	{{template "custom/extra_repo_issue_sidebar_top" $}}
-	{{template "repo/issue/branch_selector_field" $}}
+	{{if .Reference}}{{template "repo/issue/branch_selector_field" $}}{{end}}
 
 	{{/* readers only see sections that have something in them, editors keep every picker */}}
 	{{$meta := $.IssuePageMetaData}}
@@ -40,12 +40,14 @@
 		{{template "repo/issue/sidebar/due_date" $}}
 	{{end}}
 	{{if and $deps $hasDeps}}{{template "repo/issue/sidebar/issue_dependencies" $}}{{end}}
-	{{if and .HasIssuesOrPullsWritePermission (or (and $timer (not $hasTime)) (and $deps (not $hasDeps)))}}
-		{{/* empty timer and dependency forms stay out of the way until someone needs them */}}
+	{{$emptyRef := and (not .Issue.IsPull) (not .Reference) (or .IsIssuePoster .HasIssuesOrPullsWritePermission)}}
+	{{if or $emptyRef (and .HasIssuesOrPullsWritePermission (or (and $timer (not $hasTime)) (and $deps (not $hasDeps))))}}
+		{{/* empty branch, timer and dependency forms stay out of the way until someone needs them */}}
 		<details class="forge-side-more">
-			<summary>{{if and $timer (not $hasTime) $deps (not $hasDeps)}}{{ctx.Locale.Tr "repo.conversation.track_or_depend"}}{{else if and $timer (not $hasTime)}}{{ctx.Locale.Tr "repo.conversation.track_time"}}{{else}}{{ctx.Locale.Tr "repo.conversation.add_dependency"}}{{end}}</summary>
-			{{if and $timer (not $hasTime)}}{{template "repo/issue/sidebar/stopwatch_timetracker" $}}{{end}}
-			{{if and $deps (not $hasDeps)}}{{template "repo/issue/sidebar/issue_dependencies" $}}{{end}}
+			<summary>{{ctx.Locale.Tr "repo.conversation.more_options"}}</summary>
+			{{if $emptyRef}}{{template "repo/issue/branch_selector_field" $}}{{end}}
+			{{if and .HasIssuesOrPullsWritePermission $timer (not $hasTime)}}{{template "repo/issue/sidebar/stopwatch_timetracker" $}}{{end}}
+			{{if and .HasIssuesOrPullsWritePermission $deps (not $hasDeps)}}{{template "repo/issue/sidebar/issue_dependencies" $}}{{end}}
 		</details>
 	{{end}}
 
