@@ -280,6 +280,12 @@
     min-width: 0;
   }
 
+  .repo-overview-main .repo-file-search-container .ui.input,
+  .repo-overview-main .repo-file-search-container input {
+    width: 100%;
+    min-width: 0;
+  }
+
   .repo-overview-readme-more {
     min-height: 44px;
   }

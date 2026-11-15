@@ -141,15 +141,23 @@
 
 .forge-home-update-list > li {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  padding-block: 14px;
-  border-bottom: 1px solid var(--color-secondary);
+  padding-block: 7px;
+  border-bottom: 1px solid var(--color-light-border);
 }
 
 .forge-home-update-content {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 12px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.forge-home-update-content > :not(.forge-home-update-time) {
+  min-width: 0;
 }
 
 .forge-home-update-content a {
@@ -157,9 +165,9 @@
 }
 
 .forge-home-update-time {
-  display: block;
-  font-size: 11px;
-  margin-top: 4px;
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .forge-home-discover li {

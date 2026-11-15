@@ -352,8 +352,11 @@ func agentEvent(action *branchroom_model.AgentAction, actionType int) string {
 		}
 	case "comment":
 		switch issues_model.CommentType(actionType) {
-		case issues_model.CommentTypeComment, issues_model.CommentTypeCode, issues_model.CommentTypeReview:
+		case issues_model.CommentTypeComment, issues_model.CommentTypeCode:
 			verb = "commented"
+		// the review's own comment row lands after the review, so it names the event
+		case issues_model.CommentTypeReview:
+			verb = "reviewed"
 		case issues_model.CommentTypeLabel:
 			verb = "updated labels"
 		}

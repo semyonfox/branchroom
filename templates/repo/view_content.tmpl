@@ -85,7 +85,7 @@
 				data-placeholder="{{ctx.Locale.Tr "repo.find_file.go_to_file"}}"
 		><div class="ui small input global-shortcut-wrapper"><input placeholder="{{ctx.Locale.Tr "repo.find_file.go_to_file"}}"><kbd>T</kbd></div></div>
 
-		{{if and (not .PageIsRepoOverview) .RefFullName.IsBranch}}
+		{{if .RefFullName.IsBranch}}
 			{{if .IsSigned}}
 				{{$addFilePath := .TreePath}}
 				{{if .IsViewFile}}

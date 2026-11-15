@@ -216,13 +216,14 @@ func prepareHomeUpdates(ctx *context.Context) error {
 	)
 	var actions activities_model.ActionList
 	if err := db.GetEngine(ctx).Where(cond).And(network).And(readable).And("`action`.user_id = `action`.act_user_id").
-		Desc("created_unix", "id").Limit(40).Find(&actions); err != nil {
+		Desc("created_unix", "id").Limit(30).Find(&actions); err != nil {
 		return err
 	}
 	if err := actions.LoadAttributes(ctx); err != nil {
 		return err
 	}
-	ctx.Data["HomeUpdates"] = groupHomeUpdates(actions)
+	updates := groupHomeUpdates(actions)
+	ctx.Data["HomeUpdates"] = updates[:min(len(updates), 15)]
 	return nil
 }
 
@@ -252,12 +253,14 @@ func groupHomeUpdates(actions activities_model.ActionList) []homeUpdate {
 func prepareHomeDiscover(ctx *context.Context) error {
 	repos, _, err := repo_model.SearchRepository(ctx, repo_model.SearchRepoOptions{
 		Actor: ctx.Doer, AllPublic: true, OrderBy: db.SearchOrderByNewest,
-		ListOptions: db.ListOptions{Page: 1, PageSize: 3},
+		ListOptions: db.ListOptions{Page: 1, PageSize: 8},
 	})
 	if err != nil {
 		return err
 	}
-	ctx.Data["HomeDiscoverRepos"] = repos
+	// your own repositories are already on the left, discover is for everyone else's
+	repos = slices.DeleteFunc(repos, func(repo *repo_model.Repository) bool { return repo.OwnerID == ctx.Doer.ID })
+	ctx.Data["HomeDiscoverRepos"] = repos[:min(len(repos), 3)]
 	starred := repo_model.SearchRepositoryCondition(repo_model.SearchRepoOptions{
 		Actor: ctx.Doer, AllPublic: true, Private: true, StarredByID: ctx.Doer.ID, UnitType: unit.TypeReleases,
 	}).And(repo_model.AccessibleRepositoryCondition(ctx.Doer, unit.TypeReleases))
