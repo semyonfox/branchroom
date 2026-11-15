@@ -63,8 +63,8 @@
 			{{if not (or .Repository.IsBeingCreated .Repository.IsBroken)}}
 				<div class="forge-repo-tabs">
 					{{if .Permission.CanRead ctx.Consts.RepoUnitTypeCode}}
-						<a class="{{if .PageIsRepoOverview}}active {{end}}item" href="{{.RepoLink}}">{{ctx.Locale.Tr "forge.overview"}}</a>
-						<a class="{{if and .PageIsViewCode (not .PageIsRepoOverview)}}active {{end}}item" href="{{.RepoLink}}/src/branch/{{PathEscapeSegments .Repository.DefaultBranch}}" data-shortcut-keys="g c">{{ctx.Locale.Tr "repo.code"}}</a>
+						<a class="{{if .PageIsRepoOverview}}active {{end}}item" href="{{.RepoLink}}?view=overview">{{ctx.Locale.Tr "forge.overview"}}</a>
+						<a class="{{if and .PageIsViewCode (not .PageIsRepoOverview)}}active {{end}}item" href="{{.RepoLink}}/src/branch/{{PathEscapeSegments .Repository.DefaultBranch}}?view=code" data-shortcut-keys="g c">{{ctx.Locale.Tr "repo.code"}}</a>
 					{{end}}
 
 					{{if .Permission.CanRead ctx.Consts.RepoUnitTypeIssues}}
