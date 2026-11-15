@@ -34,6 +34,8 @@
   "inbox.snooze_day": "Snooze 1 day",
   "inbox.snooze_week": "Snooze 1 week",
   "inbox.assign": "Assign to me",
+  "inbox.choose_close_reason": "Choose a close reason",
+  "inbox.other_view": "Open %s (%d)",
   "inbox.close_reason": "Close reason",
   "inbox.duplicate": "Duplicate",
   "inbox.not_planned": "Not planned",

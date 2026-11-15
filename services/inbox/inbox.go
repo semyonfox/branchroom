@@ -107,6 +107,7 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 			return nil, fmt.Errorf("get: %w", err)
 		}
 		reviewed := map[int64]bool{}
+		agentReviews := map[int64]string{}
 		if kind == "decision" {
 			headCond := builder.NewCond()
 			for _, issue := range issues {
@@ -119,12 +120,28 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 			}
 			if len(issues) > 0 {
 				var reviewedIDs []int64
-				err := db.GetEngine(ctx).Table("review").Distinct("issue_id").Where(headCond).And(builder.Eq{"reviewer_id": doer.ID, "dismissed": false}).In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment).Find(&reviewedIDs)
+				err := db.GetEngine(ctx).Table("review").Distinct("issue_id").Where(headCond).And(builder.Eq{"reviewer_id": doer.ID, "dismissed": false}).In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment).And(humanReview()).Find(&reviewedIDs)
 				if err != nil {
 					return nil, fmt.Errorf("get: %w", err)
 				}
 				for _, id := range reviewedIDs {
 					reviewed[id] = true
+				}
+				var rows []struct {
+					IssueID int64
+					Agent   string
+					Type    int
+				}
+				err = db.GetEngine(ctx).Table("review").Select("review.issue_id, review.type, branchroom_agent_action.agent").
+					Join("INNER", "branchroom_agent_action", "branchroom_agent_action.target_id = review.id AND branchroom_agent_action.kind = 'review'").
+					Where(headCond).And(builder.Eq{"reviewer_id": doer.ID, "dismissed": false}).
+					In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment).
+					OrderBy("review.id ASC").Find(&rows)
+				if err != nil {
+					return nil, fmt.Errorf("get: %w", err)
+				}
+				for _, row := range rows {
+					agentReviews[row.IssueID] = "Your agent " + agentEvent(&branchroom_model.AgentAction{Agent: row.Agent, Kind: "review"}, row.Type) + ", your review is still requested."
 				}
 			}
 		}
@@ -134,7 +151,7 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 				item.Kind = "pull"
 			}
 			item.Action = api.InboxAction{Label: "Read", URL: item.HTMLURL}
-			if agent := agents[issue.ID]; agent != nil {
+			if agent := agents[issue.ID].author; agent != nil {
 				item.Agent = &api.InboxAgent{Name: agent.Agent, TaskURL: agent.TaskURL, Sponsor: agent.Sponsor, Model: agent.Model, Harness: agent.Harness}
 			}
 			var r *pull_service.Readiness
@@ -161,7 +178,10 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 			}
 			switch kind {
 			case "triage":
-				item.Reason = "No assignee or review yet."
+				item.Reason, err = triageReason(ctx, issue.ID)
+				if err != nil {
+					return nil, fmt.Errorf("get: %w", err)
+				}
 				if issue.IsPull {
 					item.Action = api.InboxAction{Label: "Review", URL: item.HTMLURL + "/files"}
 				}
@@ -170,6 +190,9 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 					continue
 				}
 				item.Reason = "Your review is requested."
+				if reason := agentReviews[issue.ID]; reason != "" {
+					item.Reason = reason
+				}
 				item.Action = api.InboxAction{Label: "Review", URL: item.HTMLURL + "/files"}
 			case "blocked":
 				item.Reason, item.Action = blockedReason(r, item.HTMLURL)
@@ -177,15 +200,17 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 					continue
 				}
 			case "agents":
-				if item.Agent == nil {
+				if agents[issue.ID].latest == nil {
 					continue
 				}
-				item.Reason = item.Agent.Name + " finished work."
 				if r != nil && r.ChecksState.IsPending() {
-					item.Reason = item.Agent.Name + " is running with checks pending."
+					item.Reason = "Checks queued or pending."
 				}
 			case "mentions":
 				item.Reason = "You were mentioned in an unread notification."
+			}
+			if activity := agents[issue.ID]; activity.latest != nil && (activity.latest.Kind != "issue" || kind == "agents") && (kind != "decision" || agentReviews[issue.ID] == "") {
+				item.Reason = strings.TrimSpace(item.Reason + " " + activity.event + ".")
 			}
 			item.Action.URL = httplib.MakeAbsoluteURL(ctx, item.Action.URL)
 			group.Items = append(group.Items, item)
@@ -256,8 +281,18 @@ func agentCandidates(since int64) builder.Cond {
 	return cond
 }
 
-func loadAgents(ctx context.Context, ids []int64, since int64) (map[int64]*branchroom_model.AgentAction, error) {
-	result := map[int64]*branchroom_model.AgentAction{}
+type agentActivity struct {
+	author *branchroom_model.AgentAction
+	latest *branchroom_model.AgentAction
+	event  string
+}
+
+func humanReview() builder.Cond {
+	return builder.NotIn("review.id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review"}))
+}
+
+func loadAgents(ctx context.Context, ids []int64, since int64) (map[int64]agentActivity, error) {
+	result := map[int64]agentActivity{}
 	if len(ids) == 0 {
 		return result, nil
 	}
@@ -266,6 +301,7 @@ func loadAgents(ctx context.Context, ids []int64, since int64) (map[int64]*branc
 		var rows []struct {
 			branchroom_model.AgentAction `xorm:"extends"`
 			IssueID                      int64
+			Type                         int
 		}
 		targetColumn := kind + ".issue_id"
 		cond := builder.NewCond()
@@ -274,16 +310,53 @@ func loadAgents(ctx context.Context, ids []int64, since int64) (map[int64]*branc
 		} else {
 			cond = builder.Gte{kind + ".created_unix": since}
 		}
-		err := db.GetEngine(ctx).Table("branchroom_agent_action").Select("branchroom_agent_action.*, "+targetColumn+" AS issue_id").Join("INNER", kind, "branchroom_agent_action.target_id = "+kind+".id").Where(builder.Eq{"branchroom_agent_action.kind": kind}.And(builder.In(targetColumn, ids), cond)).OrderBy("branchroom_agent_action.id DESC").Limit(candidateLimit).Find(&rows)
+		columns := "branchroom_agent_action.*, " + targetColumn + " AS issue_id"
+		if kind != "issue" {
+			columns += ", " + kind + ".type"
+		}
+		err := db.GetEngine(ctx).Table("branchroom_agent_action").Select(columns).Join("INNER", kind, "branchroom_agent_action.target_id = "+kind+".id").Where(builder.Eq{"branchroom_agent_action.kind": kind}.And(builder.In(targetColumn, ids), cond)).OrderBy("branchroom_agent_action.id DESC").Limit(candidateLimit).Find(&rows)
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
-			if result[row.IssueID] == nil || result[row.IssueID].ID < row.ID {
-				action := row.AgentAction
-				result[row.IssueID] = &action
+			activity := result[row.IssueID]
+			action := row.AgentAction
+			if kind == "issue" {
+				activity.author = &action
 			}
+			if activity.latest == nil || activity.latest.ID < row.ID {
+				activity.latest = &action
+				activity.event = agentEvent(&action, row.Type)
+			}
+			result[row.IssueID] = activity
 		}
 	}
 	return result, nil
+}
+
+func agentEvent(action *branchroom_model.AgentAction, actionType int) string {
+	verb := "updated this item"
+	switch action.Kind {
+	case "issue":
+		verb = "opened this item"
+	case "review":
+		switch issues_model.ReviewType(actionType) {
+		case issues_model.ReviewTypeApprove:
+			verb = "approved"
+		case issues_model.ReviewTypeReject:
+			verb = "requested changes"
+		case issues_model.ReviewTypeComment:
+			verb = "commented"
+		default:
+			verb = "started a review"
+		}
+	case "comment":
+		switch issues_model.CommentType(actionType) {
+		case issues_model.CommentTypeComment, issues_model.CommentTypeCode, issues_model.CommentTypeReview:
+			verb = "commented"
+		case issues_model.CommentTypeLabel:
+			verb = "updated labels"
+		}
+	}
+	return action.Agent + " " + verb
 }
