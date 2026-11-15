@@ -1,48 +1,29 @@
 <nav id="navbar" aria-label="{{ctx.Locale.Tr "aria.navbar"}}">
 	<a class="item" id="navbar-logo" href="{{AppSubUrl}}/" aria-label="{{if .IsSigned}}{{ctx.Locale.Tr "dashboard"}}{{else}}{{ctx.Locale.Tr "home_title"}}{{end}}">
-		<img width="30" height="30" src="{{AssetUrlPrefix}}/img/logo.svg" alt="{{ctx.Locale.Tr "logo"}}" aria-hidden="true">
+		<span class="forge-mark" aria-hidden="true"></span><span class="forge-wordmark">{{AppName}}</span>
 	</a>
 
-	<button type="button" class="item btn only-mobile" id="navbar-expand-toggle" aria-label="{{ctx.Locale.Tr "home.nav_menu"}}">{{svg "octicon-three-bars"}}</button>
-
-	<div class="navbar-list navbar-left">
-		{{if and .IsSigned .MustChangePassword}}
-			{{/* No links */}}
-		{{else if .IsSigned}}
-			{{if not ctx.Consts.RepoUnitTypeIssues.UnitGlobalDisabled}}
-				<a class="item{{if .PageIsIssues}} active{{end}}" href="{{AppSubUrl}}/issues">{{ctx.Locale.Tr "issues"}}</a>
-			{{end}}
-			{{if not ctx.Consts.RepoUnitTypePullRequests.UnitGlobalDisabled}}
-				<a class="item{{if .PageIsPulls}} active{{end}}" href="{{AppSubUrl}}/pulls">{{ctx.Locale.Tr "pull_requests"}}</a>
-			{{end}}
-			{{if not (and ctx.Consts.RepoUnitTypeIssues.UnitGlobalDisabled ctx.Consts.RepoUnitTypePullRequests.UnitGlobalDisabled)}}
-				{{if .ShowMilestonesDashboardPage}}
-					<a class="item{{if .PageIsMilestonesDashboard}} active{{end}}" href="{{AppSubUrl}}/milestones">{{ctx.Locale.Tr "milestones"}}</a>
-				{{end}}
-			{{end}}
-			<a class="item{{if .PageIsExplore}} active{{end}}" href="{{AppSubUrl}}/explore/repos">{{ctx.Locale.Tr "explore_title"}}</a>
-		{{else if .IsLandingPageOrganizations}}
-			<a class="item{{if .PageIsExplore}} active{{end}}" href="{{AppSubUrl}}/explore/organizations">{{ctx.Locale.Tr "explore_title"}}</a>
-		{{else}}
-			<a class="item{{if .PageIsExplore}} active{{end}}" href="{{AppSubUrl}}/explore/repos">{{ctx.Locale.Tr "explore_title"}}</a>
+	<form class="forge-search" action="{{AppSubUrl}}/explore/repos" role="search">
+		<label class="global-shortcut-wrapper">
+			{{svg "octicon-search"}}
+			<input type="search" name="q" aria-label="{{ctx.Locale.Tr "forge.search"}}" placeholder="{{ctx.Locale.Tr "forge.search"}}">
+			<kbd data-global-init="onGlobalShortcut" data-shortcut-keys="/">/</kbd>
+		</label>
+	</form>
+	{{if and .IsSigned (not .MustChangePassword)}}
+		{{template "base/head_navbar_icons"}}
+		{{if not ctx.Consts.RepoUnitTypePullRequests.UnitGlobalDisabled}}
+			<a aria-label="{{ctx.Locale.Tr "pull_requests"}}" class="item forge-pulls{{if .PageIsPulls}} active{{end}}" href="{{AppSubUrl}}/pulls">{{svg "octicon-git-pull-request"}}<span>{{ctx.Locale.Tr "pull_requests"}}</span></a>
 		{{end}}
-
-		{{template "custom/extra_links" .}}
-
-		{{if not .IsSigned}}
-			<a class="item" target="_blank" href="https://docs.gitea.com">{{ctx.Locale.Tr "help"}}</a>
-		{{end}}
-	</div>
-
-	{{template "base/head_navbar_icons"}}
+	{{else if not .IsSigned}}
+		<a class="item forge-explore{{if .PageIsExplore}} active{{end}}" href="{{AppSubUrl}}/explore/repos">{{ctx.Locale.Tr "explore_title"}}</a>
+	{{end}}
 
 	<div class="navbar-list navbar-right">
 		{{if and .IsSigned .MustChangePassword}}
 			<div class="ui dropdown jump item" data-tooltip-content="{{ctx.Locale.Tr "user_profile_and_more"}}">
 				<span class="flex-text-block">
 					{{ctx.AvatarUtils.Avatar .SignedUser 24}}
-					<span class="only-mobile">{{.SignedUser.Name}}</span>
-					<span class="not-mobile flex-text-block">{{svg "octicon-triangle-down"}}</span>
 				</span>
 				<div class="menu user-menu">
 					<div class="header">
@@ -60,8 +41,6 @@
 			<div class="ui dropdown jump item" data-tooltip-content="{{ctx.Locale.Tr "create_new"}}">
 				<span class="flex-text-block">
 					{{svg "octicon-plus"}}
-					<span class="not-mobile flex-text-block">{{svg "octicon-triangle-down"}}</span>
-					<span class="only-mobile">{{ctx.Locale.Tr "create_new"}}</span>
 				</span>
 				<div class="menu">
 					<a class="item" href="{{AppSubUrl}}/repo/create">
@@ -86,8 +65,6 @@
 						{{ctx.AvatarUtils.Avatar .SignedUser 24}}
 						{{if .IsAdmin}}{{svg "octicon-shield-check" 16 "navbar-admin-badge"}}{{end}}
 					</span>
-					<span class="only-mobile">{{.SignedUser.Name}}</span>
-					<span class="not-mobile flex-text-block">{{svg "octicon-triangle-down"}}</span>
 				</span>
 				<div class="menu user-menu">
 					<div class="header">
@@ -95,6 +72,10 @@
 					</div>
 
 					<div class="divider"></div>
+					<a class="item" href="{{AppSubUrl}}/explore/repos">{{svg "octicon-telescope"}} {{ctx.Locale.Tr "explore_title"}}</a>
+					{{if not ctx.Consts.RepoUnitTypeIssues.UnitGlobalDisabled}}
+						<a class="item" href="{{AppSubUrl}}/issues">{{svg "octicon-issue-opened"}} {{ctx.Locale.Tr "issues"}}</a>
+					{{end}}
 					<a class="item" href="{{.SignedUser.HomeLink}}">
 						{{svg "octicon-person"}}
 						{{ctx.Locale.Tr "your_profile"}}
@@ -132,12 +113,6 @@
 				</div><!-- end content avatar menu -->
 			</div><!-- end dropdown avatar menu -->
 		{{else}}
-			{{if .ShowRegistrationButton}}
-				<a class="item{{if .PageIsSignUp}} active{{end}}" href="{{AppSubUrl}}/user/sign_up">
-					{{svg "octicon-person"}}
-					<span class="tw-ml-1">{{ctx.Locale.Tr "register"}}</span>
-				</a>
-			{{end}}
 			<a class="item{{if .PageIsSignIn}} active{{end}}" rel="nofollow" href="{{AppSubUrl}}/user/login">
 				{{svg "octicon-sign-in"}}
 				<span class="tw-ml-1">{{ctx.Locale.Tr "sign_in"}}</span>
