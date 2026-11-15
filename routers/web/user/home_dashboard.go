@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	activities_model "gitea.dev/models/activities"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
@@ -18,6 +19,7 @@ import (
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/commitstatus"
+	"gitea.dev/modules/container"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
@@ -105,6 +107,14 @@ func prepareHomeWork(ctx *context.Context) error {
 			return err
 		}
 	}
+	reviewIDs := make([]int64, 0, len(reviews))
+	for _, review := range reviews {
+		reviewIDs = append(reviewIDs, review.ID)
+	}
+	agentReviews, err := branchroom_model.AgentReviewIDs(ctx, reviewIDs)
+	if err != nil {
+		return err
+	}
 	statuses := map[git_model.RepoSHA]commitstatus.CommitStatusState{}
 	if branchCond.IsValid() {
 		if err := db.GetEngine(ctx).Where(branchCond).Find(&branches); err != nil {
@@ -145,7 +155,7 @@ func prepareHomeWork(ctx *context.Context) error {
 	for _, issue := range issues {
 		state := "assigned"
 		if pr := issue.PullRequest; pr != nil {
-			state = homePullState(pr, statuses[git_model.RepoSHA{RepoID: pr.BaseRepoID, SHA: pr.HeadCommitID}], reviews)
+			state = homePullState(pr, statuses[git_model.RepoSHA{RepoID: pr.BaseRepoID, SHA: pr.HeadCommitID}], reviews, agentReviews)
 		}
 		cards = append(cards, homeWorkCard{Issue: issue, State: state})
 	}
@@ -153,7 +163,7 @@ func prepareHomeWork(ctx *context.Context) error {
 	return nil
 }
 
-func homePullState(pr *issues_model.PullRequest, status commitstatus.CommitStatusState, reviews []*issues_model.Review) string {
+func homePullState(pr *issues_model.PullRequest, status commitstatus.CommitStatusState, reviews []*issues_model.Review, agentReviews container.Set[int64]) string {
 	if issues_model.HasWorkInProgressPrefix(pr.Issue.Title) {
 		return "draft"
 	}
@@ -169,13 +179,20 @@ func homePullState(pr *issues_model.PullRequest, status commitstatus.CommitStatu
 			requested = true
 		}
 	}
+	ownDecision := map[[2]int64]bool{}
+	for _, review := range reviews {
+		if review.IssueID == pr.IssueID && review.Type != issues_model.ReviewTypeRequest && !agentReviews.Contains(review.ID) {
+			ownDecision[[2]int64{review.ReviewerID, review.ReviewerTeamID}] = true
+		}
+	}
 	seen := map[[2]int64]bool{}
 	for _, review := range reviews {
 		if review.IssueID != pr.IssueID {
 			continue
 		}
 		key := [2]int64{review.ReviewerID, review.ReviewerTeamID}
-		if seen[key] || pending[key] {
+		// reviews come newest first, and an agent with a person's token never stands in for that person's own decision
+		if seen[key] || pending[key] || (agentReviews.Contains(review.ID) && ownDecision[key]) {
 			continue
 		}
 		seen[key] = true

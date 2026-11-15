@@ -12,6 +12,7 @@ import (
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/cache"
 	api "gitea.dev/modules/structs"
 	issue_service "gitea.dev/services/issue"
 
@@ -49,6 +50,7 @@ func Apply(ctx context.Context, doer *user_model.User, opts api.InboxStateOption
 		}
 		results = append(results, result)
 	}
+	_ = cache.GetCache().Delete(needsCountKey(doer.ID))
 	return results
 }
 

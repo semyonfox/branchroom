@@ -7,10 +7,12 @@ import (
 	"cmp"
 	"slices"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/container"
 	"gitea.dev/services/context"
 )
 
@@ -146,7 +148,16 @@ func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, m
 			ctx.ServerErrorAuto(err)
 			return
 		}
-		summary.ReviewCount, summary.Reviews = conversationReviews(reviews)
+		reviewIDs := make([]int64, 0, len(reviews))
+		for _, review := range reviews {
+			reviewIDs = append(reviewIDs, review.ID)
+		}
+		agentReviews, err := branchroom_model.AgentReviewIDs(ctx, reviewIDs)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		summary.ReviewCount, summary.Reviews = conversationReviews(reviews, agentReviews)
 		if err := summary.Reviews.LoadReviewers(ctx); err != nil {
 			ctx.ServerErrorAuto(err)
 			return
@@ -233,7 +244,7 @@ func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, m
 	ctx.Data["Conversation"] = summary
 }
 
-func conversationReviews(reviews issues_model.ReviewList) (int, issues_model.ReviewList) {
+func conversationReviews(reviews issues_model.ReviewList, agentReviews container.Set[int64]) (int, issues_model.ReviewList) {
 	type reviewerKey struct {
 		user, team, original int64
 		name                 string
@@ -262,6 +273,10 @@ func conversationReviews(reviews issues_model.ReviewList) (int, issues_model.Rev
 			continue
 		}
 		if previous != nil && previous.Type == issues_model.ReviewTypeRequest {
+			continue
+		}
+		// an agent working with a person's token never replaces that person's own decision
+		if previous != nil && agentReviews.Contains(review.ID) && !agentReviews.Contains(previous.ID) {
 			continue
 		}
 		// comment reviews do not replace the decision used by GetReviewByIssueIDAndUserID

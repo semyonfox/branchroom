@@ -410,10 +410,10 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 			reviewCond := builder.Eq{"reviewer_id": opts.Reviewer.ID, "issue_id": opts.Issue.ID}
 			// an agent reviewing with a person's token leaves that person's own request and decision standing
 			byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(opts.Reviewer))
-			byAgent = byAgent && !opts.Reviewer.IsTypeBot()
 			if err != nil {
 				return nil, err
 			}
+			byAgent = byAgent && !opts.Reviewer.IsTypeBot()
 			// make sure user review requests are cleared
 			if opts.Type != ReviewTypePending && !byAgent {
 				if _, err := sess.Where(reviewCond.And(builder.Eq{"type": ReviewTypeRequest})).Delete(new(Review)); err != nil {
@@ -438,8 +438,11 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 		if _, err := sess.Insert(review); err != nil {
 			return nil, err
 		}
-		if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Reviewer), "review", review.ID); err != nil {
-			return nil, err
+		// a pending draft belongs to whoever submits it, so credit waits for SubmitReview
+		if opts.Type != ReviewTypePending {
+			if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Reviewer), "review", review.ID); err != nil {
+				return nil, err
+			}
 		}
 
 		return review, nil
@@ -545,6 +548,11 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 
 		if _, err := sess.ID(review.ID).Cols("content, type, official, commit_id, stale").Update(review); err != nil {
 			return nil, nil, err
+		}
+		if reviewType != ReviewTypePending {
+			if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(doer), "review", review.ID); err != nil {
+				return nil, nil, err
+			}
 		}
 
 		// make sure the leftover review request is cleared, consistent with CreateReview

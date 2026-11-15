@@ -16,8 +16,8 @@ test.describe('events', () => {
       apiCreateRepo(request, {name: repoName, autoInit: false, headers: apiUserHeaders(owner)}),
       loginUser(page, owner),
     ]);
-    await page.goto('/');
-    const badge = page.locator('#navbar .notification_count');
+    await page.goto('/inbox');
+    const badge = page.locator('.forge-inbox-views .notification_count');
     await expect(badge).toBeHidden();
 
     await expect(page.locator('html[data-user-events-connected]')).toBeAttached();

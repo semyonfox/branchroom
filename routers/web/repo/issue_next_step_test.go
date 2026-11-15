@@ -9,6 +9,7 @@ import (
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
 	"gitea.dev/modules/commitstatus"
+	"gitea.dev/modules/container"
 	"gitea.dev/modules/translation"
 )
 
@@ -68,25 +69,32 @@ func TestNextStepReviews(t *testing.T) {
 	commentOnly := &issues_model.Review{ID: 4, ReviewerID: 3, Type: issues_model.ReviewTypeComment}
 	pending := &issues_model.Review{ID: 5, ReviewerID: 4, Type: issues_model.ReviewTypePending}
 	reviews := issues_model.ReviewList{approval, rejection, comment, commentOnly, pending}
-	count, latest := conversationReviews(reviews)
+	count, latest := conversationReviews(reviews, nil)
 	if count != 4 || len(latest) != 3 || latest[0] != approval || latest[1] != rejection || latest[2] != commentOnly {
 		t.Fatalf("count = %d, latest = %+v", count, latest)
 	}
 	approvalAfterComment := &issues_model.Review{ID: 6, ReviewerID: 2, Type: issues_model.ReviewTypeApprove}
 	reviews = append(reviews, approvalAfterComment)
-	count, latest = conversationReviews(reviews)
+	count, latest = conversationReviews(reviews, nil)
 	if count != 5 || latest[len(latest)-1] != approvalAfterComment {
 		t.Fatalf("new decision did not replace rejection: %+v", latest)
 	}
 	approvalAfterComment.Dismissed = true
-	_, latest = conversationReviews(reviews)
+	_, latest = conversationReviews(reviews, nil)
 	if latest[len(latest)-1] != approvalAfterComment {
 		t.Fatal("dismissal must not revive the previous rejection")
 	}
 	request := &issues_model.Review{ID: 7, ReviewerID: 2, Type: issues_model.ReviewTypeRequest}
-	count, latest = conversationReviews(append(reviews, request))
+	count, latest = conversationReviews(append(reviews, request), nil)
 	if count != 5 || latest[len(latest)-1] != request {
 		t.Fatalf("review request is not a submitted review: count = %d, latest = %+v", count, latest)
+	}
+	agentApproval := &issues_model.Review{ID: 8, ReviewerID: 1, Type: issues_model.ReviewTypeApprove}
+	ownRejection := &issues_model.Review{ID: 9, ReviewerID: 5, Type: issues_model.ReviewTypeReject}
+	agentApprovalAfter := &issues_model.Review{ID: 10, ReviewerID: 5, Type: issues_model.ReviewTypeApprove}
+	_, latest = conversationReviews(issues_model.ReviewList{ownRejection, agentApprovalAfter, agentApproval}, container.SetOf[int64](8, 10))
+	if latest[0] != agentApproval || latest[1] != ownRejection {
+		t.Fatalf("an agent review replaced the person's own decision: %+v", latest)
 	}
 }
 

@@ -159,16 +159,16 @@ func TestHomeWorkAndUpdates(t *testing.T) {
 		{IssueID: 1, ReviewerID: 2, Type: issues_model.ReviewTypeReject},
 		{IssueID: 1, ReviewerID: 2, Type: issues_model.ReviewTypeApprove},
 	}
-	assert.Equal(t, "changes_requested", homePullState(pr, commitstatus.CommitStatusSuccess, reviews))
-	assert.Equal(t, "checks_failing", homePullState(pr, commitstatus.CommitStatusFailure, nil))
-	assert.Equal(t, "checks_pending", homePullState(pr, "", nil))
-	assert.Equal(t, "ready", homePullState(pr, commitstatus.CommitStatusSuccess, nil))
-	assert.Equal(t, "review_requested", homePullState(pr, commitstatus.CommitStatusSuccess, []*issues_model.Review{{IssueID: 1, Type: issues_model.ReviewTypeRequest}}))
+	assert.Equal(t, "changes_requested", homePullState(pr, commitstatus.CommitStatusSuccess, reviews, nil))
+	assert.Equal(t, "checks_failing", homePullState(pr, commitstatus.CommitStatusFailure, nil, nil))
+	assert.Equal(t, "checks_pending", homePullState(pr, "", nil, nil))
+	assert.Equal(t, "ready", homePullState(pr, commitstatus.CommitStatusSuccess, nil, nil))
+	assert.Equal(t, "review_requested", homePullState(pr, commitstatus.CommitStatusSuccess, []*issues_model.Review{{IssueID: 1, Type: issues_model.ReviewTypeRequest}}, nil))
 
 	pr.Status = issues_model.PullRequestStatusConflict
-	assert.Equal(t, "conflicts", homePullState(pr, commitstatus.CommitStatusSuccess, nil))
+	assert.Equal(t, "conflicts", homePullState(pr, commitstatus.CommitStatusSuccess, nil, nil))
 	pr.Status = issues_model.PullRequestStatusChecking
-	assert.Equal(t, "checks_passing", homePullState(pr, commitstatus.CommitStatusSuccess, nil))
+	assert.Equal(t, "checks_passing", homePullState(pr, commitstatus.CommitStatusSuccess, nil, nil))
 
 	repository := &repo_model.Repository{ID: 1}
 	actor := &user_model.User{ID: 2}

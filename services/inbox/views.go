@@ -5,6 +5,7 @@ package inbox
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"gitea.dev/models/db"
@@ -13,6 +14,7 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/cache"
 	api "gitea.dev/modules/structs"
 	pull_service "gitea.dev/services/pull"
 
@@ -48,12 +50,24 @@ func GetViews(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 	return result, err
 }
 
+func needsCountKey(userID int64) string {
+	return fmt.Sprintf("inbox-needs-count/%d", userID)
+}
+
+// GetNeedsCount counts what needs the user. It runs the whole inbox, so the header reads a copy up to a minute old,
+// cleared whenever the user changes inbox state
 func GetNeedsCount(ctx context.Context, doer *user_model.User) (int, error) {
+	var count int
+	if hit, _ := cache.GetCache().GetJSON(needsCountKey(doer.ID), &count); hit {
+		return count, nil
+	}
 	result, err := get(ctx, doer, []string{"decision", "blocked"})
 	if err != nil {
 		return 0, err
 	}
-	return needsGroup(result.Groups).Count, nil
+	count = needsGroup(result.Groups).Count
+	_ = cache.GetCache().PutJSON(needsCountKey(doer.ID), count, 60)
+	return count, nil
 }
 
 func needsGroup(groups []api.InboxGroup) api.InboxGroup {

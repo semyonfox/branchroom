@@ -7,7 +7,8 @@
      <a href="{{AppSubUrl}}/inbox?view={{$group.Kind}}" {{if eq $.InboxView $group.Kind}}aria-current="page"{{end}}><span>{{ctx.Locale.Tr (printf "inbox.view_%s" $group.Kind)}}</span><span>{{$group.Count}}</span></a>
     {{end}}
    {{end}}
-   <a href="{{AppSubUrl}}/notifications">{{ctx.Locale.Tr "notifications"}}</a>
+   {{$unread := call .PageGlobalData.GetNotificationUnreadCount}}
+   <a href="{{AppSubUrl}}/notifications"><span>{{ctx.Locale.Tr "notifications"}}</span><span class="notification_count{{if not $unread}} tw-hidden{{end}}">{{$unread}}</span></a>
   </nav>
   <section class="forge-inbox-main">
    {{template "base/alert" .}}
