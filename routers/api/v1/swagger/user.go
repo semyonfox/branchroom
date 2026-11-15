@@ -62,3 +62,10 @@ type swaggerResponseInbox struct {
 	// in:body
 	Body api.Inbox `json:"body"`
 }
+
+// InboxStateResults
+// swagger:response InboxStateResults
+type swaggerResponseInboxStateResults struct {
+	// in:body
+	Body []api.InboxStateResult `json:"body"`
+}

@@ -660,6 +660,19 @@
         },
         "description": "Inbox"
       },
+      "InboxStateResults": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/InboxStateResult"
+              },
+              "type": "array"
+            }
+          }
+        },
+        "description": "InboxStateResults"
+      },
       "Issue": {
         "content": {
           "application/json": {
@@ -7377,6 +7390,10 @@
       },
       "Inbox": {
         "properties": {
+          "can_triage": {
+            "type": "boolean",
+            "x-go-name": "CanTriage"
+          },
           "groups": {
             "items": {
               "$ref": "#/components/schemas/InboxGroup"
@@ -7456,10 +7473,24 @@
           "agent": {
             "$ref": "#/components/schemas/InboxAgent"
           },
+          "checks": {
+            "type": "string",
+            "x-go-name": "Checks"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string",
+            "x-go-name": "CreatedAt"
+          },
           "html_url": {
             "format": "uri",
             "type": "string",
             "x-go-name": "HTMLURL"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "ID"
           },
           "index": {
             "format": "int64",
@@ -7478,9 +7509,17 @@
             "type": "string",
             "x-go-name": "Repo"
           },
+          "size": {
+            "type": "string",
+            "x-go-name": "Size"
+          },
           "title": {
             "type": "string",
             "x-go-name": "Title"
+          },
+          "trust": {
+            "type": "string",
+            "x-go-name": "Trust"
           },
           "updated_at": {
             "format": "date-time",
@@ -7489,6 +7528,44 @@
           }
         },
         "title": "InboxItem is an issue or pull request needing attention.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "InboxStateOptions": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "x-go-name": "Action"
+          },
+          "items": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array",
+            "x-go-name": "Items"
+          },
+          "reason": {
+            "type": "string",
+            "x-go-name": "Reason"
+          }
+        },
+        "title": "InboxStateOptions applies one action to at most 100 issue IDs.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "InboxStateResult": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "x-go-name": "Error"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "ID"
+          }
+        },
         "type": "object",
         "x-go-package": "gitea.dev/modules/structs"
       },
@@ -35665,6 +35742,24 @@
       "get": {
         "description": "Each group returns at most 25 items from 100 recent candidates. Counts describe returned items. Requires read:issue and read:repository scopes.",
         "operationId": "userGetInbox",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "view",
+            "schema": {
+              "enum": [
+                "needs",
+                "triage",
+                "yours",
+                "agents",
+                "mentions",
+                "snoozed",
+                "done"
+              ],
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/Inbox"
@@ -35674,6 +35769,34 @@
           }
         },
         "summary": "Get review decisions, blocked work, agent activity and unread mentions",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/user/inbox/state": {
+      "post": {
+        "operationId": "userSetInboxState",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboxStateOptions"
+              }
+            }
+          },
+          "required": true,
+          "x-originalParamName": "body"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/InboxStateResults"
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "summary": "Apply a bulk inbox action with a result for each item",
         "tags": [
           "user"
         ]

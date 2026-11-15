@@ -7,7 +7,8 @@ import "time"
 
 // Inbox contains bounded groups of work needing the current user's attention.
 type Inbox struct {
-	Groups []InboxGroup `json:"groups"`
+	CanTriage bool         `json:"can_triage"`
+	Groups    []InboxGroup `json:"groups"`
 }
 
 // InboxGroup counts the items returned, rather than an unbounded backlog.
@@ -19,6 +20,11 @@ type InboxGroup struct {
 
 // InboxItem is an issue or pull request needing attention.
 type InboxItem struct {
+	ID        int64       `json:"id"`
+	CreatedAt time.Time   `json:"created_at"`
+	Size      string      `json:"size,omitempty"`
+	Trust     string      `json:"trust,omitempty"`
+	Checks    string      `json:"checks,omitempty"`
 	Kind      string      `json:"kind"`
 	Repo      string      `json:"repo"`
 	Index     int64       `json:"index"`
@@ -41,4 +47,19 @@ type InboxAgent struct {
 	Name    string `json:"name"`
 	TaskURL string `json:"task_url"`
 	Sponsor string `json:"sponsor"`
+}
+
+// InboxStateOptions applies one action to at most 100 issue IDs.
+// swagger:model
+type InboxStateOptions struct {
+	Items  []int64 `json:"items"`
+	Action string  `json:"action"`
+	Reason string  `json:"reason,omitempty"`
+}
+
+// swagger:model InboxStateResult
+// InboxStateResult reports an individual item's outcome.
+type InboxStateResult struct {
+	ID    int64  `json:"id"`
+	Error string `json:"error,omitempty"`
 }

@@ -474,6 +474,7 @@ func prepareBranchroomMigrationTasks() []*migration {
 		newMigration(13, "Add path reviewer rules", v29.AddPathReviewerRules),
 		newMigration(14, "Add Branchroom agent identity", v29.AddBranchroomAgentIdentity),
 		newMigration(15, "Add Branchroom agent credit", v29.AddBranchroomAgentCredit),
+		newMigration(16, "Add inbox state", v29.AddUserInboxState),
 	}
 }
 
