@@ -1,6 +1,7 @@
 import '../fomantic/build/fomantic.js';
 import '../css/index.css';
 import {initBranchroom} from './features/branchroom.ts';
+import {localUserSettings} from './modules/user-settings.ts';
 
 import {initDashboardRepoList} from './features/dashboard.ts';
 import {initGlobalCopyToClipboardListener} from './modules/clipboard.ts';
@@ -188,3 +189,36 @@ window.config.frontendInited = true;
 // then init the async hash change handlers, then they can do async content loading by URL hash
 // e.g.: expand hidden comments or load incomplete diff files
 initAsyncHashChangeListeners();
+
+const paletteTrigger = document.querySelector<HTMLFormElement>('#forge-palette-trigger');
+if (paletteTrigger) {
+  const triggerInput = paletteTrigger.querySelector<HTMLInputElement>('input')!;
+  const openPalette = async () => {
+    const {openCommandPalette} = await import('./features/command-palette.ts');
+    openCommandPalette(triggerInput.value);
+    triggerInput.value = '';
+  };
+  triggerInput.addEventListener('input', () => {
+    openPalette();
+  });
+  paletteTrigger.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (event.target === paletteTrigger.querySelector('kbd') && !event.isTrusted) return; // keep / as a focus shortcut
+    openPalette();
+  });
+  paletteTrigger.addEventListener('submit', (event) => {
+    event.preventDefault();
+    openPalette();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key.toLowerCase() === 'k' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.isComposing) {
+      event.preventDefault();
+      openPalette();
+    }
+  }, {capture: true});
+  try {
+    const stored: unknown = JSON.parse(localUserSettings.getString('forge-palette-recent', '[]'));
+    const recent = Array.isArray(stored) ? stored.filter((item) => item && typeof item === 'object' && typeof item.url === 'string' && typeof item.label === 'string' && item.url.startsWith('/') && !item.url.startsWith('//') && item.url !== location.pathname + location.search) : [];
+    localUserSettings.setString('forge-palette-recent', JSON.stringify([{url: location.pathname + location.search, label: document.title}, ...recent].slice(0, 8)));
+  } catch { /* storage can be disabled */ }
+}
