@@ -101,6 +101,8 @@ test.describe('events', () => {
     ]);
     await page.goto(`/${name}/${name}/issues/1`);
 
+    // an unused time tracker lives under More options
+    await page.getByText('More options').click();
     await page.getByRole('button', {name: 'Start timer'}).click();
 
     // After the click the page reloads; the sidebar should now show the Stop/Discard
