@@ -10,7 +10,7 @@
 	{{range $props.mergeStyles}}
 		{{if and .allowed (or (ne .name "manually-merged") $admin)}}
 			{{if eq .name $props.defaultMergeStyle}}
-				<button type="button" class="ui primary button show-modal" data-modal="#forge-merge-{{.name}}">
+				<button type="button" class="ui {{if $props.canMergeNow}}primary{{else}}basic{{end}} button show-modal" data-modal="#forge-merge-{{.name}}">
 					{{.textDoMerge}}{{if and (not $props.canMergeNow) (not .hideAutoMerge)}} {{$props.textAutoMergeButtonWhenSucceed}}{{end}}
 				</button>
 			{{end}}

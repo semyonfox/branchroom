@@ -10,7 +10,7 @@
 		{{if or $reviewers.CanChooseReviewer $reviewers.OriginalReviews $reviewers.CurrentPullReviewers}}
 			{{template "repo/issue/sidebar/reviewer_list" $meta}}
 		{{end}}
-		{{template "repo/issue/sidebar/wip_switch" $}}
+		{{if .IsIssuePoster}}{{template "repo/issue/sidebar/wip_switch" $}}{{end}}
 	{{template "repo/issue/view_content/side_checks" $.Conversation}}
 		<div class="divider"></div>
 	{{end}}
@@ -31,12 +31,22 @@
 
 	{{template "repo/issue/sidebar/participant_list" $}}
 
-	{{if and (.Repository.IsTimetrackerEnabled ctx) (or .HasIssuesOrPullsWritePermission .Issue.TotalTrackedTime .Issue.TimeEstimate)}}{{template "repo/issue/sidebar/stopwatch_timetracker" $}}{{end}}
+	{{$timer := .Repository.IsTimetrackerEnabled ctx}}
+	{{$hasTime := or .Issue.TotalTrackedTime .Issue.TimeEstimate .IsStopwatchRunning}}
+	{{$deps := .Repository.IsDependenciesEnabled ctx}}
+	{{$hasDeps := or .BlockedByDependencies .BlockedByDependenciesNotPermitted .BlockingDependencies .BlockingDependenciesNotPermitted}}
+	{{if and $timer $hasTime}}{{template "repo/issue/sidebar/stopwatch_timetracker" $}}{{end}}
 	{{if .Issue.DeadlineUnix}}
 		{{template "repo/issue/sidebar/due_date" $}}
 	{{end}}
-	{{if and (.Repository.IsDependenciesEnabled ctx) (or .HasIssuesOrPullsWritePermission .BlockedByDependencies .BlockedByDependenciesNotPermitted .BlockingDependencies .BlockingDependenciesNotPermitted)}}
-		{{template "repo/issue/sidebar/issue_dependencies" $}}
+	{{if and $deps $hasDeps}}{{template "repo/issue/sidebar/issue_dependencies" $}}{{end}}
+	{{if and .HasIssuesOrPullsWritePermission (or (and $timer (not $hasTime)) (and $deps (not $hasDeps)))}}
+		{{/* empty timer and dependency forms stay out of the way until someone needs them */}}
+		<details class="forge-side-more">
+			<summary>{{if and $timer (not $hasTime) $deps (not $hasDeps)}}{{ctx.Locale.Tr "repo.conversation.track_or_depend"}}{{else if and $timer (not $hasTime)}}{{ctx.Locale.Tr "repo.conversation.track_time"}}{{else}}{{ctx.Locale.Tr "repo.conversation.add_dependency"}}{{end}}</summary>
+			{{if and $timer (not $hasTime)}}{{template "repo/issue/sidebar/stopwatch_timetracker" $}}{{end}}
+			{{if and $deps (not $hasDeps)}}{{template "repo/issue/sidebar/issue_dependencies" $}}{{end}}
+		</details>
 	{{end}}
 
 	{{template "repo/issue/sidebar/allow_maintainer_edit" $}}

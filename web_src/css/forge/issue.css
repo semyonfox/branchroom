@@ -209,3 +209,19 @@
     justify-content: flex-end;
   }
 }
+
+.forge-side-more > summary {
+  padding: 8px 0;
+  color: var(--color-text-light);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.forge-side-more > summary:hover {
+  color: var(--color-primary);
+}
+
+.forge-side-more[open] > summary {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}

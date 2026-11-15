@@ -12,7 +12,7 @@
 		<div class="ui segment fitted avatar-content-left-arrow">
 			<div class="merge-section flex-divided-list items-px-default">
 				{{if $data.MergeFormProps}}{{template "repo/issue/view_content/merge_actions" dict "Props" $data.MergeFormProps "IsAdmin" $.IsRepoAdmin}}{{end}}
-				<details class="item forge-other-merge"><summary>{{ctx.Locale.Tr "repo.conversation.merge_requirements"}}</summary>
+				<details class="item forge-other-merge" {{if not (and $data.MergeFormProps $data.MergeFormProps.canMergeNow)}}open{{end}}><summary>{{ctx.Locale.Tr "repo.conversation.merge_requirements"}}</summary>
 			{{if $data.ShowStatusCheck}}
 				{{template "repo/issue/view_content/pull_merge_status_checks" (dict "StatusCheckData" $data.StatusCheckData)}}
 			{{end}}
