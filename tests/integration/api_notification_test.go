@@ -10,6 +10,9 @@ import (
 
 	activities_model "gitea.dev/models/activities"
 	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -17,6 +20,7 @@ import (
 	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPINotification(t *testing.T) {
@@ -226,4 +230,86 @@ func TestAPINotificationPUT(t *testing.T) {
 	assert.EqualValues(t, 2, apiNL[0].ID)
 	assert.True(t, apiNL[0].Unread)
 	assert.False(t, apiNL[0].Pinned)
+}
+
+func TestAPIInbox(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	// keep readiness assertions on the PR used by this test
+	_, err := db.GetEngine(t.Context()).Where("is_pull = ? AND id <> ?", true, 3).Cols("is_closed").Update(&issues_model.Issue{IsClosed: true})
+	require.NoError(t, err)
+	require.NoError(t, db.Insert(t.Context(), &issues_model.Review{IssueID: 3, ReviewerID: 2, Type: issues_model.ReviewTypeRequest}))
+	hidden := &issues_model.Issue{RepoID: 6, Index: 1, PosterID: 10, Title: "private inbox item"}
+	require.NoError(t, db.Insert(t.Context(), hidden))
+	for _, issueID := range []int64{1, 7, hidden.ID} {
+		require.NoError(t, db.Insert(t.Context(), &branchroom_model.AgentAction{Kind: "issue", TargetID: issueID, Agent: "test-agent", TaskURL: "https://example.org/task", Sponsor: "sponsor"}))
+		require.NoError(t, issues_model.UpdateIssueUsersByMentions(t.Context(), issueID, []int64{2}))
+		require.NoError(t, db.Insert(t.Context(), &activities_model.Notification{UserID: 2, RepoID: map[int64]int64{1: 1, 7: 2, hidden.ID: 6}[issueID], IssueID: issueID, Source: activities_model.NotificationSourceIssue, Status: activities_model.NotificationStatusUnread}))
+	}
+	comment := &issues_model.Comment{IssueID: 5, PosterID: 2, Type: issues_model.CommentTypeComment, Content: "recent work on a closed issue"}
+	require.NoError(t, db.Insert(t.Context(), comment))
+	require.NoError(t, db.Insert(t.Context(), &branchroom_model.AgentAction{Kind: "comment", TargetID: comment.ID, Agent: "recent-agent", Sponsor: "sponsor"}))
+
+	hiddenAllowed := false
+	read := func(token string) *api.Inbox {
+		response := MakeRequest(t, NewRequest(t, "GET", "/api/v1/user/inbox").AddTokenAuth(token), http.StatusOK)
+		result := DecodeJSON(t, response, &api.Inbox{})
+		require.Len(t, result.Groups, 4)
+		for i, kind := range []string{"decision", "blocked", "agents", "mentions"} {
+			assert.Equal(t, kind, result.Groups[i].Kind)
+			assert.Equal(t, len(result.Groups[i].Items), result.Groups[i].Count)
+			for _, item := range result.Groups[i].Items {
+				if !hiddenAllowed {
+					assert.NotEqual(t, "user10/repo6", item.Repo)
+				}
+			}
+		}
+		return result
+	}
+	result := read(getUserToken(t, "user2", auth_model.AccessTokenScopeReadIssue, auth_model.AccessTokenScopeReadRepository))
+	require.Len(t, result.Groups[0].Items, 1)
+	assert.Equal(t, "Your review is requested.", result.Groups[0].Items[0].Reason)
+	assert.Equal(t, "Review", result.Groups[0].Items[0].Action.Label)
+	require.Len(t, result.Groups[2].Items, 3)
+	var agentNames []string
+	for _, item := range result.Groups[2].Items {
+		require.NotNil(t, item.Agent)
+		agentNames = append(agentNames, item.Agent.Name)
+		assert.Equal(t, "sponsor", item.Agent.Sponsor)
+		if item.Agent.Name == "test-agent" {
+			assert.Equal(t, "https://example.org/task", item.Agent.TaskURL)
+		}
+	}
+	assert.ElementsMatch(t, []string{"test-agent", "test-agent", "recent-agent"}, agentNames)
+	require.Len(t, result.Groups[3].Items, 2)
+	assert.Equal(t, "You were mentioned in an unread notification.", result.Groups[3].Items[0].Reason)
+	tokenText := getUserToken(t, "user2", auth_model.AccessTokenScopeReadIssue, auth_model.AccessTokenScopeReadRepository)
+	readinessResponse := MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1/pulls/3/readiness").AddTokenAuth(tokenText), http.StatusOK)
+	readiness := DecodeJSON(t, readinessResponse, &api.PullRequestReadiness{})
+	review := &issues_model.Review{IssueID: 3, ReviewerID: 2, Type: issues_model.ReviewTypeComment, CommitID: readiness.HeadSHA}
+	require.NoError(t, db.Insert(t.Context(), review))
+	assert.Empty(t, read(tokenText).Groups[0].Items)
+	_, err = db.GetEngine(t.Context()).ID(review.ID).Cols("commit_id").Update(&issues_model.Review{CommitID: "previous-head"})
+	require.NoError(t, err)
+	assert.Len(t, read(tokenText).Groups[0].Items, 1)
+
+	request := NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", api.CreateAccessTokenOption{Name: "inbox-limited", Scopes: []string{"read:issue", "read:repository"}, Repositories: []string{"user2/repo1"}}).AddBasicAuth("user2")
+	token := DecodeJSON(t, MakeRequest(t, request, http.StatusCreated), &api.AccessToken{})
+	result = read(token.Token)
+	require.NotEmpty(t, result.Groups[2].Items)
+	require.NotEmpty(t, result.Groups[3].Items)
+	for _, group := range result.Groups {
+		for _, item := range group.Items {
+			assert.Equal(t, "user2/repo1", item.Repo)
+		}
+	}
+	result = read(getUserToken(t, "user2", auth_model.AccessTokenScopePublicOnly, auth_model.AccessTokenScopeReadIssue, auth_model.AccessTokenScopeReadRepository))
+	for _, group := range result.Groups {
+		for _, item := range group.Items {
+			assert.NotEqual(t, "user2/repo2", item.Repo)
+		}
+	}
+	hiddenAllowed = true
+	result = read(getUserToken(t, "user1", auth_model.AccessTokenScopeReadIssue, auth_model.AccessTokenScopeReadRepository))
+	require.Len(t, result.Groups[1].Items, 1)
+	assert.Contains(t, result.Groups[1].Items[0].Reason, "Changes requested")
 }

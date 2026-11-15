@@ -55,3 +55,10 @@ type swaggerResponseBadgeList struct {
 	// in:body
 	Body []api.Badge `json:"body"`
 }
+
+// Inbox
+// swagger:response Inbox
+type swaggerResponseInbox struct {
+	// in:body
+	Body api.Inbox `json:"body"`
+}

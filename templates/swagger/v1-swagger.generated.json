@@ -22213,6 +22213,27 @@
         }
       }
     },
+    "/user/inbox": {
+      "get": {
+        "description": "Each group returns at most 25 items from 100 recent candidates. Counts describe returned items. Requires read:issue and read:repository scopes.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "user"
+        ],
+        "summary": "Get review decisions, blocked work, agent activity and unread mentions",
+        "operationId": "userGetInbox",
+        "responses": {
+          "200": {
+            "$ref": "#/responses/Inbox"
+          },
+          "default": {
+            "$ref": "#/responses/error"
+          }
+        }
+      }
+    },
     "/user/keys": {
       "get": {
         "produces": [
@@ -29970,6 +29991,120 @@
       },
       "x-go-package": "gitea.dev/modules/structs"
     },
+    "Inbox": {
+      "type": "object",
+      "title": "Inbox contains bounded groups of work needing the current user's attention.",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/InboxGroup"
+          },
+          "x-go-name": "Groups"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "InboxAction": {
+      "type": "object",
+      "title": "InboxAction links to the next step.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "x-go-name": "Label"
+        },
+        "url": {
+          "type": "string",
+          "x-go-name": "URL"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "InboxAgent": {
+      "type": "object",
+      "title": "InboxAgent identifies the recorded agent and sponsor.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "x-go-name": "Name"
+        },
+        "sponsor": {
+          "type": "string",
+          "x-go-name": "Sponsor"
+        },
+        "task_url": {
+          "type": "string",
+          "x-go-name": "TaskURL"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "InboxGroup": {
+      "type": "object",
+      "title": "InboxGroup counts the items returned, rather than an unbounded backlog.",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Count"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/InboxItem"
+          },
+          "x-go-name": "Items"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "InboxItem": {
+      "type": "object",
+      "title": "InboxItem is an issue or pull request needing attention.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/InboxAction"
+        },
+        "agent": {
+          "$ref": "#/definitions/InboxAgent"
+        },
+        "html_url": {
+          "type": "string",
+          "x-go-name": "HTMLURL"
+        },
+        "index": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "Index"
+        },
+        "kind": {
+          "type": "string",
+          "x-go-name": "Kind"
+        },
+        "reason": {
+          "type": "string",
+          "x-go-name": "Reason"
+        },
+        "repo": {
+          "type": "string",
+          "x-go-name": "Repo"
+        },
+        "title": {
+          "type": "string",
+          "x-go-name": "Title"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "UpdatedAt"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
     "InternalTracker": {
       "description": "InternalTracker represents settings for internal tracker",
       "type": "object",
@@ -34544,6 +34679,12 @@
         "items": {
           "$ref": "#/definitions/Hook"
         }
+      }
+    },
+    "Inbox": {
+      "description": "Inbox",
+      "schema": {
+        "$ref": "#/definitions/Inbox"
       }
     },
     "Issue": {

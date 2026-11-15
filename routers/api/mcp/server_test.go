@@ -62,3 +62,36 @@ func TestRepositoryPath(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestInbox(t *testing.T) {
+	server := newServer(&client{rest: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "GET", r.Method)
+		assert.Equal(t, "/api/v1/user/inbox", r.URL.Path)
+		assert.Equal(t, "token example", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"groups":[]}`))
+	}), authorization: "token example"})
+	st, ct := mcp.NewInMemoryTransports()
+	session, err := server.Connect(t.Context(), st, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	peer, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(t.Context(), ct, nil)
+	require.NoError(t, err)
+	defer peer.Close()
+	list, err := peer.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	found := false
+	for _, tool := range list.Tools {
+		if tool.Name == "inbox" {
+			found = true
+			assert.True(t, tool.Annotations.ReadOnlyHint)
+		}
+	}
+	require.True(t, found)
+	result, err := peer.CallTool(t.Context(), &mcp.CallToolParams{Name: "inbox", Arguments: map[string]string{}})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	require.Len(t, result.Content, 1)
+	content, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.JSONEq(t, `{"groups":[]}`, content.Text)
+}
