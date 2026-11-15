@@ -76,17 +76,6 @@ nav#navbar {
   min-height: 44px;
 }
 
-#navbar .notification_count {
-  position: static;
-  border: 0;
-  background: var(--color-primary);
-  color: var(--color-primary-contrast);
-  min-width: 20px;
-  height: 20px;
-  line-height: 20px;
-  padding: 0 5px;
-}
-
 #navbar .forge-inbox > div {
   gap: 6px;
 }
@@ -342,7 +331,7 @@ details > summary::-webkit-details-marker {
     cursor: text;
   }
 
-  #navbar .forge-inbox:has(.notification_count:not(.tw-hidden)) .svg {
+  #navbar .forge-inbox:has(.forge-inbox-count:not(.tw-hidden)) .svg {
     display: none;
   }
 

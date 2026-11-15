@@ -86,7 +86,7 @@ func pullSize(ctx context.Context, issue *issues_model.Issue) (string, error) {
 	}
 	stat, err := gitdiff.GetDiffShortStat(ctx, gitRepo, &gitdiff.DiffCommonOptions{BeforeCommitID: pr.MergeBase, AfterCommitID: head})
 	if err != nil {
-		return "", err
+		return "", nil // a merge base that no longer exists costs the chip, not the list
 	}
 	size = sizeLabel(stat.TotalAddition + stat.TotalDeletion)
 	_ = cache.GetCache().PutJSON(key, size, 24*60*60)

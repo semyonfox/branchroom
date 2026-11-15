@@ -160,21 +160,28 @@ func homePullState(pr *issues_model.PullRequest, status commitstatus.CommitStatu
 	if status.IsFailure() || status.IsError() {
 		return "checks_failing"
 	}
+	// a request that survives means the reviewer still owes a review, whatever an agent did with their token
 	requested := false
+	pending := map[[2]int64]bool{}
+	for _, review := range reviews {
+		if review.IssueID == pr.IssueID && review.Type == issues_model.ReviewTypeRequest {
+			pending[[2]int64{review.ReviewerID, review.ReviewerTeamID}] = true
+			requested = true
+		}
+	}
 	seen := map[[2]int64]bool{}
 	for _, review := range reviews {
 		if review.IssueID != pr.IssueID {
 			continue
 		}
 		key := [2]int64{review.ReviewerID, review.ReviewerTeamID}
-		if seen[key] {
+		if seen[key] || pending[key] {
 			continue
 		}
 		seen[key] = true
 		if review.Type == issues_model.ReviewTypeReject {
 			return "changes_requested"
 		}
-		requested = requested || review.Type == issues_model.ReviewTypeRequest
 	}
 	if requested {
 		return "review_requested"

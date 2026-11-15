@@ -256,6 +256,14 @@ func conversationReviews(reviews issues_model.ReviewList) (int, issues_model.Rev
 			}
 		}
 		previous := latest[key]
+		// a person's own review deletes their request, so one that survives means they still owe a review
+		if review.Type == issues_model.ReviewTypeRequest {
+			latest[key] = review
+			continue
+		}
+		if previous != nil && previous.Type == issues_model.ReviewTypeRequest {
+			continue
+		}
 		// comment reviews do not replace the decision used by GetReviewByIssueIDAndUserID
 		if previous != nil {
 			if review.Type == issues_model.ReviewTypeComment && previous.Type != issues_model.ReviewTypeComment {

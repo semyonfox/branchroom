@@ -410,6 +410,7 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 			reviewCond := builder.Eq{"reviewer_id": opts.Reviewer.ID, "issue_id": opts.Issue.ID}
 			// an agent reviewing with a person's token leaves that person's own request and decision standing
 			byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(opts.Reviewer))
+			byAgent = byAgent && !opts.Reviewer.IsTypeBot()
 			if err != nil {
 				return nil, err
 			}
@@ -496,6 +497,7 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	if err != nil {
 		return nil, nil, err
 	}
+	byAgent = byAgent && !doer.IsTypeBot()
 	isApproveOrReject := (reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject) && !byAgent
 	official := false
 	if isApproveOrReject {
@@ -602,13 +604,23 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	return review, comm, committer.Commit()
 }
 
+// personsOwnReviewCond leaves out reviews an agent made with a person's token, so they never stand in for the person's decision.
+// Bot accounts are agents in their own right and keep their reviews.
+func personsOwnReviewCond() builder.Cond {
+	return builder.Or(
+		builder.NotIn("id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review"})),
+		builder.In("reviewer_id", builder.Select("id").From("`user`").Where(builder.Eq{"type": user_model.UserTypeBot})),
+	)
+}
+
 // GetReviewByIssueIDAndUserID get the latest review of reviewer for a pull request
 func GetReviewByIssueIDAndUserID(ctx context.Context, issueID, userID int64) (*Review, error) {
 	review := new(Review)
 
 	has, err := db.GetEngine(ctx).Where(
 		builder.In("type", ReviewTypeApprove, ReviewTypeReject, ReviewTypeRequest).
-			And(builder.Eq{"issue_id": issueID, "reviewer_id": userID, "original_author_id": 0})).
+			And(builder.Eq{"issue_id": issueID, "reviewer_id": userID, "original_author_id": 0}).
+			And(personsOwnReviewCond())).
 		Desc("id").
 		Get(review)
 	if err != nil {

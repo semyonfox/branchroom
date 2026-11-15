@@ -6,11 +6,13 @@ package common
 import (
 	goctx "context"
 	"errors"
+	"fmt"
 	"sync"
 
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/modules/cache"
 	"gitea.dev/modules/log"
 	"gitea.dev/services/context"
 	inbox_service "gitea.dev/services/inbox"
@@ -70,6 +72,12 @@ func inboxNeedsCount(ctx *context.Context) int {
 	if ctx.Doer == nil {
 		return 0
 	}
+	// the count runs the whole inbox, so a badge up to a minute old is the price of cheap pages
+	key := fmt.Sprintf("inbox-needs-count/%d", ctx.Doer.ID)
+	var count int
+	if hit, _ := cache.GetCache().GetJSON(key, &count); hit {
+		return count
+	}
 	count, err := inbox_service.GetNeedsCount(ctx, ctx.Doer)
 	if err != nil {
 		if !errors.Is(err, goctx.Canceled) {
@@ -77,6 +85,7 @@ func inboxNeedsCount(ctx *context.Context) int {
 		}
 		return 0
 	}
+	_ = cache.GetCache().PutJSON(key, count, 60)
 	return count
 }
 
