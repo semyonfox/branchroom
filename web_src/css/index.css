@@ -87,6 +87,11 @@
 @import "./review.css";
 @import "./actions.css";
 
+@import "./forge/chrome.css";
+@import "./forge/repo-home.css";
+@import "./forge/issue.css";
+@import "./forge/inbox.css";
+
 @import "./helpers.css";
 
 @tailwind utilities;
