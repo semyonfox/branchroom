@@ -18,6 +18,7 @@ import (
 	repo_model "gitea.dev/models/repo"
 	unit_model "gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/services/context"
 	repository_service "gitea.dev/services/repository"
 
@@ -207,16 +208,21 @@ func prepareOverviewContributors(ctx *context.Context) error {
 			}
 			slices.SortFunc(authors, func(a, b overviewAuthor) int { return cmp.Compare(a.Email, b.Email) })
 		} else {
-			commits, err := commit.CommitsBeforeLimit(ctx, ctx.Repo.GitRepo, 300)
+			// one git log for names and emails, CommitsBeforeLimit stops at commits shared with other branches
+			stdout, _, err := gitcmd.NewCommand("log", "--max-count=300", "--format=%aN%x00%aE").
+				AddDynamicArguments(commit.ID.String()).
+				WithRepo(ctx.Repo.GitRepo).
+				RunStdString(ctx)
 			if err != nil {
 				return err
 			}
 			seen := map[string]bool{}
-			for _, commit := range commits {
-				email := strings.ToLower(commit.Author.Email)
-				if !seen[email] {
+			for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
+				name, email, ok := strings.Cut(line, "\x00")
+				email = strings.ToLower(email)
+				if ok && email != "" && !seen[email] {
 					seen[email] = true
-					authors = append(authors, overviewAuthor{Name: commit.Author.Name, Email: email})
+					authors = append(authors, overviewAuthor{Name: name, Email: email})
 				}
 			}
 		}
