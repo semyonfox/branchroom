@@ -650,6 +650,16 @@
         },
         "description": "HookList"
       },
+      "Inbox": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Inbox"
+            }
+          }
+        },
+        "description": "Inbox"
+      },
       "Issue": {
         "content": {
           "application/json": {
@@ -7354,6 +7364,123 @@
             "x-go-name": "Name"
           }
         },
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "Inbox": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/InboxGroup"
+            },
+            "type": "array",
+            "x-go-name": "Groups"
+          }
+        },
+        "title": "Inbox contains bounded groups of work needing the current user's attention.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "InboxAction": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "x-go-name": "Label"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string",
+            "x-go-name": "URL"
+          }
+        },
+        "title": "InboxAction links to the next step.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "InboxAgent": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "x-go-name": "Name"
+          },
+          "sponsor": {
+            "type": "string",
+            "x-go-name": "Sponsor"
+          },
+          "task_url": {
+            "format": "uri",
+            "type": "string",
+            "x-go-name": "TaskURL"
+          }
+        },
+        "title": "InboxAgent identifies the recorded agent and sponsor.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "InboxGroup": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "Count"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InboxItem"
+            },
+            "type": "array",
+            "x-go-name": "Items"
+          },
+          "kind": {
+            "type": "string",
+            "x-go-name": "Kind"
+          }
+        },
+        "title": "InboxGroup counts the items returned, rather than an unbounded backlog.",
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "InboxItem": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/InboxAction"
+          },
+          "agent": {
+            "$ref": "#/components/schemas/InboxAgent"
+          },
+          "html_url": {
+            "format": "uri",
+            "type": "string",
+            "x-go-name": "HTMLURL"
+          },
+          "index": {
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "Index"
+          },
+          "kind": {
+            "type": "string",
+            "x-go-name": "Kind"
+          },
+          "reason": {
+            "type": "string",
+            "x-go-name": "Reason"
+          },
+          "repo": {
+            "type": "string",
+            "x-go-name": "Repo"
+          },
+          "title": {
+            "type": "string",
+            "x-go-name": "Title"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string",
+            "x-go-name": "UpdatedAt"
+          }
+        },
+        "title": "InboxItem is an issue or pull request needing attention.",
         "type": "object",
         "x-go-package": "gitea.dev/modules/structs"
       },
@@ -35521,6 +35648,24 @@
           }
         },
         "summary": "Update a hook",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/user/inbox": {
+      "get": {
+        "description": "Each group returns at most 25 items from 100 recent candidates. Counts describe returned items. Requires read:issue and read:repository scopes.",
+        "operationId": "userGetInbox",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Inbox"
+          },
+          "default": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "summary": "Get review decisions, blocked work, agent activity and unread mentions",
         "tags": [
           "user"
         ]

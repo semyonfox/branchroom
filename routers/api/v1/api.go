@@ -886,7 +886,7 @@ func limitedTokenRouteAllowed(ctx *context.APIContext, doer *user_model.User) bo
 		return false
 	}
 	switch ctx.Req.URL.Path {
-	case "/api/v1/user", "/api/v1/version", "/api/v1/repos/search", "/api/v1/repos/issues/search":
+	case "/api/v1/user", "/api/v1/user/inbox", "/api/v1/version", "/api/v1/repos/search", "/api/v1/repos/issues/search":
 		return true
 	}
 	if strings.HasPrefix(ctx.Req.URL.Path, "/api/v1/settings/") {
@@ -1138,6 +1138,7 @@ func Routes() *web.Router {
 		// Users (requires user scope)
 		contextRealDoerUser := authenticatedUserAsContextUser(false)
 		contextRealOrSystemUser := authenticatedUserAsContextUser(true)
+		m.Get("/user/inbox", reqToken(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryIssue, auth_model.AccessTokenScopeCategoryRepository), user.GetInbox)
 		m.Get("/user", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryUser), reqToken(), contextRealOrSystemUser, user.GetAuthenticatedUser)
 		m.Group("/user", func() {
 			m.Get("/orgs", reqToken(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), org.ListMyOrgs)
