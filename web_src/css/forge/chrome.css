@@ -85,7 +85,7 @@ nav#navbar {
   display: none;
 }
 
-.forge-footer {
+.page-footer {
   padding: 16px 24px;
   min-height: 48px;
   color: var(--color-text-light);
