@@ -41,7 +41,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--color-secondary);
 }
 .forge-inbox-row:focus {
@@ -51,15 +51,14 @@
 .forge-inbox-select {
   display: grid;
   place-items: center;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 28px;
+  min-height: 28px;
   cursor: pointer;
 }
 .forge-inbox-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .forge-inbox-title {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
   font-weight: var(--font-weight-semibold);
 }
 .forge-inbox-meta {
@@ -67,7 +66,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 6px 0;
+  margin: 2px 0;
   color: var(--color-text-light-2);
   font-size: 12px;
 }
@@ -90,4 +89,10 @@
   .forge-inbox-row { flex-wrap: wrap; }
   .forge-inbox-content { flex-basis: calc(100% - 68px); }
   .forge-inbox-primary { margin-inline-start: 56px !important; } /* align the action with the stacked title */
+}
+
+@media (max-width: 767.98px) {
+  .forge-inbox-select { min-width: 44px; min-height: 44px; }
+  .forge-inbox-title { min-height: 44px; }
+  .forge-inbox-primary { min-height: 44px; }
 }

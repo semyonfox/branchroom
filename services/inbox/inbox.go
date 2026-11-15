@@ -135,7 +135,7 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 			}
 			item.Action = api.InboxAction{Label: "Read", URL: item.HTMLURL}
 			if agent := agents[issue.ID]; agent != nil {
-				item.Agent = &api.InboxAgent{Name: agent.Agent, TaskURL: agent.TaskURL, Sponsor: agent.Sponsor}
+				item.Agent = &api.InboxAgent{Name: agent.Agent, TaskURL: agent.TaskURL, Sponsor: agent.Sponsor, Model: agent.Model, Harness: agent.Harness}
 			}
 			var r *pull_service.Readiness
 			if issue.IsPull && !issue.IsClosed && !issue.PullRequest.HasMerged && kind != "mentions" && kind != "done" && kind != "snoozed" {

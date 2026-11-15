@@ -7424,6 +7424,14 @@
       },
       "InboxAgent": {
         "properties": {
+          "harness": {
+            "type": "string",
+            "x-go-name": "Harness"
+          },
+          "model": {
+            "type": "string",
+            "x-go-name": "Model"
+          },
           "name": {
             "type": "string",
             "x-go-name": "Name"

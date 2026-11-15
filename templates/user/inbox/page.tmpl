@@ -37,10 +37,10 @@
       <label class="forge-inbox-select"><input type="checkbox" name="items" value="{{$item.ID}}" aria-label="{{ctx.Locale.Tr "inbox.select" $item.Title}}"></label>
       <div class="forge-inbox-content">
        <a class="forge-inbox-title" href="{{$item.HTMLURL}}">{{$item.Title}}</a>
-       <div class="forge-inbox-meta"><span>{{$item.Repo}} #{{$item.Index}} · {{$item.Kind}}</span>{{if $item.Size}}<span class="ui basic label">{{$item.Size}}</span>{{end}}{{if $item.Agent}}{{template "shared/agent_label" (dict "Agent" $item.Agent.Name "TaskURL" $item.Agent.TaskURL)}}{{else if $item.Trust}}<span>{{$item.Trust}}</span>{{end}}{{if $item.Checks}}<span>{{ctx.Locale.Tr "inbox.checks"}}: {{$item.Checks}}</span>{{end}}{{DateUtils.TimeSince $item.CreatedAt}}</div>
+       <div class="forge-inbox-meta"><span>{{$item.Repo}} #{{$item.Index}} · {{$item.Kind}}</span>{{if $item.Size}}<span class="ui basic label">{{$item.Size}}</span>{{end}}{{if $item.Agent}}{{template "shared/agent_label" (dict "Agent" $item.Agent.Name "TaskURL" $item.Agent.TaskURL "Model" $item.Agent.Model "Harness" $item.Agent.Harness "Sponsor" $item.Agent.Sponsor)}}{{else if $item.Trust}}<span>{{$item.Trust}}</span>{{end}}{{if $item.Checks}}<span>{{ctx.Locale.Tr "inbox.checks"}}: {{$item.Checks}}</span>{{end}}{{DateUtils.TimeSince $item.CreatedAt}}</div>
        {{if $item.Reason}}<div class="text light-2">{{$item.Reason}}</div>{{end}}
       </div>
-      <a class="ui small primary button tw-min-h-[44px] forge-inbox-primary" href="{{$item.Action.URL}}" data-palette-action="{{$item.Action.Label}} {{$item.Title}}" data-palette-key="enter">{{$item.Action.Label}}</a>
+      <a class="ui small basic button forge-inbox-primary" href="{{$item.Action.URL}}" data-palette-action="{{$item.Action.Label}} {{$item.Title}}" data-palette-key="enter">{{$item.Action.Label}}</a>
      </article>
     {{else}}
      <p class="forge-inbox-empty">{{ctx.Locale.Tr "inbox.empty"}}</p>

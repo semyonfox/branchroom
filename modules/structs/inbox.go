@@ -47,6 +47,8 @@ type InboxAgent struct {
 	Name    string `json:"name"`
 	TaskURL string `json:"task_url"`
 	Sponsor string `json:"sponsor"`
+	Model   string `json:"model,omitempty"`
+	Harness string `json:"harness,omitempty"`
 }
 
 // InboxStateOptions applies one action to at most 100 issue IDs.
