@@ -8,5 +8,5 @@
 			{{ctx.Locale.Tr .Key}}
 		{{end}}
 	</strong>
-	{{if .Action}}<a class="ui small basic button" href="{{.URL}}">{{ctx.Locale.Tr .Action}}</a>{{end}}
+	{{if .Action}}<a class="ui small basic button" href="{{.URL}}" data-palette-action="{{ctx.Locale.Tr .Action}}" data-palette-key="n">{{ctx.Locale.Tr .Action}}</a>{{end}}
 </section>
