@@ -32,7 +32,7 @@
 								</a>
 								<span class="tw-text-text-light muted-links">
 									{{template "shared/user/authorlink" .Issue.Poster}}
-									{{template "shared/agent_identity" (.Issue.AgentIdentity ctx)}}
+									{{template "shared/agent_label" (.Issue.AgentIdentity ctx)}}
 									{{ctx.Locale.Tr "repo.issues.commented_at" .Issue.HashTag $createdStr}}
 								</span>
 							{{end}}

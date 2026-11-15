@@ -1,6 +1,6 @@
 {{$data := $.PullMergeBoxData}}
 {{if $data.ShowMergeBox}}
-<div class="timeline-item comment pull-merge-box"
+<div id="pull-merge-box" class="timeline-item comment pull-merge-box"
 	data-global-init="initRepoPullMergeBox"
 	{{if $data.ReloadingInterval}}
 		data-pull-merge-box-reloading-interval="{{$data.ReloadingInterval}}"
@@ -11,6 +11,8 @@
 	<div class="content">
 		<div class="ui segment fitted avatar-content-left-arrow">
 			<div class="merge-section flex-divided-list items-px-default">
+				{{if $data.MergeFormProps}}{{template "repo/issue/view_content/merge_actions" dict "Props" $data.MergeFormProps "IsAdmin" $.IsRepoAdmin}}{{end}}
+				<details class="item forge-other-merge"><summary>{{ctx.Locale.Tr "repo.conversation.merge_requirements"}}</summary>
 			{{if $data.ShowStatusCheck}}
 				{{template "repo/issue/view_content/pull_merge_status_checks" (dict "StatusCheckData" $data.StatusCheckData)}}
 			{{end}}
@@ -44,11 +46,6 @@
 				</div>
 				{{end}}
 			{{end}}
-			{{if $data.ShowUpdatePullInfo}}
-				<div class="item">
-					{{template "repo/issue/view_content/update_branch_by_merge" (dict "MergeBoxData" $data "IssueLink" $.Issue.Link)}}
-				</div>
-			{{end}}
 
 			{{if $.IsPullWorkInProgress}}
 				<div class="item flex-left-right">
@@ -63,18 +60,18 @@
 				</div>
 			{{end}}
 
-			{{if $data.MergeFormProps}}
-				{{/* The merge form is a Vue component. After mounted, it has a button for choosing merge style, so make it have min-height to avoid layout shifting */}}
+				</details>
+				{{if or $data.MergeFormProps $data.ShowPullCommands $data.ShowUpdatePullInfo}}
+				<div class="item"><details class="forge-other-merge"><summary>{{ctx.Locale.Tr "repo.conversation.other_ways"}}</summary>
+					{{template "repo/issue/view_content/merge_alternatives" dict "Props" $data.MergeFormProps "IsAdmin" $.IsRepoAdmin}}
+			{{if $data.ShowUpdatePullInfo}}
 				<div class="item">
-					<div id="pull-request-merge-form" class="tw-min-h-[40px] tw-w-full" data-merge-form-props="{{JsonUtils.EncodeToString $data.MergeFormProps}}"></div>
+					{{template "repo/issue/view_content/update_branch_by_merge" (dict "MergeBoxData" $data "IssueLink" $.Issue.Link)}}
 				</div>
 			{{end}}
 
-			{{if $data.ShowPullCommands}}
-				<div class="item">
-					{{template "repo/issue/view_content/pull_merge_instruction" dict "PullRequest" .Issue.PullRequest "MergeBoxData" $data}}
-				</div>
-			{{end}}
+					{{if $data.ShowPullCommands}}{{template "repo/issue/view_content/pull_merge_instruction" dict "PullRequest" .Issue.PullRequest "MergeBoxData" $data}}{{end}}
+				</details></div>{{end}}
 			</div>
 		</div>
 	</div>

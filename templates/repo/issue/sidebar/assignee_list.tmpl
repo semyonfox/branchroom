@@ -9,9 +9,9 @@
 >
 	<input class="combo-value" name="assignee_ids" type="hidden" value="{{$data.SelectedAssigneeIDs}}">
 	<div class="ui dropdown full-width {{if not $pageMeta.CanModifyIssueOrPull}}disabled{{end}}">
-		<a class="fixed-text muted">
-			<strong>{{ctx.Locale.Tr "repo.issues.new.assignees"}}</strong> {{if $pageMeta.CanModifyIssueOrPull}}{{svg "octicon-gear"}}{{end}}
-		</a>
+		<button type="button" class="fixed-text muted btn tw-w-full">
+			<strong>{{ctx.Locale.Tr "repo.issues.new.assignees"}}</strong> {{if $pageMeta.CanModifyIssueOrPull}}<span class="forge-picker-edit">{{ctx.Locale.Tr "repo.issues.edit"}}</span>{{end}}
+		</button>
 		<div class="menu">
 			<div class="ui icon search input">
 				<i class="icon">{{svg "octicon-search" 16}}</i>
