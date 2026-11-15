@@ -4,7 +4,7 @@
 {{$showCloneLinks := or $cloneLink.SupportHTTPS $cloneLink.SupportSSH}}
 {{$showOpenWithEditorApps := and $showCloneLinks $openWithEditorApps}}{{/* the editor apps need the clone link */}}
 {{if or $showCloneLinks $showOpenWithEditorApps $downloadArchiveLinkPrefix}}
-<button type="button" class="ui compact primary button" data-global-init="initRepoClonePanel">
+<button type="button" class="ui compact primary button" data-global-init="initRepoClonePanel" data-palette-action="Clone this repository">
 	{{svg "octicon-code" 16}}
 	<span>{{ctx.Locale.Tr "repo.overview.clone"}}</span>
 </button>

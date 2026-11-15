@@ -223,6 +223,9 @@ func prepareHomeSidebarLatestRelease(ctx *context.Context) {
 	if release != nil {
 		release.Repo = ctx.Repo.Repository
 		ctx.Data["LatestRelease"] = release
+		if err := prepareOverviewDownloads(ctx, release); err != nil {
+			ctx.ServerErrorAuto(err)
+		}
 	}
 }
 
