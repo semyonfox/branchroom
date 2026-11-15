@@ -22,10 +22,32 @@
 			</div>
 		{{end}}
 		{{if .OverviewAgentCount}}<p class="repo-overview-agents">{{ctx.Locale.TrN .OverviewAgentCount "repo.overview.agent_one" "repo.overview.agent_many" .OverviewAgentCount}}</p>{{end}}
-		{{if or .Topics .Repository.Website}}
-			<div class="repo-overview-topics muted-links">
-				{{range $topic := .Topics}}<a href="{{AppSubUrl}}/explore/repos?q={{$topic.Name}}&topic=1">{{$topic.Name}}</a>{{end}}
-				{{if .Repository.Website}}<a href="{{.Repository.Website}}">{{.Repository.Website}}</a>{{end}}
+		<div class="repo-overview-topics muted-links">
+			{{/* the topic links must match initRepoTopicBar in repo-home.ts */}}
+			<span id="repo-topics" class="tw-contents">{{range $topic := .Topics}}<a class="repo-topic" href="{{AppSubUrl}}/explore/repos?q={{$topic.Name}}&topic=1">{{$topic.Name}}</a>{{end}}</span>
+			{{if .Repository.Website}}<a href="{{.Repository.Website}}">{{.Repository.Website}}</a>{{end}}
+			{{if .CitationFileName}}
+				{{template "repo/cite/cite_modal" .}}
+				<a class="show-modal" href="#" data-modal="#cite-repo-modal">{{ctx.Locale.Tr "repo.cite_this_repo"}}</a>
+			{{end}}
+			{{if and .Permission.IsAdmin (not .Repository.IsArchived)}}
+				<button type="button" id="manage_topic" class="btn interact-fg">{{ctx.Locale.Tr "repo.topic.manage_topics"}}</button>
+			{{end}}
+		</div>
+		{{if and .Permission.IsAdmin (not .Repository.IsArchived)}}
+			<div class="ui form tw-hidden tw-my-2" id="topic_edit">
+				<div class="ui fluid multiple search selection dropdown tw-flex-wrap tw-flex-1">
+					<input type="hidden" name="topics" value="{{range $i, $v := .Topics}}{{.Name}}{{if Eval $i "+" 1 "<" (len $.Topics)}},{{end}}{{end}}">
+					{{range .Topics}}
+						{{/* keep the same layout as Fomantic UI generated labels */}}
+						<a class="ui label transition visible tw-cursor-default tw-inline-block repo-topic" data-value="{{.Name}}">{{.Name}}{{svg "octicon-x" 16 "delete icon"}}</a>
+					{{end}}
+					<div class="text"></div>
+				</div>
+				<div class="flex-text-block tw-my-2">
+					<button type="button" class="ui primary button" id="save_topic" data-link="{{.RepoLink}}/topics">{{ctx.Locale.Tr "save"}}</button>
+					<button type="button" class="ui basic button" id="cancel_topic_edit">{{ctx.Locale.Tr "cancel"}}</button>
+				</div>
 			</div>
 		{{end}}
 	</div>
