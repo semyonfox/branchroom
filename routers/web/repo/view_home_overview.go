@@ -68,6 +68,9 @@ func prepareRepoOverviewFacts(ctx *context.Context) {
 		}
 		var maintainers []overviewMaintainer
 		for _, user := range users {
+			if user.Type != user_model.UserTypeIndividual { // bot and agent accounts write code but never answer for it
+				continue
+			}
 			permission, err := access_model.GetIndividualUserRepoPermission(ctx, repo, user)
 			if err != nil {
 				ctx.ServerErrorAuto(err)
