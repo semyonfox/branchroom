@@ -6,6 +6,7 @@ type Section = 'recent' | 'repositories' | 'files' | 'issues' | 'commands';
 export type PaletteResult = {
   label: string;
   section: Section;
+  detail?: string;
   url?: string;
   key?: string;
   action?: HTMLElement;
@@ -88,11 +89,18 @@ function createPalette() {
   let failed = false;
 
   function commands(): PaletteResult[] {
-    const items: PaletteResult[] = [
-      {section: 'commands', label: text('inbox'), url: `${window.config.appSubUrl}/notifications`},
-      {section: 'commands', label: text('new-repository'), url: `${window.config.appSubUrl}/repo/create`},
-    ];
-    if (repoLink) items.push({section: 'commands', label: text('new-issue'), url: `${repoLink}/issues/new`});
+    const base = window.config.appSubUrl;
+    const items: PaletteResult[] = [];
+    if (signedIn) items.push(
+      {section: 'commands', label: text('inbox'), detail: text('inbox-detail'), url: `${base}/inbox`},
+      {section: 'commands', label: text('notifications'), url: `${base}/notifications`},
+    );
+    items.push({section: 'commands', label: text('explore'), detail: text('explore-detail'), url: `${base}/explore/repos`});
+    if (signedIn) items.push({section: 'commands', label: text('new-repository'), url: `${base}/repo/create`});
+    if (repoLink && signedIn) items.push({section: 'commands', label: text('new-issue'), url: `${repoLink}/issues/new`});
+    // only offer repo settings where the page already links to them, which means the viewer may open them
+    if (repoLink && document.querySelector(`a[href="${CSS.escape(`${repoLink}/settings`)}"]`)) items.push({section: 'commands', label: text('repo-settings'), url: `${repoLink}/settings`});
+    if (signedIn) items.push({section: 'commands', label: text('settings'), detail: text('settings-detail'), url: `${base}/user/settings`});
     for (const action of document.querySelectorAll<HTMLElement>('[data-palette-action]')) {
       if (action.matches(':disabled, [aria-disabled="true"]')) continue;
       items.push({section: 'commands', label: action.getAttribute('data-palette-action')!, key: action.getAttribute('data-palette-key') || undefined, action});
@@ -158,6 +166,11 @@ function createPalette() {
         row.setAttribute('role', 'option');
         const label = document.createElement('span');
         label.textContent = result.label;
+        if (result.detail) {
+          const detail = document.createElement('small');
+          detail.textContent = result.detail;
+          label.append(detail);
+        }
         row.append(label);
         if (result.key) {
           const key = document.createElement('kbd');
@@ -184,8 +197,11 @@ function createPalette() {
         const data = await readJSON(`${repoSearchURL}?q=${encoded}&limit=6`, signal);
         if (!isRecord(data) || !Array.isArray(data.data)) throw new Error('Invalid repositories');
         return data.data.filter(isRecord).flatMap((item): PaletteResult[] => {
-          if (typeof item.full_name !== 'string') return [];
-          return [{section: 'repositories', label: item.full_name, url: `${window.config.appSubUrl}/${item.full_name}`}];
+          // the web search wraps each repository, the API search does not
+          const repo = isRecord(item.repository) ? item.repository : item;
+          if (typeof repo.full_name !== 'string') return [];
+          const description = typeof repo.description === 'string' ? repo.description : '';
+          return [{section: 'repositories', label: repo.full_name, detail: description || undefined, url: `${window.config.appSubUrl}/${repo.full_name}`}];
         });
       })(),
     ];

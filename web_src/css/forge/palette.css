@@ -106,3 +106,13 @@
     max-height: calc(100dvh - 160px);
   }
 }
+
+.forge-palette-option > span > small {
+  display: block;
+  color: var(--color-text-light-2);
+  font-size: 12px;
+}
+
+.forge-palette-option[aria-selected="true"] > span > small {
+  color: var(--color-text-light);
+}
