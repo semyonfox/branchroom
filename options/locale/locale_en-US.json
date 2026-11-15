@@ -4252,5 +4252,22 @@
   "admin.users.branchroom_revoked": "All direct Branchroom grants revoked. Team access is unchanged.",
   "admin.users.branchroom_via_team": "Via team %s",
   "admin.users.branchroom_no_access": "No active Branchroom grants.",
-  "admin.users.branchroom_revoke_all": "Revoke all direct grants"
+  "admin.users.branchroom_revoke_all": "Revoke all direct grants",
+  "repo.overview.clone": "Clone",
+  "repo.overview.start_here": "Start here",
+  "repo.overview.last_push": "Last push",
+  "repo.overview.maintained_by": "Maintained by",
+  "repo.overview.agent_one": "%d agent works here",
+  "repo.overview.agent_many": "%d agents work here",
+  "repo.overview.agents_start": "Agents start at",
+  "repo.overview.mcp_docs": "MCP docs",
+  "repo.overview.full_readme": "Show full README",
+  "repo.overview.less_readme": "Show less README",
+  "repo.overview.files": "Files",
+  "repo.overview.ci.success": "passing",
+  "repo.overview.ci.failure": "failing",
+  "repo.overview.ci.error": "error",
+  "repo.overview.ci.pending": "pending",
+  "repo.overview.ci.warning": "warning",
+  "repo.overview.ci.skipped": "skipped"
 }

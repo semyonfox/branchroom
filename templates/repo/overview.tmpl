@@ -1,0 +1,57 @@
+<section class="repo-overview-summary repo-overview-card" aria-labelledby="repo-overview-name">
+	<div class="repo-overview-about">
+		<h1 id="repo-overview-name">{{.Repository.Name}}</h1>
+		{{if .Repository.Description}}<div class="repo-overview-description">{{.Repository.DescriptionHTML ctx}}</div>{{end}}
+		<div class="repo-overview-facts">
+			{{if .LatestCommitStatus}}
+				<a class="repo-overview-status status-{{.LatestCommitStatus.State}}" href="{{.RepoLink}}/commit/{{.CommitID}}">
+					<span class="repo-overview-dot" aria-hidden="true"></span>
+					{{.Repository.DefaultBranch}} {{ctx.Locale.Tr (printf "repo.overview.ci.%s" .LatestCommitStatus.State)}}
+				</a>
+			{{end}}
+			{{if .LatestRelease}}
+				<a class="repo-overview-release" href="{{.LatestRelease.Link}}"><span class="repo-overview-dot" aria-hidden="true"></span>{{.LatestRelease.TagName}} <span class="muted">· {{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</span></a>
+			{{end}}
+			{{if .OverviewLastPush}}<span>{{ctx.Locale.Tr "repo.overview.last_push"}} {{DateUtils.TimeSince .OverviewLastPush}}</span>{{end}}
+			{{with .LanguageStats}}<span>{{(index . 0).Language}}</span>{{end}}
+			{{range $group := .LicenseGroups}}<a href="{{$.RepoLink}}/src/{{$.RefTypeNameSubURL}}/{{PathEscapeSegments $group.LicensePath}}">{{StringUtils.Join $group.LicenseNames ", "}}</a>{{end}}
+		</div>
+		{{if .OverviewMaintainers}}
+			<div class="repo-overview-maintainers"><span class="muted">{{ctx.Locale.Tr "repo.overview.maintained_by"}}</span>
+				{{range $user := .OverviewMaintainers}}<a class="flex-text-inline" href="{{$user.HomeLink}}">{{ctx.AvatarUtils.Avatar $user 20}}{{$user.Name}}</a>{{end}}
+			</div>
+		{{end}}
+		{{if .OverviewAgentCount}}<p class="repo-overview-agents">{{ctx.Locale.TrN .OverviewAgentCount "repo.overview.agent_one" "repo.overview.agent_many" .OverviewAgentCount}}</p>{{end}}
+		{{if or .Topics .Repository.Website}}
+			<div class="repo-overview-topics muted-links">
+				{{range $topic := .Topics}}<a href="{{AppSubUrl}}/explore/repos?q={{$topic.Name}}&topic=1">{{$topic.Name}}</a>{{end}}
+				{{if .Repository.Website}}<a href="{{.Repository.Website}}">{{.Repository.Website}}</a>{{end}}
+			</div>
+		{{end}}
+	</div>
+	<div class="repo-overview-start">
+		<h2>{{ctx.Locale.Tr "repo.overview.start_here"}}</h2>
+		{{$clone := .CloneButtonOriginLink}}
+		{{if $clone.SupportHTTPS}}
+			<div class="repo-overview-command"><code>git clone {{$clone.HTTPS}}</code><button type="button" class="btn interact-fg" data-clipboard-text="git clone {{$clone.HTTPS}}" aria-label="{{ctx.Locale.Tr "copy"}} HTTPS">{{svg "octicon-copy" 16}}</button></div>
+		{{end}}
+		{{if $clone.SupportSSH}}
+			<div class="repo-overview-command"><code>git clone {{$clone.SSH}}</code><button type="button" class="btn interact-fg" data-clipboard-text="git clone {{$clone.SSH}}" aria-label="{{ctx.Locale.Tr "copy"}} SSH">{{svg "octicon-copy" 16}}</button></div>
+		{{end}}
+		{{if .OverviewAgentFile}}<p>{{ctx.Locale.Tr "repo.overview.agents_start"}} <a href="{{.RepoLink}}/src/{{.RefTypeNameSubURL}}/{{.OverviewAgentFile}}">{{.OverviewAgentFile}}</a></p>{{end}}
+		<p class="repo-overview-mcp"><span>MCP <code>{{AppSubUrl}}/api/mcp</code></span><a href="https://github.com/semyonfox/branchroom/blob/main/docs/branchroom/mcp.md">{{ctx.Locale.Tr "repo.overview.mcp_docs"}}</a></p>
+	</div>
+</section>
+{{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
+<section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
+	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
+		{{if and .IsSigned .CanEditReadmeFile (.Permission.CanWrite ctx.Consts.RepoUnitTypeCode)}}<a href="{{.RepoLink}}/_edit/{{PathEscapeSegments .BranchName}}/{{PathEscapeSegments .FileTreePath}}">{{ctx.Locale.Tr "edit"}}</a>{{end}}
+	</div>
+	<input id="repo-overview-readme-expand" class="repo-overview-readme-toggle" type="checkbox" aria-controls="repo-overview-readme-body">
+	<div id="repo-overview-readme-body" class="repo-overview-readme-body non-diff-file-content" data-global-init="initRepoFileView" data-raw-file-link="{{.RawFileLink}}"><div class="markup {{.MarkupType}}">{{if .RenderAsMarkup}}{{.FileContent}}{{else}}<pre>{{.FileContent}}</pre>{{end}}</div></div>
+	<label for="repo-overview-readme-expand" class="repo-overview-readme-more"><span class="repo-overview-readme-show">{{ctx.Locale.Tr "repo.overview.full_readme"}}</span><span class="repo-overview-readme-hide">{{ctx.Locale.Tr "repo.overview.less_readme"}}</span></label>
+</section>
+{{end}}
+<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
+	{{template "repo/view_content" .}}
+</section>

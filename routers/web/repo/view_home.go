@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,6 @@ import (
 	repo_model "gitea.dev/models/repo"
 	unit_model "gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
-	"gitea.dev/modules/citation"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/htmlutil"
 	"gitea.dev/modules/httplib"
@@ -93,50 +91,6 @@ func prepareClonePanel(ctx *context.Context) {
 		// FIXME: here it only uses the shortname in the ref to build the link, it can't distinguish the branch/tag/commit with the same name
 		// in the future, it's better to use something like "/archive/branch/the-name.zip", "/archive/tag/the-name.zip" */}}
 		ctx.Data["DownloadArchiveLinkPrefix"] = ctx.Repo.RepoLink + "/archive/" + util.PathEscapeSegments(ctx.Repo.RefFullName.ShortName())
-	}
-}
-
-func prepareHomeSidebarCitationFile(ctx *context.Context) {
-	allEntries, err := ctx.Repo.Commit.Tree().ListEntries(ctx, ctx.Repo.GitRepo)
-	if err != nil {
-		ctx.ServerErrorAuto(err)
-		return
-	}
-	isBlobSupported := func(entry *git.TreeEntry) bool {
-		return entry.IsRegular() || entry.IsExecutable() || entry.IsLink()
-	}
-	const nameCff = "CITATION.cff"
-	const nameBib = "CITATION.bib"
-	for _, name := range []string{nameCff, nameBib} {
-		idx := slices.IndexFunc(allEntries, func(entry *git.TreeEntry) bool {
-			return isBlobSupported(entry) && util.AsciiEqualFold(entry.Name(), name)
-		})
-		if idx == -1 {
-			continue
-		}
-		entry := allEntries[idx]
-		if entry.IsLink() {
-			res, err := git.EntryFollowLinks(ctx, ctx.Repo.GitRepo, ctx.Repo.Commit, entry.Name(), entry)
-			if err != nil || !isBlobSupported(res.TargetEntry) {
-				continue
-			}
-			entry = res.TargetEntry
-		}
-		content, err := entry.Blob(ctx.Repo.GitRepo).GetBlobContent(ctx, citation.MaxContentSize+1)
-		if err != nil {
-			log.Error("prepareHomeSidebarCitationFile: GetBlobContent: %v", err)
-			continue
-		}
-		apa, bibtex := "", content
-		if name == nameCff {
-			apa, bibtex = citation.FormatCFF(content)
-		}
-		if citation.IsLikelyBibTeX(bibtex) {
-			ctx.Data["CitationFileName"] = allEntries[idx].Name()
-			ctx.Data["CitationAPA"] = apa
-			ctx.Data["CitationBibTeX"] = bibtex
-			return
-		}
 	}
 }
 
@@ -221,10 +175,7 @@ func prepareHomeSidebarLatestRelease(ctx *context.Context) {
 	}
 
 	if release != nil {
-		if err = release.LoadAttributes(ctx); err != nil {
-			ctx.ServerErrorAuto(err)
-			return
-		}
+		release.Repo = ctx.Repo.Repository
 		ctx.Data["LatestRelease"] = release
 	}
 }
@@ -475,6 +426,10 @@ func Home(ctx *context.Context) {
 		return
 	}
 
+	prepareRepoHomeView(ctx)
+	if ctx.Written() {
+		return
+	}
 	prepareHomeTreeSideBarSwitch(ctx)
 
 	// get the current git entry which doer user is currently looking at.
@@ -503,11 +458,11 @@ func Home(ctx *context.Context) {
 		prepareFuncs = append(prepareFuncs,
 			checkOutdatedBranch,
 			prepareUpstreamDivergingInfo,
-			prepareHomeSidebarLicenses,
-			prepareHomeSidebarCitationFile,
-			prepareHomeSidebarLanguageStats,
-			prepareHomeSidebarLatestRelease,
 		)
+	}
+
+	if ctx.Data["PageIsRepoOverview"] == true {
+		prepareFuncs = append(prepareFuncs, prepareHomeSidebarLicenses, prepareHomeSidebarLanguageStats, prepareHomeSidebarLatestRelease, prepareRepoOverviewFacts)
 	}
 
 	for _, prepare := range prepareFuncs {

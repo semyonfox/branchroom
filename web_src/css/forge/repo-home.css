@@ -1,1 +1,271 @@
-/* forge redesign, repo-home */
+.repo-overview.ui.container {
+  width: 1012px;
+}
+
+.repo-overview-card {
+  border: 1px solid var(--color-secondary);
+  border-radius: 8px;
+  background: var(--color-box-body);
+  margin-bottom: 20px;
+  min-width: 0;
+}
+
+.repo-overview-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 28px;
+  padding: 28px;
+}
+
+.repo-overview-about h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.repo-overview-description {
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.repo-overview-facts,
+.repo-overview-maintainers,
+.repo-overview-topics,
+.repo-overview-refs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.repo-overview-facts {
+  margin: 20px 0 12px;
+  line-height: 1.6;
+}
+
+.repo-overview-facts a {
+  color: inherit;
+}
+
+.repo-overview-status,
+.repo-overview-release {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.repo-overview-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-text-light);
+}
+
+.status-success .repo-overview-dot,
+.repo-overview-release .repo-overview-dot {
+  background: var(--color-success-text);
+}
+
+.status-error .repo-overview-dot,
+.status-failure .repo-overview-dot {
+  background: var(--color-error-text);
+}
+
+.status-pending .repo-overview-dot,
+.status-warning .repo-overview-dot {
+  background: var(--color-warning-text);
+}
+
+.repo-overview-agents,
+.repo-overview-topics {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.repo-overview-start {
+  min-width: 0;
+  border-inline-start: 1px solid var(--color-secondary);
+  padding-inline-start: 24px;
+}
+
+.repo-overview-start h2,
+.repo-overview-card-heading h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.repo-overview-start h2 {
+  margin-bottom: 12px;
+}
+
+.repo-overview-start p {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.repo-overview-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-top: 8px;
+  background: var(--color-input-background);
+  border: 1px solid var(--color-secondary);
+  border-radius: 6px;
+}
+
+.repo-overview-command code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.repo-overview-command button {
+  flex-shrink: 0;
+}
+
+.repo-overview-mcp,
+.repo-overview-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repo-overview-card-heading {
+  padding: 16px 24px;
+  font-size: 13px;
+}
+
+.repo-overview-readme-body {
+  position: relative;
+  max-height: 600px;
+  overflow: hidden;
+  padding: 0 24px;
+}
+
+.repo-overview-readme-body::after {
+  content: "";
+  position: absolute;
+  top: 540px;
+  inset-inline: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--color-box-body));
+  pointer-events: none;
+}
+
+.repo-overview-readme-body .markup {
+  max-width: 75ch;
+  margin: 0 auto;
+  padding: 8px 0 20px;
+}
+
+.repo-overview-readme-toggle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.repo-overview-readme-more {
+  display: block;
+  padding: 12px 24px 20px;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 13px;
+}
+
+.repo-overview-readme-toggle:focus-visible ~ .repo-overview-readme-more {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -4px;
+}
+
+.repo-overview-readme-hide,
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-more .repo-overview-readme-show {
+  display: none;
+}
+
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-more .repo-overview-readme-hide {
+  display: inline;
+}
+
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-body {
+  max-height: none;
+}
+
+.repo-overview-readme-toggle:checked ~ .repo-overview-readme-body::after {
+  display: none;
+}
+
+.repo-overview-files .repo-button-row {
+  padding: 16px;
+  margin: 0;
+}
+
+.repo-overview-files #repo-files-table {
+  border: 0;
+  border-top: 1px solid var(--color-secondary);
+  border-radius: 0 0 8px 8px;
+}
+
+.repo-overview-files .repo-file-last-commit {
+  background: var(--color-box-body);
+}
+
+.repo-overview-files .repo-button-row-left,
+.repo-overview-files .repo-button-row-right {
+  gap: 12px;
+}
+
+@media (width <= 767px) {
+  .repo-overview-summary {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 20px;
+    gap: 20px;
+  }
+
+  .repo-overview-start {
+    border-inline-start: 0;
+    border-top: 1px solid var(--color-secondary);
+    padding: 20px 0 0;
+  }
+
+  .repo-overview-card-heading {
+    padding: 16px;
+  }
+
+  .repo-overview-readme-body {
+    padding-inline: 16px;
+  }
+
+  .repo-overview-files .repo-button-row-left,
+  .repo-overview-files .repo-button-row-right {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .repo-overview-files .repo-button-row-right {
+    flex-direction: row;
+  }
+
+  .repo-overview-files .repo-file-search-container {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .repo-overview-command button,
+  .repo-overview-readme-more {
+    min-height: 44px;
+  }
+}
