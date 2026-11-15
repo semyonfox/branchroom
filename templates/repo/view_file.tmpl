@@ -89,7 +89,7 @@
 						<span class="btn-octicon disabled" data-tooltip-content="{{.DeleteFileTooltip}}">{{svg "octicon-trash"}}</span>
 					{{end}}
 				{{end}}
-			{{else if .EscapeStatus.Escaped}}
+			{{else if .EscapeStatus.HasInvisible}}{{/* a rendered readme often has harmless ambiguous characters like × */}}
 				<button type="button" class="ui mini basic button unescape-button tw-mr-1 tw-hidden">{{ctx.Locale.Tr "repo.unescape_control_characters"}}</button>
 				<button type="button" class="ui mini basic button escape-button tw-mr-1">{{ctx.Locale.Tr "repo.escape_control_characters"}}</button>
 			{{end}}

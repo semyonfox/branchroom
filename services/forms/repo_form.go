@@ -190,6 +190,16 @@ type BranchroomSourceWriteGrantForm struct {
 	Expires   string
 }
 
+// BranchroomAccessForm gives one direct user an access level, creating each grant it needs.
+type BranchroomAccessForm struct {
+	middleware.FormDefaultValidator
+	ScopeID   int64  `binding:"Required"`
+	Username  string `binding:"Required;MaxSize(255)"`
+	Access    string `binding:"Required;In(discover,read_source,write_source)"`
+	NotBefore string
+	Expires   string
+}
+
 // BranchroomTeamGrantForm grants discover or source read to one organization team.
 type BranchroomTeamGrantForm struct {
 	middleware.FormDefaultValidator

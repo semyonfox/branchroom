@@ -246,9 +246,9 @@ gitea-theme-meta-info {
   --color-reaction-active-bg: var(--color-primary-light-6);
   --color-tooltip-text: #fbfdff;
   --color-tooltip-bg: color-mix(in srgb, var(--color-text-dark) 83%, var(--color-secondary));
-  --color-nav-bg: #16181d;
-  --color-nav-hover-bg: #262a32;
-  --color-nav-text: #e6e7ea;
+  --color-nav-bg: #fffdfa;
+  --color-nav-hover-bg: #f1ede6;
+  --color-nav-text: #16181d;
   --color-secondary-nav-bg: #fffdfa;
   --color-label-text: #4b5059;
   --color-label-bg: #f9f6f1;

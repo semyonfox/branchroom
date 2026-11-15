@@ -140,14 +140,14 @@
 						</a>
 					{{end}}
 
-					{{if .Permission.CanRead ctx.Consts.RepoUnitTypePackages}}
+					{{if and (or .ShowPackagesTab .IsPackagesPage) (.Permission.CanRead ctx.Consts.RepoUnitTypePackages)}}
 						<a href="{{.RepoLink}}/packages" class="{{if .IsPackagesPage}}active{{end}} item">
 							{{svg "octicon-package"}} {{ctx.Locale.Tr "packages.title"}}
 						</a>
 					{{end}}
 
 					{{$projectsUnit := .Repository.MustGetUnit ctx ctx.Consts.RepoUnitTypeProjects}}
-					{{if and (not ctx.Consts.RepoUnitTypeProjects.UnitGlobalDisabled) (.Permission.CanRead ctx.Consts.RepoUnitTypeProjects) ($projectsUnit.ProjectsConfig.IsProjectsAllowed "repo")}}
+					{{if and (or .ShowProjectsTab .IsProjectsPage) (not ctx.Consts.RepoUnitTypeProjects.UnitGlobalDisabled) (.Permission.CanRead ctx.Consts.RepoUnitTypeProjects) ($projectsUnit.ProjectsConfig.IsProjectsAllowed "repo")}}
 						<a href="{{.RepoLink}}/projects" class="{{if .IsProjectsPage}}active{{end}} item" data-shortcut-keys="g b">
 							{{svg "octicon-project"}} {{ctx.Locale.Tr "repo.projects"}}
 							{{if .Repository.NumOpenProjects}}
@@ -165,7 +165,7 @@
 					</a>
 					{{end}}
 
-					{{if .Permission.CanRead ctx.Consts.RepoUnitTypeWiki}}
+					{{if or .PageIsWiki (and .ShowWikiTab (.Permission.CanRead ctx.Consts.RepoUnitTypeWiki))}}
 						<a class="{{if .PageIsWiki}}active{{end}} item" href="{{.RepoLink}}/wiki" data-shortcut-keys="g w">
 							{{svg "octicon-book"}} {{ctx.Locale.Tr "repo.wiki"}}
 						</a>

@@ -89,20 +89,21 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		doc := NewHTMLParser(t, resp.Body)
 		AssertHTMLElement(t, doc, "#branchroom-scope-name", true)
-		assert.Contains(t, doc.Find(".ui.warning.message").Text(), "Restricted source is kept separately from the ordinary repository")
+		assert.Contains(t, doc.Find(".help").Text(), "Restricted source is kept separately from the ordinary repository")
 
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, branchroomURL, map[string]string{"name": "security-fix"}), http.StatusSeeOther)
 
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		doc = NewHTMLParser(t, resp.Body)
-		assert.Contains(t, doc.Find(".item-title").Text(), "security-fix")
+		assert.Contains(t, doc.Find(".branchroom-workspace-name").Text(), "security-fix")
 
 		scopes, err := branchroom_model.FindScopesByRepoID(t.Context(), 1)
 		require.NoError(t, err)
 		require.Len(t, scopes, 1)
 		scope := scopes[0]
-		AssertHTMLElement(t, doc, "#branchroom-source-grant-user-"+strconv.FormatInt(scope.ID, 10), false)
-		AssertHTMLElement(t, doc, "#branchroom-source-write-grant-user-"+strconv.FormatInt(scope.ID, 10), false)
+		accessLevel := "#branchroom-access-level-" + strconv.FormatInt(scope.ID, 10)
+		AssertHTMLElement(t, doc, accessLevel+` option[value="read_source"]`, false)
+		AssertHTMLElement(t, doc, accessLevel+` option[value="write_source"]`, false)
 		AssertHTMLElement(t, doc, "#branchroom-route-key-rotate-"+strconv.FormatInt(scope.ID, 10), false)
 
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, workspacesURL, map[string]string{
@@ -133,7 +134,7 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		body := resp.Body.String()
 		assert.Contains(t, body, string(branchroom_model.WorkspaceStateReady))
-		assert.Contains(t, body, "Allows HTTPS pushes with clone access and Read on the repository")
+		assert.Contains(t, body, "Pushes can only create or fast-forward branchroom/* branches over HTTPS")
 		assert.NotContains(t, body, workspace.WorkspaceKey)
 		assert.NotContains(t, body, oldRouteKey)
 		assert.NotContains(t, body, workspace.RouteKey)
@@ -143,8 +144,8 @@ func TestBranchroomSettings(t *testing.T) {
 		assert.NotContains(t, body, gitrepo.RepoLocalPath(restricted))
 		doc = NewHTMLParser(t, resp.Body)
 		assert.Contains(t, doc.Find(".help").Text(), "Only people with permission to see and clone this workspace")
-		AssertHTMLElement(t, doc, "#branchroom-source-grant-user-"+strconv.FormatInt(scope.ID, 10), true)
-		AssertHTMLElement(t, doc, "#branchroom-source-write-grant-user-"+strconv.FormatInt(scope.ID, 10), true)
+		AssertHTMLElement(t, doc, accessLevel+` option[value="read_source"]`, true)
+		AssertHTMLElement(t, doc, accessLevel+` option[value="write_source"]`, true)
 		AssertHTMLElement(t, doc, "#branchroom-route-key-rotate-"+strconv.FormatInt(scope.ID, 10), true)
 
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, "/-/admin/users/2/impersonate"), http.StatusOK)
@@ -226,7 +227,7 @@ func TestBranchroomSettings(t *testing.T) {
 
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		doc = NewHTMLParser(t, resp.Body)
-		assert.Contains(t, doc.Find(".ui.list").Text(), "user4")
+		assert.Contains(t, doc.Find(".branchroom-access-table").Text(), "user4")
 		grants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, branchroom_model.ActionDiscover, 1)
 		require.NoError(t, err)
 		var userGrantID int64
@@ -240,7 +241,7 @@ func TestBranchroomSettings(t *testing.T) {
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/grants/"+strconv.FormatInt(userGrantID, 10)+"/revoke"), http.StatusSeeOther)
 
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
-		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".ui.list").Text(), "user4")
+		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".branchroom-access-table").Text(), "user4")
 
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceGrantsURL, map[string]string{
 			"scope_id": strconv.FormatInt(scope.ID, 10),
@@ -252,7 +253,7 @@ func TestBranchroomSettings(t *testing.T) {
 		assert.NotContains(t, body, workspace.StoreID)
 		assert.NotContains(t, body, gitrepo.RepoLocalPath(restricted))
 		doc = NewHTMLParser(t, resp.Body)
-		assert.Contains(t, doc.Find(".ui.list").Text(), "user4")
+		assert.Contains(t, doc.Find(".branchroom-access-table").Text(), "user4")
 		sourceGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, branchroom_model.ActionReadSource, timeutil.TimeStampNow())
 		require.NoError(t, err)
 		require.Len(t, sourceGrants, 1)
@@ -275,7 +276,7 @@ func TestBranchroomSettings(t *testing.T) {
 		assert.NotContains(t, body, workspace.StoreID)
 		assert.NotContains(t, body, gitrepo.RepoLocalPath(restricted))
 		doc = NewHTMLParser(t, resp.Body)
-		assert.Contains(t, doc.Find(".ui.list").Text(), "user4")
+		assert.Contains(t, doc.Find(".branchroom-access-table").Text(), "user4")
 		sourceWriteGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, branchroom_model.ActionWriteSource, timeutil.TimeStampNow())
 		require.NoError(t, err)
 		require.Len(t, sourceWriteGrants, 1)
@@ -286,12 +287,39 @@ func TestBranchroomSettings(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotZero(t, storedSourceWriteGrant.RevokedUnix)
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
-		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".ui.list").Text(), "user4")
+		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".branchroom-access-table").Text(), "user4")
+
+		// one access form sets the level: it adds the lower grants and takes away the higher ones
+		activeLevels := func() (levels []branchroom_model.Action) {
+			for _, action := range []branchroom_model.Action{branchroom_model.ActionDiscover, branchroom_model.ActionReadSource, branchroom_model.ActionWriteSource} {
+				grants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, action, timeutil.TimeStampNow())
+				require.NoError(t, err)
+				for _, grant := range grants {
+					if grant.SubjectType == branchroom_model.SubjectTypeUser && grant.SubjectID == 4 {
+						levels = append(levels, action)
+					}
+				}
+			}
+			return levels
+		}
+		setAccess := func(access string) {
+			owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, branchroomURL+"/access", map[string]string{
+				"scope_id": strconv.FormatInt(scope.ID, 10),
+				"username": "user4",
+				"access":   access,
+			}), http.StatusSeeOther)
+		}
+		setAccess("write_source")
+		assert.Equal(t, []branchroom_model.Action{branchroom_model.ActionDiscover, branchroom_model.ActionReadSource, branchroom_model.ActionWriteSource}, activeLevels())
+		setAccess("read_source")
+		assert.Equal(t, []branchroom_model.Action{branchroom_model.ActionDiscover, branchroom_model.ActionReadSource}, activeLevels())
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/people/4/revoke"), http.StatusSeeOther)
+		assert.Empty(t, activeLevels())
 
 		_, err = db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateRetired})
 		require.NoError(t, err)
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
-		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".item-title").Text(), "security-fix")
+		assert.NotContains(t, NewHTMLParser(t, resp.Body).Find(".branchroom-workspace-name").Text(), "security-fix")
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, grantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, sourceWriteGrantsURL, map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user5"}), http.StatusNotFound)
@@ -475,7 +503,7 @@ func TestBranchroomWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testi
 	branchroomURL := settingsURL + "/branchroom"
 	page = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 	html = NewHTMLParser(t, page.Body)
-	item := html.Find("#branchroom-workspace-purge-" + scopeID).Closest(".item-main")
+	item := html.Find("#branchroom-workspace-purge-" + scopeID).Closest(".branchroom-workspace")
 	require.Contains(t, item.Text(), "retained-store")
 	require.Equal(t, 1, item.Find("form").Length())
 	assert.Equal(t, branchroomURL+"/scopes/"+scopeID+"/workspaces/purge", item.Find("form").AttrOr("action", ""))

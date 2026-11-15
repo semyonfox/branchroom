@@ -19,25 +19,49 @@
   overflow-wrap: anywhere;
 }
 
-.branchroom .ui.button,
-.branchroom-source-handoffs .ui.button {
-  min-height: 44px;
-  min-width: 44px;
-}
-
-.branchroom .ui.primary.button {
-  background-color: var(--color-primary-hover);
-}
-
-.branchroom .ui.primary.button:hover {
-  background-color: var(--color-primary-active);
-}
-
 .branchroom .ui.form input:not([type="hidden"]),
 .branchroom .ui.form select,
 .branchroom-source-handoffs input {
-  min-height: 44px;
   min-width: 0;
+}
+
+.branchroom-workspace-name {
+  margin: 0;
+  font-size: 16px;
+}
+
+.branchroom-workspace .flex-text-block > form {
+  display: contents;
+}
+
+/* the submit sits on the same baseline as the inputs beside it */
+.branchroom-access-submit {
+  display: flex;
+  align-items: flex-end;
+}
+
+.branchroom .ui.table.branchroom-access-table {
+  margin-top: 12px;
+}
+
+/* optional fields open from a plain link, without the browser's disclosure triangle */
+.branchroom .repo-setting-content details > summary {
+  list-style: none;
+  cursor: pointer;
+  width: fit-content;
+  color: var(--color-primary);
+}
+
+.branchroom .repo-setting-content details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.branchroom .repo-setting-content details > summary:hover {
+  text-decoration: underline;
+}
+
+.branchroom .repo-setting-content details[open] > summary {
+  color: var(--color-text-light);
 }
 
 .branchroom-copy-status,
@@ -50,18 +74,21 @@
   color: var(--color-red);
 }
 
-.branchroom :focus,
-.branchroom .ui.form input:focus,
-.branchroom .ui.form select:focus,
-.branchroom .ui.button:focus,
-.branchroom-source-handoffs :focus,
-.branchroom-source-handoffs .ui.input input:focus,
-.branchroom-source-handoffs .ui.button:focus {
+.branchroom :focus-visible,
+.branchroom-source-handoffs :focus-visible {
   outline: 2px solid var(--color-text);
   outline-offset: 3px;
 }
 
 @media (max-width: 767.98px) {
+  /* touch targets on phones */
+  .branchroom .ui.button,
+  .branchroom-source-handoffs .ui.button,
+  .branchroom .ui.form :is(input:not([type="hidden"], [type="checkbox"]), select),
+  .branchroom-source-handoffs input {
+    min-height: 44px !important; /* the theme pins buttons to 32px with !important */
+  }
+
   .branchroom .ui.form input,
   .branchroom .ui.form select,
   .branchroom-source-handoffs input {

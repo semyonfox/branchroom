@@ -51,10 +51,12 @@ type branchroomScopeData struct {
 	SourceReadGrants      []branchroomDirectUserGrantData
 	SourceWriteGrants     []branchroomDirectUserGrantData
 	TeamGrants            []branchroomTeamGrantData
+	People                []branchroomPersonAccess
 }
 
 type branchroomDirectUserGrantData struct {
 	ID          int64
+	SubjectID   int64
 	SubjectName string
 	ExpiresUnix timeutil.TimeStamp
 	ExpiresSoon bool
@@ -224,6 +226,7 @@ func Branchroom(ctx *context.Context) {
 			}
 			data.DiscoveryGrants = append(data.DiscoveryGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
+				SubjectID:   grant.SubjectID,
 				ExpiresUnix: grant.ExpiresUnix,
 				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
 				SubjectName: subjectName,
@@ -236,6 +239,7 @@ func Branchroom(ctx *context.Context) {
 			}
 			data.SourceReadGrants = append(data.SourceReadGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
+				SubjectID:   grant.SubjectID,
 				ExpiresUnix: grant.ExpiresUnix,
 				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
 				SubjectName: subjectName,
@@ -248,6 +252,7 @@ func Branchroom(ctx *context.Context) {
 			}
 			data.SourceWriteGrants = append(data.SourceWriteGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
+				SubjectID:   grant.SubjectID,
 				ExpiresUnix: grant.ExpiresUnix,
 				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
 				SubjectName: subjectName,
@@ -266,6 +271,7 @@ func Branchroom(ctx *context.Context) {
 				Action:      grant.Action,
 			})
 		}
+		data.People = groupBranchroomPeople(data, now)
 		scopeData = append(scopeData, data)
 	}
 
@@ -507,25 +513,31 @@ func branchroomDirectUserGrantPost(ctx *context.Context, getForm func(ctx *conte
 
 	err := createGrant(ctx, ctx.Repo.Repository.ID, form.ScopeID, branchroom_service.ActorFromUser(ctx.Doer), form.Username, notBefore, expires)
 	if err != nil {
-		if errors.Is(err, util.ErrNotExist) {
-			ctx.NotFound()
+		if errors.Is(err, existsError) {
+			ctx.Flash.Error(ctx.Tr(existsMessage))
+			ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 			return
 		}
-		switch {
-		case errors.Is(err, existsError):
-			ctx.Flash.Error(ctx.Tr(existsMessage))
-		case errors.Is(err, branchroom_service.ErrGrantDurationExceeded):
-			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_duration_exceeded", setting.Branchroom.MaxGrantDuration.String()))
-		case errors.Is(err, util.ErrInvalidArgument):
-			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
-		default:
-			ctx.Flash.Error(ctx.Tr(failedMessage))
-		}
-		ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+		branchroomGrantCreateError(ctx, err, failedMessage)
 		return
 	}
 
 	ctx.Flash.Success(ctx.Tr(successMessage))
+	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
+}
+
+func branchroomGrantCreateError(ctx *context.Context, err error, failedMessage string) {
+	switch {
+	case errors.Is(err, util.ErrNotExist):
+		ctx.NotFound()
+		return
+	case errors.Is(err, branchroom_service.ErrGrantDurationExceeded):
+		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_duration_exceeded", setting.Branchroom.MaxGrantDuration.String()))
+	case errors.Is(err, util.ErrInvalidArgument):
+		ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
+	default:
+		ctx.Flash.Error(ctx.Tr(failedMessage))
+	}
 	ctx.Redirect(ctx.Repo.RepoLink + "/settings/branchroom")
 }
 

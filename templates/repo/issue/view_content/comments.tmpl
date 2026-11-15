@@ -226,8 +226,7 @@
 				{{template "repo/issue/view_content/comments_avatarlink" dict "comment" .}}
 				<span class="comment-text-line">
 					{{template "repo/issue/view_content/comments_authorlink" dict "comment" .}}
-					{{$oldRef := HTMLFormat `<span class="tw-line-through">%s</span>` .OldRef}}
-					{{ctx.Locale.Tr "repo.issues.delete_branch_at" $oldRef $createdStr}}
+					{{ctx.Locale.Tr "repo.issues.delete_branch_at" .OldRef $createdStr}}
 				</span>
 			</div>
 		{{else if eq .Type 12}}
