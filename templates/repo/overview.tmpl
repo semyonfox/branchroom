@@ -1,35 +1,40 @@
-<section class="repo-overview-summary repo-overview-card" aria-labelledby="repo-overview-name">
-	<div class="repo-overview-about">
-		<h1 id="repo-overview-name">{{.Repository.Name}}</h1>
+<div class="repo-overview-layout">
+<div class="repo-overview-main">
+{{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
+<section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
+	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
+		{{if and .IsSigned .CanEditReadmeFile (.Permission.CanWrite ctx.Consts.RepoUnitTypeCode)}}<a href="{{.RepoLink}}/_edit/{{PathEscapeSegments .BranchName}}/{{PathEscapeSegments .FileTreePath}}">{{ctx.Locale.Tr "edit"}}</a>{{end}}
+	</div>
+	<input id="repo-overview-readme-expand" class="repo-overview-readme-toggle" type="checkbox" aria-controls="repo-overview-readme-body">
+	<div id="repo-overview-readme-body" class="repo-overview-readme-body non-diff-file-content" data-global-init="initRepoFileView" data-raw-file-link="{{.RawFileLink}}"><div class="markup {{.MarkupType}}">{{if .RenderAsMarkup}}{{.FileContent}}{{else}}<pre>{{.FileContent}}</pre>{{end}}</div></div>
+	<label for="repo-overview-readme-expand" class="repo-overview-readme-more"><span class="repo-overview-readme-show">{{ctx.Locale.Tr "repo.overview.full_readme"}}</span><span class="repo-overview-readme-hide">{{ctx.Locale.Tr "repo.overview.less_readme"}}</span></label>
+</section>
+{{end}}
+<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
+	{{template "repo/view_content" .}}
+</section>
+</div>
+
+<aside class="repo-overview-side" aria-label="{{ctx.Locale.Tr "repo.overview.about"}}">
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.about"}}</h2>
 		{{if .Repository.Description}}<div class="repo-overview-description">{{.Repository.DescriptionHTML ctx}}</div>{{end}}
-		<div class="repo-overview-facts">
+		<ul class="repo-overview-facts">
 			{{if .LatestCommitStatus}}
-				<a class="repo-overview-status status-{{.LatestCommitStatus.State}}" href="{{.RepoLink}}/commit/{{.CommitID}}">
-					<span class="repo-overview-dot" aria-hidden="true"></span>
-					{{.Repository.DefaultBranch}} {{ctx.Locale.Tr (printf "repo.overview.ci.%s" .LatestCommitStatus.State)}}
-				</a>
+				<li><a class="repo-overview-status status-{{.LatestCommitStatus.State}}" href="{{.RepoLink}}/commit/{{.CommitID}}"><span class="repo-overview-dot" aria-hidden="true"></span>{{.Repository.DefaultBranch}} {{ctx.Locale.Tr (printf "repo.overview.ci.%s" .LatestCommitStatus.State)}}</a></li>
 			{{end}}
-			{{if .LatestRelease}}
-				<a class="repo-overview-release" href="{{.LatestRelease.Link}}"><span class="repo-overview-dot" aria-hidden="true"></span>{{.LatestRelease.TagName}} <span class="muted">· {{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</span></a>
+			{{if .OverviewLastPush}}<li>{{svg "octicon-history"}} {{ctx.Locale.Tr "repo.overview.last_push"}} {{DateUtils.TimeSince .OverviewLastPush}}</li>{{end}}
+			{{if .Repository.Website}}<li><a href="{{.Repository.Website}}">{{svg "octicon-link"}} {{.Repository.Website}}</a></li>{{end}}
+			{{range $group := .LicenseGroups}}<li><a href="{{$.RepoLink}}/src/{{$.RefTypeNameSubURL}}/{{PathEscapeSegments $group.LicensePath}}">{{svg "octicon-law"}} {{StringUtils.Join $group.LicenseNames ", "}}</a></li>{{end}}
+			{{if .CitationFileName}}
+				<li>{{template "repo/cite/cite_modal" .}}<a class="show-modal" href="#" data-modal="#cite-repo-modal">{{svg "octicon-cross-reference"}} {{ctx.Locale.Tr "repo.cite_this_repo"}}</a></li>
 			{{end}}
-			{{if .OverviewLastPush}}<span>{{ctx.Locale.Tr "repo.overview.last_push"}} {{DateUtils.TimeSince .OverviewLastPush}}</span>{{end}}
-			{{with .LanguageStats}}<span>{{(index . 0).Language}}</span>{{end}}
-			{{range $group := .LicenseGroups}}<a href="{{$.RepoLink}}/src/{{$.RefTypeNameSubURL}}/{{PathEscapeSegments $group.LicensePath}}">{{StringUtils.Join $group.LicenseNames ", "}}</a>{{end}}
-		</div>
-		{{if .OverviewMaintainers}}
-			<div class="repo-overview-maintainers"><span class="muted">{{ctx.Locale.Tr "repo.overview.maintained_by"}}</span>
-				{{range $user := .OverviewMaintainers}}<a class="flex-text-inline" href="{{$user.HomeLink}}">{{ctx.AvatarUtils.Avatar $user 20}}{{$user.Name}}</a>{{end}}
-			</div>
-		{{end}}
-		{{if .OverviewAgentCount}}<p class="repo-overview-agents">{{ctx.Locale.TrN .OverviewAgentCount "repo.overview.agent_one" "repo.overview.agent_many" .OverviewAgentCount}}</p>{{end}}
-		<div class="repo-overview-topics muted-links">
+			{{if not .DisableStars}}<li><a href="{{.RepoLink}}/stars">{{svg "octicon-star"}} {{CountFmt .Repository.NumStars}} {{ctx.Locale.TrN .Repository.NumStars "repo.star" "repo.stars"}}</a></li>{{end}}
+			<li><a href="{{.RepoLink}}/forks">{{svg "octicon-repo-forked"}} {{CountFmt .Repository.NumForks}} {{ctx.Locale.TrN .Repository.NumForks "repo.fork" "repo.forks"}}</a></li>
+		</ul>
+		<div class="repo-overview-topics">
 			{{/* the topic links must match initRepoTopicBar in repo-home.ts */}}
 			<span id="repo-topics" class="tw-contents">{{range $topic := .Topics}}<a class="repo-topic" href="{{AppSubUrl}}/explore/repos?q={{$topic.Name}}&topic=1">{{$topic.Name}}</a>{{end}}</span>
-			{{if .Repository.Website}}<a href="{{.Repository.Website}}">{{.Repository.Website}}</a>{{end}}
-			{{if .CitationFileName}}
-				{{template "repo/cite/cite_modal" .}}
-				<a class="show-modal" href="#" data-modal="#cite-repo-modal">{{ctx.Locale.Tr "repo.cite_this_repo"}}</a>
-			{{end}}
 			{{if and .Permission.IsAdmin (not .Repository.IsArchived)}}
 				<button type="button" id="manage_topic" class="btn interact-fg">{{ctx.Locale.Tr "repo.topic.manage_topics"}}</button>
 			{{end}}
@@ -50,30 +55,48 @@
 				</div>
 			</div>
 		{{end}}
-	</div>
-	<div class="repo-overview-start">
+	</section>
+
+	<section class="repo-overview-section">
 		<h2>{{ctx.Locale.Tr "repo.overview.start_here"}}</h2>
-		{{$clone := .CloneButtonOriginLink}}
-		{{if $clone.SupportHTTPS}}
-			<div class="repo-overview-command"><code>git clone {{$clone.HTTPS}}</code><button type="button" class="btn interact-fg" data-clipboard-text="git clone {{$clone.HTTPS}}" aria-label="{{ctx.Locale.Tr "copy"}} HTTPS">{{svg "octicon-copy" 16}}</button></div>
-		{{end}}
-		{{if $clone.SupportSSH}}
-			<div class="repo-overview-command"><code>git clone {{$clone.SSH}}</code><button type="button" class="btn interact-fg" data-clipboard-text="git clone {{$clone.SSH}}" aria-label="{{ctx.Locale.Tr "copy"}} SSH">{{svg "octicon-copy" 16}}</button></div>
-		{{end}}
-		{{if .OverviewAgentFile}}<p>{{ctx.Locale.Tr "repo.overview.agents_start"}} <a href="{{.RepoLink}}/src/{{.RefTypeNameSubURL}}/{{.OverviewAgentFile}}">{{.OverviewAgentFile}}</a></p>{{end}}
-		<p class="repo-overview-mcp"><span>MCP <code>{{AppSubUrl}}/api/mcp</code></span><a href="https://github.com/semyonfox/branchroom/blob/main/docs/branchroom/mcp.md">{{ctx.Locale.Tr "repo.overview.mcp_docs"}}</a></p>
-	</div>
-</section>
-{{if and .ReadmeExist (or .RenderAsMarkup .IsPlainText)}}
-<section id="readme" class="repo-overview-readme repo-overview-card" aria-label="{{ctx.Locale.Tr "readme"}}">
-	<div class="repo-overview-card-heading"><h2>{{ctx.Locale.Tr "readme"}}</h2>
-		{{if and .IsSigned .CanEditReadmeFile (.Permission.CanWrite ctx.Consts.RepoUnitTypeCode)}}<a href="{{.RepoLink}}/_edit/{{PathEscapeSegments .BranchName}}/{{PathEscapeSegments .FileTreePath}}">{{ctx.Locale.Tr "edit"}}</a>{{end}}
-	</div>
-	<input id="repo-overview-readme-expand" class="repo-overview-readme-toggle" type="checkbox" aria-controls="repo-overview-readme-body">
-	<div id="repo-overview-readme-body" class="repo-overview-readme-body non-diff-file-content" data-global-init="initRepoFileView" data-raw-file-link="{{.RawFileLink}}"><div class="markup {{.MarkupType}}">{{if .RenderAsMarkup}}{{.FileContent}}{{else}}<pre>{{.FileContent}}</pre>{{end}}</div></div>
-	<label for="repo-overview-readme-expand" class="repo-overview-readme-more"><span class="repo-overview-readme-show">{{ctx.Locale.Tr "repo.overview.full_readme"}}</span><span class="repo-overview-readme-hide">{{ctx.Locale.Tr "repo.overview.less_readme"}}</span></label>
-</section>
-{{end}}
-<section class="repo-overview-files repo-overview-card" aria-label="{{ctx.Locale.Tr "repo.overview.files"}}">
-	{{template "repo/view_content" .}}
-</section>
+		{{template "repo/clone_buttons" dict "CloneButtonOriginLink" .CloneButtonOriginLink}}
+		<ul class="repo-overview-links">
+			{{if .DownloadArchiveLinkPrefix}}<li><a href="{{.DownloadArchiveLinkPrefix}}.zip" rel="nofollow">{{svg "octicon-file-zip"}} {{ctx.Locale.Tr "repo.download_zip"}}</a></li>{{end}}
+			{{if .OverviewAgentFile}}<li><a href="{{.RepoLink}}/src/{{.RefTypeNameSubURL}}/{{.OverviewAgentFile}}">{{svg "octicon-dependabot"}} {{ctx.Locale.Tr "repo.overview.agents_start"}} {{.OverviewAgentFile}}</a></li>{{end}}
+			<li class="repo-overview-mcp">{{svg "octicon-plug"}} <span>MCP <code>{{AppSubUrl}}/api/mcp</code></span> <a href="https://github.com/semyonfox/branchroom/blob/main/docs/branchroom/mcp.md">{{ctx.Locale.Tr "repo.overview.mcp_docs"}}</a></li>
+		</ul>
+	</section>
+
+	{{if .LatestRelease}}
+	<section class="repo-overview-section">
+		<h2><a href="{{.RepoLink}}/releases">{{ctx.Locale.Tr "repo.releases"}}</a> {{if .NumReleases}}<span class="repo-overview-count">{{CountFmt .NumReleases}}</span>{{end}}</h2>
+		<a class="repo-overview-release" href="{{.LatestRelease.Link}}">
+			{{svg "octicon-tag"}}
+			<span><strong>{{.LatestRelease.Title}}</strong> {{template "repo/release/label" (dict "Release" .LatestRelease "IsLatest" (not .LatestRelease.IsPrerelease))}}<br><span class="muted">{{.LatestRelease.TagName}} · {{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</span></span>
+		</a>
+	</section>
+	{{end}}
+
+	{{if or .OverviewMaintainers .OverviewAgentCount}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.overview.maintainers"}}</h2>
+		<ul class="repo-overview-people">
+			{{range $user := .OverviewMaintainers}}<li><a class="flex-text-inline" href="{{$user.HomeLink}}">{{ctx.AvatarUtils.Avatar $user 20}}{{$user.Name}}</a></li>{{end}}
+		</ul>
+		{{if .OverviewAgentCount}}<p class="repo-overview-agents">{{svg "octicon-dependabot"}} {{ctx.Locale.TrN .OverviewAgentCount "repo.overview.agent_one" "repo.overview.agent_many" .OverviewAgentCount}}</p>{{end}}
+	</section>
+	{{end}}
+
+	{{if and (not .IsEmptyRepo) .LanguageStats}}
+	<section class="repo-overview-section">
+		<h2>{{ctx.Locale.Tr "repo.repo_lang"}}</h2>
+		<div class="language-stats">
+			{{range .LanguageStats}}<div class="bar" style="width: {{.Percentage}}%; background-color: {{.Color}}" data-tooltip-content="{{.Language}}" data-tooltip-follow-cursor="horizontal"></div>{{end}}
+		</div>
+		<div class="language-stats-details">
+			{{range .LanguageStats}}<div class="item"><i class="color-icon" style="background-color: {{.Color}}"></i><strong class="tw-font-semibold">{{Iif (eq .Language "other") (ctx.Locale.Tr "repo.language_other") .Language}}</strong> {{.Percentage}}%</div>{{end}}
+		</div>
+	</section>
+	{{end}}
+</aside>
+</div>
