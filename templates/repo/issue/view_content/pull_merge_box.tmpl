@@ -11,7 +11,7 @@
 	<div class="content">
 		<div class="ui segment fitted avatar-content-left-arrow">
 			<div class="merge-section flex-divided-list items-px-default">
-				{{$ready := and $.Conversation (eq $.Conversation.Next.Tone "ready")}}
+				{{$ready := and $.Conversation (eq $.Conversation.Next.Key "repo.conversation.ready")}}
 				{{if $data.MergeFormProps}}{{template "repo/issue/view_content/merge_actions" dict "Props" $data.MergeFormProps "IsAdmin" $.IsRepoAdmin "Ready" $ready}}{{end}}
 				<details class="item forge-other-merge" {{if not $ready}}open{{end}}><summary>{{ctx.Locale.Tr "repo.conversation.merge_requirements"}}</summary>
 			{{if $data.ShowStatusCheck}}

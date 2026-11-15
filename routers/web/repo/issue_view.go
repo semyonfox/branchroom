@@ -454,6 +454,20 @@ func ViewPullMergeBox(ctx *context.Context) {
 	if ctx.Written() {
 		return
 	}
+	if err := issue.LoadPoster(ctx); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	pageMetaData := &IssuePageMetaData{Repository: ctx.Repo.Repository, Issue: issue, ReviewersData: &issueSidebarReviewersData{}}
+	pageMetaData.retrieveReviewersData(ctx)
+	if ctx.Written() {
+		return
+	}
+	prepareIssueConversation(ctx, issue, pageMetaData, prViewInfo)
+	if ctx.Written() {
+		return
+	}
+
 	ctx.Data["PullMergeBoxReloading"] = issue.PullRequest.IsChecking()
 	ctx.Data["IsRepoAdmin"] = ctx.Repo.Permission.IsAdmin()
 

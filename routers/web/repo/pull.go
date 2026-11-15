@@ -520,13 +520,18 @@ func (d *pullCommitStatusCheckData) CommitStatusCheckPrompt(locale translation.L
 		return locale.TrString("repo.pulls.status_checking")
 	} else if d.RequiredChecksState.IsSuccess() {
 		if d.pullCommitStatusState.IsFailure() {
-			return locale.TrString("repo.pulls.status_checks_failure_optional")
+			return locale.TrString("repo.pulls.status_checks_failure")
 		}
 		return locale.TrString("repo.pulls.status_checks_success")
 	} else if d.RequiredChecksState.IsWarning() {
 		return locale.TrString("repo.pulls.status_checks_warning")
 	} else if d.RequiredChecksState.IsFailure() {
-		return locale.TrString("repo.pulls.status_checks_failure_required")
+		for _, status := range d.PullCommitStatuses {
+			if status.State.IsFailure() && d.IsContextRequired != nil && d.IsContextRequired(status.Context) {
+				return locale.TrString("repo.pulls.status_checks_failure_required")
+			}
+		}
+		return locale.TrString("repo.pulls.status_checks_failure")
 	} else if d.RequiredChecksState.IsError() {
 		return locale.TrString("repo.pulls.status_checks_error")
 	}
