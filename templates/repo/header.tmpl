@@ -63,8 +63,7 @@
 			{{if not (or .Repository.IsBeingCreated .Repository.IsBroken)}}
 				<div class="forge-repo-tabs">
 					{{if .Permission.CanRead ctx.Consts.RepoUnitTypeCode}}
-						<a class="{{if .PageIsRepoOverview}}active {{end}}item" href="{{.RepoLink}}?view=overview">{{ctx.Locale.Tr "forge.overview"}}</a>
-						<a class="{{if and .PageIsViewCode (not .PageIsRepoOverview)}}active {{end}}item" href="{{.RepoLink}}/src/branch/{{PathEscapeSegments .Repository.DefaultBranch}}?view=code" data-shortcut-keys="g c">{{ctx.Locale.Tr "repo.code"}}</a>
+						<a class="{{if .PageIsViewCode}}active {{end}}item" href="{{.RepoLink}}" data-shortcut-keys="g c">{{ctx.Locale.Tr "repo.code"}}</a>
 					{{end}}
 
 					{{if .Permission.CanRead ctx.Consts.RepoUnitTypeIssues}}
@@ -96,7 +95,7 @@
 						<a class="{{if .PageIsActions}}active{{end}} item" href="{{.RepoLink}}/actions" data-shortcut-keys="g a">
 							{{svg "octicon-play"}} {{ctx.Locale.Tr "actions.actions"}}
 							{{if .Repository.NumOpenActionRuns}}
-								<span class="forge-tab-count">{{CountFmt .Repository.NumOpenActionRuns}}</span>
+								<span class="forge-tab-count" data-tooltip-content="{{ctx.Locale.Tr "repo.actions.unfinished_runs"}}" aria-label="{{CountFmt .Repository.NumOpenActionRuns}} {{ctx.Locale.Tr "repo.actions.unfinished_runs"}}">{{CountFmt .Repository.NumOpenActionRuns}}</span>
 							{{end}}
 						</a>
 					{{end}}

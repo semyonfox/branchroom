@@ -1,0 +1,203 @@
+.forge-home-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr) 220px;
+  gap: 32px;
+  padding-block: 32px;
+}
+
+.forge-home-repos,
+.forge-home-main,
+.forge-home-discover {
+  min-width: 0;
+}
+
+.forge-home-repos .flex-container-sidebar {
+  width: 100%;
+  margin: 0;
+}
+
+.forge-home-heading,
+.forge-home-work-meta,
+.forge-home-work-links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forge-home-heading {
+  margin-bottom: 16px;
+}
+
+.forge-home h1,
+.forge-home h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.forge-home h3 {
+  font-size: 13px;
+  margin-top: 24px;
+}
+
+.forge-home-heading > a,
+.forge-home-work-links,
+.forge-home-work-meta,
+.forge-home-discover,
+.forge-home-update-list {
+  font-size: 13px;
+}
+
+.forge-home-work {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.forge-home-work-card,
+.forge-home-empty {
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  background: var(--color-box-body);
+  padding: 14px;
+}
+
+.forge-home-work-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.forge-home-work-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+
+.forge-home-work-title > .svg {
+  flex: none;
+}
+
+.forge-home-work-meta {
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.forge-home-repo-chip,
+.forge-home-branch {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.forge-home-repo-chip {
+  color: var(--color-text-light);
+}
+
+.forge-home-state {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  padding: 2px 6px;
+  border-radius: var(--border-radius);
+  white-space: nowrap;
+}
+
+.forge-home-state-conflicts,
+.forge-home-state-checks_failing,
+.forge-home-state-changes_requested {
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+}
+
+.forge-home-state-ready {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.forge-home-work-links {
+  margin-top: 12px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.forge-home-empty {
+  grid-column: 1 / -1;
+}
+
+.forge-home-updates {
+  margin-top: 36px;
+}
+
+.forge-home-update-list,
+.forge-home-discover ul {
+  padding: 0;
+  margin: 12px 0 24px;
+  list-style: none;
+}
+
+.forge-home-update-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-block: 14px;
+  border-bottom: 1px solid var(--color-secondary);
+}
+
+.forge-home-update-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.forge-home-update-content a {
+  color: var(--color-text);
+}
+
+.forge-home-update-time {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.forge-home-discover li {
+  padding-block: 10px;
+  overflow-wrap: anywhere;
+}
+
+.forge-home-discover p {
+  margin-block: 4px 0;
+}
+
+@media (width <= 1200px) {
+  .forge-home-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .forge-home-discover {
+    grid-column: 2;
+  }
+}
+
+@media (width <= 767px) {
+  .forge-home-layout {
+    display: flex;
+    flex-direction: column;
+    padding-block: 20px;
+  }
+
+  .forge-home-main {
+    order: -1;
+  }
+
+  .forge-home-work {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .forge-home-heading {
+    flex-wrap: wrap;
+  }
+}

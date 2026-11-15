@@ -5,10 +5,17 @@ package user
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
+	activities_model "gitea.dev/models/activities"
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/commitstatus"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
 	"gitea.dev/services/context"
@@ -112,4 +119,64 @@ func TestDashboardPagination(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Contains(t, out, `<a class=" item navigation" href="`+subURL+`/?page=2">`)
 	}
+}
+
+func TestHomeDashboard(t *testing.T) {
+	assert.NoError(t, unittest.LoadFixtures())
+	ctx, _ := contexttest.MockContext(t, "/")
+	contexttest.LoadUser(t, ctx, 2)
+	Home(ctx)
+	assert.Equal(t, http.StatusOK, ctx.Resp.WrittenStatus())
+	assert.NotContains(t, ctx.Data, "HeatmapURL")
+	action := &activities_model.Action{UserID: 2, ActUserID: 2, RepoID: 1, OpType: activities_model.ActionCreateIssue, Content: "1|Issue title"}
+	assert.NoError(t, db.Insert(ctx, action))
+	assert.NoError(t, prepareHomeUpdates(ctx))
+	updates, ok := ctx.Data["HomeUpdates"].([]homeUpdate)
+	assert.True(t, ok)
+	assert.True(t, slices.ContainsFunc(updates, func(update homeUpdate) bool { return update.Action.ID == action.ID }))
+	_, err := db.GetEngine(ctx).Where("repo_id = ? AND type = ?", 1, unit.TypeIssues).Delete(new(repo_model.RepoUnit))
+	assert.NoError(t, err)
+	assert.NoError(t, prepareHomeUpdates(ctx))
+	updates, ok = ctx.Data["HomeUpdates"].([]homeUpdate)
+	assert.True(t, ok)
+	assert.False(t, slices.ContainsFunc(updates, func(update homeUpdate) bool { return update.Action.ID == action.ID }))
+	cards, ok := ctx.Data["HomeWork"].([]homeWorkCard)
+	assert.True(t, ok)
+	for _, card := range cards {
+		assert.False(t, card.Issue.IsClosed)
+		assert.NotNil(t, card.Issue.Repo)
+		if card.Issue.IsPull {
+			assert.Equal(t, ctx.Doer.ID, card.Issue.PosterID)
+		} else {
+			assert.True(t, slices.ContainsFunc(card.Issue.Assignees, func(user *user_model.User) bool { return user.ID == ctx.Doer.ID }))
+		}
+	}
+}
+
+func TestHomeWorkAndUpdates(t *testing.T) {
+	pr := &issues_model.PullRequest{IssueID: 1, Status: issues_model.PullRequestStatusMergeable, Issue: &issues_model.Issue{Title: "Fix tide dates"}}
+	reviews := []*issues_model.Review{
+		{IssueID: 1, ReviewerID: 2, Type: issues_model.ReviewTypeReject},
+		{IssueID: 1, ReviewerID: 2, Type: issues_model.ReviewTypeApprove},
+	}
+	assert.Equal(t, "changes_requested", homePullState(pr, commitstatus.CommitStatusSuccess, reviews))
+	assert.Equal(t, "checks_failing", homePullState(pr, commitstatus.CommitStatusFailure, nil))
+	assert.Equal(t, "checks_pending", homePullState(pr, "", nil))
+	assert.Equal(t, "ready", homePullState(pr, commitstatus.CommitStatusSuccess, nil))
+	assert.Equal(t, "review_requested", homePullState(pr, commitstatus.CommitStatusSuccess, []*issues_model.Review{{IssueID: 1, Type: issues_model.ReviewTypeRequest}}))
+
+	pr.Status = issues_model.PullRequestStatusConflict
+	assert.Equal(t, "conflicts", homePullState(pr, commitstatus.CommitStatusSuccess, nil))
+	pr.Status = issues_model.PullRequestStatusChecking
+	assert.Equal(t, "checks_passing", homePullState(pr, commitstatus.CommitStatusSuccess, nil))
+
+	repository := &repo_model.Repository{ID: 1}
+	actor := &user_model.User{ID: 2}
+	push := &activities_model.Action{RepoID: 1, Repo: repository, ActUser: actor, OpType: activities_model.ActionCommitRepo}
+	merged := &activities_model.Action{RepoID: 1, Repo: repository, ActUser: actor, OpType: activities_model.ActionMergePullRequest}
+	updates := groupHomeUpdates(activities_model.ActionList{push, push, push, merged, push})
+	assert.Len(t, updates, 3)
+	assert.Equal(t, 3, updates[0].Pushes)
+	assert.Same(t, merged, updates[1].Action)
+	assert.Equal(t, 1, updates[2].Pushes)
 }

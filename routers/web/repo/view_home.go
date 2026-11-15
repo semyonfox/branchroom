@@ -475,10 +475,7 @@ func Home(ctx *context.Context) {
 		return
 	}
 
-	prepareRepoHomeView(ctx)
-	if ctx.Written() {
-		return
-	}
+	ctx.Data["PageIsRepoOverview"] = strings.TrimSuffix(ctx.Req.URL.Path, "/") == ctx.Repo.RepoLink
 	prepareHomeTreeSideBarSwitch(ctx)
 
 	// get the current git entry which doer user is currently looking at.
