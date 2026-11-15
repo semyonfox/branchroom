@@ -1,0 +1,118 @@
+// Copyright 2026 The Gitea Authors. All rights reserved.
+// SPDX-License-Identifier: MIT
+
+package inbox
+
+import (
+	"context"
+
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
+	perm_model "gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git"
+	api "gitea.dev/modules/structs"
+	"gitea.dev/services/gitdiff"
+	pull_service "gitea.dev/services/pull"
+
+	"xorm.io/builder"
+)
+
+func maintainedRepos(doer *user_model.User) builder.Cond {
+	return builder.In("issue.repo_id", maintainedRepoIDs(doer))
+}
+
+func maintainedRepoIDs(doer *user_model.User) *builder.Builder {
+	cond := builder.NewCond()
+	if !doer.IsAdmin {
+		codeRepos := builder.Select("repo_id").From("repo_unit").Where(builder.Eq{"type": unit.TypeCode})
+		teams := builder.Select("team_repo.repo_id").From("team_repo").
+			InnerJoin("team_user", "team_user.team_id = team_repo.team_id").
+			InnerJoin("team", "team.id = team_repo.team_id").
+			LeftJoin("team_unit", builder.Expr("team_unit.team_id = team.id AND team_unit.type = ?", unit.TypeCode)).
+			Where(builder.Eq{"team_user.uid": doer.ID}.And(builder.Or(builder.Gte{"team.authorize": perm_model.AccessModeAdmin}, builder.Or(builder.Gte{"team.authorize": perm_model.AccessModeWrite}, builder.Gte{"team_unit.access_mode": perm_model.AccessModeWrite}).And(builder.In("team_repo.repo_id", codeRepos)))))
+		collaborators := builder.Select("repo_id").From("collaboration").Where(builder.Eq{"user_id": doer.ID}.And(builder.Or(builder.Gte{"mode": perm_model.AccessModeAdmin}, builder.Gte{"mode": perm_model.AccessModeWrite}.And(builder.In("repo_id", codeRepos)))))
+		cond = builder.Or(builder.Eq{"owner_id": doer.ID}, builder.In("id", collaborators), builder.In("id", teams))
+	}
+	return builder.Select("id").From("repository").Where(cond)
+}
+
+func GetViews(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
+	result, err := get(ctx, doer, []string{"decision", "blocked", "triage", "yours", "agents", "mentions", "snoozed", "done"})
+	if err != nil {
+		return nil, err
+	}
+	needs := api.InboxGroup{Kind: "needs", Items: []api.InboxItem{}}
+	seen := map[int64]bool{}
+	for _, group := range result.Groups[:2] {
+		for _, item := range group.Items {
+			if !seen[item.ID] && len(needs.Items) < groupLimit {
+				needs.Items = append(needs.Items, item)
+				seen[item.ID] = true
+			}
+		}
+	}
+	needs.Count = len(needs.Items)
+	result.Groups = append([]api.InboxGroup{needs}, result.Groups[2:]...)
+	result.CanTriage, err = canTriage(ctx, doer)
+	return result, err
+}
+
+func canTriage(ctx context.Context, doer *user_model.User) (bool, error) {
+	return db.GetEngine(ctx).Where(builder.In("id", maintainedRepoIDs(doer))).Exist(new(repo_model.Repository))
+}
+
+func triageDetails(ctx context.Context, issue *issues_model.Issue, item *api.InboxItem, readiness *pull_service.Readiness) error {
+	if err := issue.LoadPoster(ctx); err != nil {
+		return err
+	}
+	p, err := access_model.GetDoerRepoPermission(ctx, issue.Repo, issue.Poster)
+	if err != nil {
+		return err
+	}
+	item.Trust = "contributor"
+	if p.IsAdmin() || p.CanWrite(unit.TypeCode) {
+		item.Trust = "maintainer"
+	} else if p.IsMemberOrCollaborator() {
+		item.Trust = "collaborator"
+	} else if issue.IsPull {
+		merged, err := issues_model.HasMergedPullRequestInRepo(ctx, issue.RepoID, issue.PosterID)
+		if err != nil {
+			return err
+		}
+		if !merged {
+			item.Trust = "first-time contributor"
+		}
+	}
+	if issue.IsPull && readiness != nil {
+		gitRepo, closer, err := git.RepositoryFromContextOrOpen(ctx, issue.Repo)
+		if err != nil {
+			return err
+		}
+		defer closer.Close()
+		stat, err := gitdiff.GetDiffShortStat(ctx, gitRepo, &gitdiff.DiffCommonOptions{BeforeCommitID: issue.PullRequest.MergeBase, AfterCommitID: readiness.HeadSHA})
+		if err != nil {
+			return err
+		}
+		item.Size = sizeLabel(stat.TotalAddition + stat.TotalDeletion)
+	}
+	return nil
+}
+
+func sizeLabel(lines int) string {
+	switch {
+	case lines < 10:
+		return "XS"
+	case lines < 30:
+		return "S"
+	case lines < 100:
+		return "M"
+	case lines < 500:
+		return "L"
+	default:
+		return "XL"
+	}
+}

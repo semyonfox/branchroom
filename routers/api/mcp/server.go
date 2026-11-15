@@ -132,8 +132,11 @@ func result(text string, err error) (*mcp.CallToolResult, any, error) {
 
 func newServer(c *client) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "Branchroom", Version: "1.0.0"}, nil)
-	mcp.AddTool(s, &mcp.Tool{Name: "inbox", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Get your review decisions, blocked work, agent activity and unread mentions."}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		text, err := c.json(ctx, "GET", "/api/v1/user/inbox", nil)
+	mcp.AddTool(s, &mcp.Tool{Name: "inbox", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Get your review decisions, blocked work, agent activity and unread mentions."}, func(ctx context.Context, _ *mcp.CallToolRequest, a struct {
+		View string `json:"view,omitempty" jsonschema:"Inbox view: needs, triage, yours, agents, mentions, snoozed or done"`
+	},
+	) (*mcp.CallToolResult, any, error) {
+		text, err := c.json(ctx, "GET", "/api/v1/user/inbox?view="+url.QueryEscape(a.View), nil)
 		return result(text, err)
 	})
 

@@ -22224,9 +22224,55 @@
         ],
         "summary": "Get review decisions, blocked work, agent activity and unread mentions",
         "operationId": "userGetInbox",
+        "parameters": [
+          {
+            "enum": [
+              "needs",
+              "triage",
+              "yours",
+              "agents",
+              "mentions",
+              "snoozed",
+              "done"
+            ],
+            "type": "string",
+            "name": "view",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/responses/Inbox"
+          },
+          "default": {
+            "$ref": "#/responses/error"
+          }
+        }
+      }
+    },
+    "/user/inbox/state": {
+      "post": {
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "user"
+        ],
+        "summary": "Apply a bulk inbox action with a result for each item",
+        "operationId": "userSetInboxState",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/InboxStateOptions"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/responses/InboxStateResults"
           },
           "default": {
             "$ref": "#/responses/error"
@@ -29995,6 +30041,10 @@
       "type": "object",
       "title": "Inbox contains bounded groups of work needing the current user's attention.",
       "properties": {
+        "can_triage": {
+          "type": "boolean",
+          "x-go-name": "CanTriage"
+        },
         "groups": {
           "type": "array",
           "items": {
@@ -30072,9 +30122,23 @@
         "agent": {
           "$ref": "#/definitions/InboxAgent"
         },
+        "checks": {
+          "type": "string",
+          "x-go-name": "Checks"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "x-go-name": "CreatedAt"
+        },
         "html_url": {
           "type": "string",
           "x-go-name": "HTMLURL"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
         },
         "index": {
           "type": "integer",
@@ -30093,14 +30157,60 @@
           "type": "string",
           "x-go-name": "Repo"
         },
+        "size": {
+          "type": "string",
+          "x-go-name": "Size"
+        },
         "title": {
           "type": "string",
           "x-go-name": "Title"
+        },
+        "trust": {
+          "type": "string",
+          "x-go-name": "Trust"
         },
         "updated_at": {
           "type": "string",
           "format": "date-time",
           "x-go-name": "UpdatedAt"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "InboxStateOptions": {
+      "type": "object",
+      "title": "InboxStateOptions applies one action to at most 100 issue IDs.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "x-go-name": "Action"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-go-name": "Items"
+        },
+        "reason": {
+          "type": "string",
+          "x-go-name": "Reason"
+        }
+      },
+      "x-go-package": "gitea.dev/modules/structs"
+    },
+    "InboxStateResult": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "x-go-name": "Error"
+        },
+        "id": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ID"
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
@@ -34685,6 +34795,15 @@
       "description": "Inbox",
       "schema": {
         "$ref": "#/definitions/Inbox"
+      }
+    },
+    "InboxStateResults": {
+      "description": "InboxStateResults",
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/InboxStateResult"
+        }
       }
     },
     "Issue": {

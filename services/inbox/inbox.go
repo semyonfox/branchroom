@@ -15,6 +15,7 @@ import (
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/httplib"
 	"gitea.dev/modules/optional"
@@ -32,14 +33,24 @@ const (
 // Get returns recent attention items. Counts describe returned items. Each group scans
 // at most 100 candidates, with readiness evaluated only for those candidate PRs.
 func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
+	return get(ctx, doer, []string{"decision", "blocked", "agents", "mentions"})
+}
+
+func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox, error) {
 	result := &api.Inbox{}
 	permissions := map[int64]access_model.Permission{}
 	readiness := map[int64]*pull_service.Readiness{}
 	since := time.Now().Add(-7 * 24 * time.Hour).Unix()
-	for _, kind := range []string{"decision", "blocked", "agents", "mentions"} {
+	for _, kind := range kinds {
 		group := api.InboxGroup{Kind: kind, Items: []api.InboxItem{}}
 		cond := builder.NewCond()
 		switch kind {
+		case "triage":
+			cond = maintainedRepos(doer).And(builder.Gte{"issue.created_unix": time.Now().Add(-30 * 24 * time.Hour).Unix()}, builder.NotIn("issue.id", builder.Select("issue_id").From("issue_assignees")), builder.NotIn("issue.id", builder.Select("issue_id").From("review").Where(builder.In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment))))
+		case "yours":
+			cond = builder.Eq{"issue.poster_id": doer.ID}
+		case "done", "snoozed":
+			cond = activeState(doer.ID, kind)
 		case "decision":
 			teams := builder.Select("team_id").From("team_user").Where(builder.Eq{"uid": doer.ID})
 			cond = builder.In("issue.id", builder.Select("issue_id").From("review").Where(builder.Eq{"type": issues_model.ReviewTypeRequest}.And(builder.Or(builder.Eq{"reviewer_id": doer.ID}, builder.In("reviewer_team_id", teams)))))
@@ -56,19 +67,25 @@ func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 			opts.IsClosed = optional.Some(false)
 			cond = cond.And(builder.In("issue.id", builder.Select("issue_id").From("pull_request").Where(builder.Eq{"has_merged": false})))
 		}
+		if kind == "triage" || kind == "yours" {
+			opts.IsClosed = optional.Some(false)
+		}
+		if kind != "done" && kind != "snoozed" {
+			cond = cond.And(builder.NotIn("issue.id", stateIDs(doer.ID, "")))
+		}
 		ids, _, err := issues_model.IssueIDs(ctx, opts, cond)
 		if err != nil {
-			return nil, fmt.Errorf("Get: %w", err)
+			return nil, fmt.Errorf("get: %w", err)
 		}
 		issues, err := issues_model.GetIssuesByIDs(ctx, ids, true)
 		if err != nil {
-			return nil, fmt.Errorf("Get: %w", err)
+			return nil, fmt.Errorf("get: %w", err)
 		}
 		if err = issues.LoadPullRequests(ctx); err != nil {
-			return nil, fmt.Errorf("Get: %w", err)
+			return nil, fmt.Errorf("get: %w", err)
 		}
 		if _, err = issues.LoadRepositories(ctx); err != nil {
-			return nil, fmt.Errorf("Get: %w", err)
+			return nil, fmt.Errorf("get: %w", err)
 		}
 		visible := issues[:0]
 		for _, issue := range issues {
@@ -76,18 +93,18 @@ func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 			if !ok {
 				permission, err = access_model.GetDoerRepoPermission(ctx, issue.Repo, doer)
 				if err != nil {
-					return nil, fmt.Errorf("Get: %w", err)
+					return nil, fmt.Errorf("get: %w", err)
 				}
 				permissions[issue.RepoID] = permission
 			}
-			if permission.CanReadIssuesOrPulls(issue.IsPull) && (kind != "agents" || permission.CanWriteIssuesOrPulls(issue.IsPull)) {
+			if (kind != "triage" || permission.IsAdmin() || permission.CanWrite(unit.TypeCode)) && permission.CanReadIssuesOrPulls(issue.IsPull) && (kind != "agents" || permission.CanWriteIssuesOrPulls(issue.IsPull)) {
 				visible = append(visible, issue)
 			}
 		}
 		issues = visible
 		agents, err := loadAgents(ctx, ids, since)
 		if err != nil {
-			return nil, fmt.Errorf("Get: %w", err)
+			return nil, fmt.Errorf("get: %w", err)
 		}
 		reviewed := map[int64]bool{}
 		if kind == "decision" {
@@ -95,7 +112,7 @@ func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 			for _, issue := range issues {
 				r, err := pull_service.GetReadiness(ctx, issue.PullRequest)
 				if err != nil {
-					return nil, fmt.Errorf("Get: %w", err)
+					return nil, fmt.Errorf("get: %w", err)
 				}
 				readiness[issue.ID] = r
 				headCond = headCond.Or(builder.Eq{"issue_id": issue.ID, "commit_id": r.HeadSHA})
@@ -104,7 +121,7 @@ func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 				var reviewedIDs []int64
 				err := db.GetEngine(ctx).Table("review").Distinct("issue_id").Where(headCond).And(builder.Eq{"reviewer_id": doer.ID, "dismissed": false}).In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment).Find(&reviewedIDs)
 				if err != nil {
-					return nil, fmt.Errorf("Get: %w", err)
+					return nil, fmt.Errorf("get: %w", err)
 				}
 				for _, id := range reviewedIDs {
 					reviewed[id] = true
@@ -112,7 +129,7 @@ func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 			}
 		}
 		for _, issue := range issues {
-			item := api.InboxItem{Kind: "issue", Repo: issue.Repo.FullName(), Index: issue.Index, Title: issue.Title, HTMLURL: issue.HTMLURL(ctx), UpdatedAt: issue.UpdatedUnix.AsTime()}
+			item := api.InboxItem{ID: issue.ID, CreatedAt: issue.CreatedUnix.AsTime(), Kind: "issue", Repo: issue.Repo.FullName(), Index: issue.Index, Title: issue.Title, HTMLURL: issue.HTMLURL(ctx), UpdatedAt: issue.UpdatedUnix.AsTime()}
 			if issue.IsPull {
 				item.Kind = "pull"
 			}
@@ -121,17 +138,33 @@ func Get(ctx context.Context, doer *user_model.User) (*api.Inbox, error) {
 				item.Agent = &api.InboxAgent{Name: agent.Agent, TaskURL: agent.TaskURL, Sponsor: agent.Sponsor}
 			}
 			var r *pull_service.Readiness
-			if issue.IsPull && !issue.IsClosed && !issue.PullRequest.HasMerged && kind != "mentions" {
+			if issue.IsPull && !issue.IsClosed && !issue.PullRequest.HasMerged && kind != "mentions" && kind != "done" && kind != "snoozed" {
 				r = readiness[issue.ID]
 				if r == nil {
 					r, err = pull_service.GetReadiness(ctx, issue.PullRequest)
 					if err != nil {
-						return nil, fmt.Errorf("Get: %w", err)
+						return nil, fmt.Errorf("get: %w", err)
 					}
 					readiness[issue.ID] = r
 				}
 			}
+			if r != nil {
+				item.Checks = string(r.ChecksState)
+				if item.Checks == "" {
+					item.Checks = "none"
+				}
+			}
+			if kind == "triage" {
+				if err := triageDetails(ctx, issue, &item, r); err != nil {
+					return nil, err
+				}
+			}
 			switch kind {
+			case "triage":
+				item.Reason = "No assignee or review yet."
+				if issue.IsPull {
+					item.Action = api.InboxAction{Label: "Review", URL: item.HTMLURL + "/files"}
+				}
 			case "decision":
 				if reviewed[issue.ID] || issue.PosterID == doer.ID {
 					continue

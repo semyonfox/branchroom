@@ -882,6 +882,9 @@ func limitedTokenRouteAllowed(ctx *context.APIContext, doer *user_model.User) bo
 	if ctx.PathParam("reponame") != "" && strings.HasPrefix(ctx.Req.URL.Path, "/api/v1/repos/") {
 		return true
 	}
+	if ctx.Req.Method == http.MethodPost && ctx.Req.URL.Path == "/api/v1/user/inbox/state" {
+		return true
+	}
 	if ctx.Req.Method != http.MethodGet {
 		return false
 	}
@@ -1138,6 +1141,7 @@ func Routes() *web.Router {
 		// Users (requires user scope)
 		contextRealDoerUser := authenticatedUserAsContextUser(false)
 		contextRealOrSystemUser := authenticatedUserAsContextUser(true)
+		m.Post("/user/inbox/state", reqToken(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryIssue, auth_model.AccessTokenScopeCategoryRepository), bind(api.InboxStateOptions{}), user.SetInboxState)
 		m.Get("/user/inbox", reqToken(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryIssue, auth_model.AccessTokenScopeCategoryRepository), user.GetInbox)
 		m.Get("/user", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryUser), reqToken(), contextRealOrSystemUser, user.GetAuthenticatedUser)
 		m.Group("/user", func() {

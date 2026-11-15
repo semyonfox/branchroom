@@ -30,7 +30,7 @@ func Home(ctx *context.Context) {
 		return
 	}
 	if ctx.IsSigned {
-		user.Dashboard(ctx)
+		user.Inbox(ctx)
 		return
 	} else if setting.LandingPageURL != setting.LandingPageHome {
 		// Check non-logged users landing page

@@ -1,5 +1,6 @@
 import '../fomantic/build/fomantic.js';
 import '../css/index.css';
+import {initInbox} from './features/inbox.ts';
 import {initBranchroom} from './features/branchroom.ts';
 
 import {initDashboardRepoList} from './features/dashboard.ts';
@@ -75,6 +76,7 @@ import {initGlobalModal} from './modules/modal.ts';
 
 const initStartTime = performance.now();
 const initPerformanceTracer = callInitFunctions([
+  initInbox,
   initBranchroom,
   initGiteaFomantic,
 
