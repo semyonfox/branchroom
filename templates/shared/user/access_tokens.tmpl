@@ -73,18 +73,29 @@
 					<label for="name">{{ctx.Locale.Tr "settings.token_name"}}</label>
 					<input id="name" name="name" required maxlength="255">
 				</div>
-				<div class="field">
-					<label>{{ctx.Locale.Tr "settings.token_agent"}}</label>
-					<input type="text" name="agent" maxlength="255">
-				</div>
-				<div class="field">
-					<label>{{ctx.Locale.Tr "settings.token_task"}}</label>
-					<input type="url" name="task_url" maxlength="2048">
-				</div>
-				<div class="field">
-					<label>{{ctx.Locale.Tr "settings.token_sponsor"}}</label>
-					<input type="text" name="sponsor" maxlength="255">
-				</div>
+                <button type="button" class="btn link show-panel toggle tw-mb-3" data-panel="#token-agent-fields">{{ctx.Locale.Tr "settings.token_for_agent"}}</button>
+                <div id="token-agent-fields" class="tw-hidden">
+                    <div class="field">
+                        <label>{{ctx.Locale.Tr "settings.token_agent"}}</label>
+                        <input type="text" name="agent" maxlength="255">
+                    </div>
+                    <div class="field">
+                        <label>{{ctx.Locale.Tr "settings.token_task"}}</label>
+                        <input type="url" name="task_url" maxlength="2048">
+                    </div>
+                    <div class="field">
+                        <label>{{ctx.Locale.Tr "settings.token_model"}}</label>
+                        <input type="text" name="model" maxlength="255">
+                    </div>
+                    <div class="field">
+                        <label>{{ctx.Locale.Tr "settings.token_harness"}}</label>
+                        <input type="text" name="harness" maxlength="255">
+                    </div>
+                    <div class="field">
+                        <label>{{ctx.Locale.Tr "settings.token_responsible"}}</label>
+                        <input type="text" name="sponsor" maxlength="255">
+                    </div>
+                </div>
 
                 <div class="field">
                     <label>{{ctx.Locale.Tr "settings.token_expiry"}}</label>

@@ -25202,6 +25202,14 @@
           "type": "string",
           "x-go-name": "Agent"
         },
+        "harness": {
+          "type": "string",
+          "x-go-name": "Harness"
+        },
+        "model": {
+          "type": "string",
+          "x-go-name": "Model"
+        },
         "sponsor": {
           "type": "string",
           "x-go-name": "Sponsor"

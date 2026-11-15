@@ -1,4 +1,10 @@
 {
+  "settings.token_for_agent": "This token is for an agent",
+  "settings.token_model": "Model (optional)",
+  "settings.token_harness": "Harness (optional)",
+  "settings.token_responsible": "Responsible person (defaults to token owner)",
+  "repo.conversation.agent_in": "in",
+  "repo.conversation.agent_responsible": "responsible",
   "forge.repository_navigation": "Repository navigation",
   "forge.search": "Search or jump to",
   "forge.inbox": "Inbox",

@@ -18,6 +18,35 @@ every underlying operation, including each long-poll iteration. REST failures
 become MCP tool errors with the HTTP status. Reconnect or retry a read after a
 connection failure. Check whether a write succeeded before retrying it.
 
+## Agent credit
+
+When creating a token in Settings → Applications, open "This token is for an
+agent" and enter its name, model and harness. For example, use "Claude Opus 5.5"
+as the model and "T3 Code" as the harness. You can also add a task URL and the
+username of the responsible person. This person must be an active user and
+defaults to the token owner when omitted.
+
+For `POST /api/v1/users/{username}/tokens`, include `agent_identity`:
+
+```json
+{
+  "name": "harbour-helper",
+  "scopes": ["write:issue"],
+  "agent_identity": {
+    "agent": "Harbour helper",
+    "model": "Claude Opus 5.5",
+    "harness": "T3 Code",
+    "task_url": "https://example.org/tasks/12",
+    "sponsor": "owner"
+  }
+}
+```
+
+Model, harness, task URL and sponsor are optional. Branchroom records what the
+token declares and shows it on contributions. It does not run agents or verify
+which model or harness made a request. The responsible person answers for the
+contribution.
+
 ## Tools
 
 Repository tools take `owner` and `repo`. `index` is the repository-local issue
