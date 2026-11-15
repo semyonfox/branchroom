@@ -18,6 +18,7 @@ import (
 	access_model "gitea.dev/models/perm/access"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/container"
 	"gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -619,6 +620,18 @@ func personsOwnReviewCond() builder.Cond {
 		builder.NotIn("id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review"})),
 		builder.In("reviewer_id", builder.Select("id").From("`user`").Where(builder.Eq{"type": user_model.UserTypeBot})),
 	)
+}
+
+// AgentReviewIDs returns which of the reviews an agent made with a person's token
+func AgentReviewIDs(ctx context.Context, reviewIDs []int64) (container.Set[int64], error) {
+	ids := container.Set[int64]{}
+	if len(reviewIDs) == 0 {
+		return ids, nil
+	}
+	var found []int64
+	err := db.GetEngine(ctx).Table("review").Cols("id").Where(builder.In("id", reviewIDs).And(builder.Not{personsOwnReviewCond()})).Find(&found)
+	ids.AddMultiple(found...)
+	return ids, err
 }
 
 // GetReviewByIssueIDAndUserID get the latest review of reviewer for a pull request

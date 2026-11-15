@@ -12,7 +12,6 @@ import (
 	"unicode"
 
 	"gitea.dev/models/db"
-	"gitea.dev/modules/container"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
@@ -121,18 +120,6 @@ type AgentAction struct {
 }
 
 func (AgentAction) TableName() string { return "branchroom_agent_action" }
-
-// AgentReviewIDs returns which of the reviews an agent submitted
-func AgentReviewIDs(ctx context.Context, reviewIDs []int64) (container.Set[int64], error) {
-	ids := container.Set[int64]{}
-	if len(reviewIDs) == 0 {
-		return ids, nil
-	}
-	var found []int64
-	err := db.GetEngine(ctx).Table("branchroom_agent_action").Where("kind = ?", "review").In("target_id", reviewIDs).Cols("target_id").Find(&found)
-	ids.AddMultiple(found...)
-	return ids, err
-}
 
 // IsAgentCredential reports whether the credential is an access token carrying an agent identity
 func IsAgentCredential(ctx context.Context, credential string) (bool, error) {

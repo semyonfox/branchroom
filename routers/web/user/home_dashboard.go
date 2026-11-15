@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	activities_model "gitea.dev/models/activities"
-	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
@@ -111,7 +110,7 @@ func prepareHomeWork(ctx *context.Context) error {
 	for _, review := range reviews {
 		reviewIDs = append(reviewIDs, review.ID)
 	}
-	agentReviews, err := branchroom_model.AgentReviewIDs(ctx, reviewIDs)
+	agentReviews, err := issues_model.AgentReviewIDs(ctx, reviewIDs)
 	if err != nil {
 		return err
 	}
