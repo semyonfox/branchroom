@@ -100,7 +100,7 @@ These came from logic passes on a seeded forge. Each one was a real bug.
 
 ## How to build it
 
-- Styles for the redesign live in `web_src/css/forge/`, one file per area: `chrome.css`, `home.css`, `repo-home.css`, `issue.css`, `inbox.css` and `palette.css`. Add to the file for the area you are changing.
+- Styles for the redesign live in `web_src/css/forge/`, one file per area, such as `chrome.css`, `home.css`, `repo-home.css` and `issue.css`. Add to the file for the area you are changing. Rules that restyle shared Fomantic pieces live in `web_src/css/modules/branchroom.css`.
 - Prefer `tw-*` utilities and `flex-*` helpers for one-off spacing. Write a class when the same shape appears twice.
 - Don't edit `web_src/css/themes/` as part of a feature. A theme change is its own decision.
 - Follow `docs/guidelines-frontend.md` for everything else.
