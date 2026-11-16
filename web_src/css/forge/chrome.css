@@ -71,6 +71,29 @@ a.silenced:hover {
   text-decoration: none;
 }
 
+/* links whose colour is set by their surroundings still answer hover: text takes the accent, tabs and chips get brighter */
+.forge-repo-name a:hover,
+.forge-home-update-content a:hover,
+.forge-status-summary a:hover,
+.repo-overview-section h2 a:hover {
+  color: var(--color-primary);
+}
+
+.forge-repo-tabs > .item:hover {
+  color: var(--color-text);
+}
+
+.forge-inbox-views a:hover {
+  background: var(--color-hover);
+}
+
+/* a utility class or a chip fixes these colours, so brighten the whole thing */
+.labels-list a:hover,
+a.repo-topic:hover,
+a.tw-text-primary:hover {
+  filter: brightness(1.2);
+}
+
 .forge-search {
   width: 280px;
   margin-right: auto;
