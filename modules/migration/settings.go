@@ -32,16 +32,10 @@ type BranchProtection struct {
 
 // Collaborator is a person with direct access to the repository
 type Collaborator struct {
-	ID         int64
+	ExternalID string // the account's id at the source, as a sign-in with that source reports it
 	Login      string
 	Permission string // admin, write or read
 }
-
-// GetExternalName ExternalUserMigrated interface
-func (c *Collaborator) GetExternalName() string { return c.Login }
-
-// GetExternalID ExternalUserMigrated interface
-func (c *Collaborator) GetExternalID() int64 { return c.ID }
 
 // Team is a team with access to the repository
 type Team struct {

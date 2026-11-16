@@ -6,9 +6,11 @@ package migrations
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 
 	actions_model "gitea.dev/models/actions"
+	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	"gitea.dev/models/organization"
@@ -22,6 +24,7 @@ import (
 	"gitea.dev/modules/util"
 	webhook_module "gitea.dev/modules/webhook"
 	actions_service "gitea.dev/services/actions"
+	"gitea.dev/services/auth/source/oauth2"
 	repo_service "gitea.dev/services/repository"
 )
 
@@ -81,8 +84,7 @@ var settingsAccessModes = map[string]perm.AccessMode{
 
 func (g *GiteaLocalUploader) createCollaborators(ctx context.Context, settings *base.RepoSettings, report *base.SettingsReport) error {
 	for _, collaborator := range settings.Collaborators {
-		// only a linked account proves who a login is here, the same name can belong to someone else
-		userID, err := g.remapExternalUser(ctx, collaborator)
+		userID, err := g.linkedUserID(ctx, collaborator.ExternalID)
 		if err != nil {
 			return err
 		}
@@ -106,6 +108,48 @@ func (g *GiteaLocalUploader) createCollaborators(ctx context.Context, settings *
 		report.Notes = append(report.Notes, base.SettingsNote{Kind: base.SettingsNoteCollaborator, Name: collaborator.Login, Detail: collaborator.Permission})
 	}
 	return nil
+}
+
+// linkedUserID returns the user who signs in here with that account of the migration source, 0 if nobody does.
+// Only that proves who a login is: the same name can belong to someone else, and so can the same id on another instance of the forge.
+func (g *GiteaLocalUploader) linkedUserID(ctx context.Context, externalID string) (int64, error) {
+	source, err := url.Parse(g.repo.OriginalURL)
+	if err != nil {
+		return 0, err
+	}
+	links, err := db.Find[user_model.ExternalLoginUser](ctx, user_model.FindExternalUserOptions{Provider: g.gitServiceType.Name(), ExternalID: externalID})
+	if err != nil {
+		return 0, err
+	}
+	for _, link := range links {
+		loginSource, err := auth_model.GetSourceByID(ctx, link.LoginSourceID)
+		if auth_model.IsErrSourceNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if strings.EqualFold(loginSourceHost(loginSource), source.Host) {
+			return link.UserID, nil
+		}
+	}
+	return 0, nil
+}
+
+func loginSourceHost(loginSource *auth_model.Source) string {
+	config, ok := loginSource.Cfg.(*oauth2.Source)
+	if !ok {
+		return ""
+	}
+	provider, err := oauth2.CreateProviderFromSource(loginSource)
+	if err != nil || provider.CustomURLSettings() == nil {
+		return ""
+	}
+	authURL, err := url.Parse(provider.CustomURLSettings().OverrideWith(config.CustomURLMapping).AuthURL)
+	if err != nil {
+		return ""
+	}
+	return authURL.Host
 }
 
 func (g *GiteaLocalUploader) createTeams(ctx context.Context, settings *base.RepoSettings, report *base.SettingsReport) error {

@@ -180,6 +180,7 @@ func EnsureLinkExternalToUser(ctx context.Context, external *ExternalLoginUser) 
 type FindExternalUserOptions struct {
 	db.ListOptions
 	Provider        string
+	ExternalID      string
 	UserID          int64
 	LoginSourceID   int64
 	HasRefreshToken bool
@@ -191,6 +192,9 @@ func (opts FindExternalUserOptions) ToConds() builder.Cond {
 	cond := builder.NewCond()
 	if len(opts.Provider) > 0 {
 		cond = cond.And(builder.Eq{"provider": opts.Provider})
+	}
+	if opts.ExternalID != "" {
+		cond = cond.And(builder.Eq{"external_id": opts.ExternalID})
 	}
 	if opts.UserID > 0 {
 		cond = cond.And(builder.Eq{"user_id": opts.UserID})
