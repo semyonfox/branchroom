@@ -27,8 +27,11 @@ export function initInboxQueue() {
       button.click();
     });
   }
-  if (window.location.hash === '#merge') openMerge()?.click();
-  if (window.location.hash === '#review') openReview()?.click();
+  // after every other init, so the modal and review box handlers are bound
+  setTimeout(() => {
+    if (window.location.hash === '#merge') openMerge()?.click();
+    if (window.location.hash === '#review') openReview()?.click();
+  }, 0);
 
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
