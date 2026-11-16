@@ -10,10 +10,17 @@ nav#navbar {
 
 #navbar #navbar-logo {
   gap: 8px;
-  margin: 0;
-  padding: 0;
+  /* room for the focus ring around the tilted mark, without moving the logo */
+  margin: 0 -6px;
+  padding: 0 6px;
   min-width: 0;
+  min-height: 32px;
   font-weight: var(--font-weight-semibold);
+}
+
+/* the logo is not a menu item, so it takes no hover box. The mark straightens instead */
+#navbar #navbar-logo:hover {
+  background: none;
 }
 
 .forge-mark {
@@ -23,6 +30,16 @@ nav#navbar {
   border-radius: 3px;
   transform: rotate(-8deg);
   flex: none;
+}
+
+#navbar-logo:hover .forge-mark {
+  transform: rotate(0deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .forge-mark {
+    transition: transform 0.15s ease-out;
+  }
 }
 
 .forge-wordmark {
