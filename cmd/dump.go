@@ -88,6 +88,10 @@ func newDumpCommand() *cli.Command {
 				Name:  "skip-db",
 				Usage: "Skip database",
 			},
+			&cli.BoolFlag{
+				Name:  "branchroom-stores",
+				Usage: "Include Branchroom restricted stores, so the archive holds restricted source",
+			},
 			&cli.StringFlag{
 				Name:  "type",
 				Usage: `Dump output format, default to the --file extension if supported, else "zip", supported types: ` + strings.Join(dump.SupportedOutputTypes, ", "),
@@ -124,7 +128,8 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		if exist, _ := util.IsExist(outFileName); exist {
 			fatal("Dump file %q exists", outFileName)
 		}
-		if outFile, err = os.Create(outFileName); err != nil {
+		// created private rather than chmodded at the end, since it may hold restricted source
+		if outFile, err = os.OpenFile(outFileName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
 			fatal("Unable to create dump file %q: %v", outFileName, err)
 		}
 		defer outFile.Close()
@@ -153,7 +158,6 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	dumper.GlobalExcludeAbsPath(outFileName)
 	if setting.Branchroom.RestrictedRepoRootPath != "" {
 		dumper.GlobalExcludeAbsPath(branchroomDumpExcludes(setting.Branchroom.RestrictedRepoRootPath, setting.AppDataPath, setting.CustomPath)...)
-		log.Info("Branchroom restricted stores require a separate backup")
 	}
 	defer func() {
 		if err := dumper.Close(); err != nil {
@@ -182,6 +186,18 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		}); err != nil {
 			fatal("Failed to dump LFS objects: %v", err)
 		}
+	}
+
+	if cmd.Bool("branchroom-stores") {
+		if setting.Branchroom.RestrictedRepoRootPath == "" {
+			fatal("Branchroom is not enabled, there are no restricted stores to dump")
+		}
+		log.Info("Dumping Branchroom restricted stores... %s", setting.Branchroom.RestrictedRepoRootPath)
+		if err := dumpBranchroomStores(dumper, setting.Branchroom.RestrictedRepoRootPath); err != nil {
+			fatal("Failed to include Branchroom restricted stores: %v", err)
+		}
+	} else if setting.Branchroom.RestrictedRepoRootPath != "" {
+		log.Info("Skip dumping Branchroom restricted stores, add --branchroom-stores to include them")
 	}
 
 	if cmd.Bool("skip-db") {
@@ -317,12 +333,17 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	if outFileName == "-" {
 		log.Info("Finish dumping to stdout")
 	} else {
-		if err = os.Chmod(outFileName, 0o600); err != nil {
-			log.Info("Can't change file access permissions mask to 0600: %v", err)
-		}
 		log.Info("Finish dumping in file %s", outFileName)
 	}
 	return nil
+}
+
+// dumpBranchroomStores also adds the root entry itself, so its owner-only mode comes back on restore
+func dumpBranchroomStores(dumper *dump.Dumper, root string) error {
+	if err := dumper.AddFileByPath("branchroom", root); err != nil {
+		return err
+	}
+	return dumper.AddRecursiveExclude("branchroom", root, nil)
 }
 
 // branchroomDumpExcludes adds the restricted root as seen through each walked directory, since the dumper

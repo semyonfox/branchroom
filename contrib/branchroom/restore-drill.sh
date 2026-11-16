@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Branchroom backup and restore drill on throwaway instances. It provisions a workspace and
-# pushes on instance A, backs up with gitea dump plus the restricted root, restores to
+# pushes on instance A, backs up with gitea dump --branchroom-stores, deletes A, restores to
 # instance B at different paths, repairs hooks with gitea doctor and clones the work back.
 # Needs curl, git, sqlite3 and unzip, and free ports 3301 and 3302.
 # usage: GITEA=./gitea contrib/branchroom/restore-drill.sh
@@ -25,6 +25,9 @@ PATH = $1/data/gitea.db
 [server]
 HTTP_PORT = $2
 ROOT_URL = http://localhost:$2/
+SSH_ROOT_PATH = $1/ssh
+SSH_CREATE_AUTHORIZED_KEYS_FILE = false
+SSH_CREATE_AUTHORIZED_PRINCIPALS_FILE = false
 [repository]
 ROOT = $1/repos
 [security]
@@ -93,20 +96,27 @@ git reset -q --hard HEAD~1
 MARKER=$(cat MARKER)
 cd "$D"
 
-step "backup: stop A, gitea dump, archive the restricted root"
+step "backup: stop A, gitea dump --branchroom-stores, delete A"
 stop "$A"
-GITEA_WORK_DIR=$A "$GITEA" dump --config "$A/custom/conf/app.ini" --database sqlite3 --file "$D/dump.zip" >/dev/null 2>&1
-tar -C "$A" -cpf "$D/restricted.tar" restricted
-if unzip -l "$D/dump.zip" | grep -q 'restricted/'; then echo "FAIL: dump contains the restricted root"; exit 1; fi
-echo "PASS: dump excludes restricted stores, archive holds $(tar -tf "$D/restricted.tar" | grep -c '\.git/$') store(s)"
+GITEA_WORK_DIR=$A "$GITEA" dump --config "$A/custom/conf/app.ini" --database sqlite3 --branchroom-stores --file "$D/dump.zip" >/dev/null 2>&1
+STORES=$(unzip -l "$D/dump.zip" | grep -c 'branchroom/[0-9a-f-]*\.git/$')
+[ "$STORES" -ge 1 ] && [ "$(stat -c %a "$D/dump.zip")" = 600 ]
+echo "PASS: dump holds $STORES store(s) and is mode 600"
+GITEA_WORK_DIR=$A "$GITEA" dump --config "$A/custom/conf/app.ini" --database sqlite3 --file "$D/plain.zip" >/dev/null 2>&1
+if unzip -l "$D/plain.zip" | grep -qE ' (branchroom|restricted)/'; then echo "FAIL: dump without the flag contains restricted stores"; exit 1; fi
+echo "PASS: dump without --branchroom-stores leaves them out"
+rm -rf "$A"
 
 step "restore into B at different paths"
 mkdir -p "$B/unpacked" && unzip -q "$D/dump.zip" -d "$B/unpacked"
 mkdir -p "$B/data" "$B/repos"
 cp -a "$B/unpacked/data/." "$B/data/"
 cp -a "$B/unpacked/repos/." "$B/repos/"
+mv "$B/unpacked/branchroom" "$B/restricted"
 rm -f "$B/data/gitea.db" && sqlite3 "$B/data/gitea.db" < "$B/unpacked/gitea-db.sql"
-tar -C "$B" -xpf "$D/restricted.tar"
+[ "$(stat -c %a "$B/restricted" "$B/restricted/.branchroom-hooks")" = "700
+700" ]
+echo "PASS: restored restricted root and hooks are mode 700"
 write_ini "$B" 3302
 start "$B" 3302
 
