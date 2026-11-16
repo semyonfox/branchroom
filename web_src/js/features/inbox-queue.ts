@@ -30,7 +30,7 @@ export function initInboxQueue() {
   // after every other init, so the modal and review box handlers are bound
   setTimeout(() => {
     if (window.location.hash === '#merge') openMerge()?.click();
-    if (window.location.hash === '#review') openReview()?.click();
+    else if (window.location.hash === '#review') openReview()?.click();
   }, 0);
 
   document.addEventListener('keydown', (event) => {
