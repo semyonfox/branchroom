@@ -5,8 +5,12 @@ package user
 
 import (
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 
+	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/templates"
 	"gitea.dev/services/context"
@@ -72,4 +76,56 @@ func InboxAction(ctx *context.Context) {
 	results := inbox_service.Apply(ctx, ctx.Doer, opts)
 	ctx.Data["InboxResults"] = results
 	Inbox(ctx)
+}
+
+// InboxNext walks a view one item at a time. Acting on an item drops it from the view,
+// so the next item is the first one left. Skipping sends an item to the back
+func InboxNext(ctx *context.Context) {
+	view, skipped := inbox_service.ParseQueueCookie(ctx.GetSiteCookie(inbox_service.QueueCookie))
+	if v := ctx.FormString("view"); v != "" && v != view {
+		view, skipped = v, nil
+	}
+	if view == "" {
+		view = "needs"
+	}
+	back := setting.AppSubURL + "/inbox?view=" + url.QueryEscape(view)
+	if ctx.FormBool("exit") {
+		ctx.DeleteSiteCookie(inbox_service.QueueCookie)
+		ctx.Redirect(back)
+		return
+	}
+	items, found, err := inbox_service.Queue(ctx, ctx.Doer, view)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	if !found {
+		ctx.NotFound()
+		return
+	}
+	from, to := ctx.FormInt64("from"), ctx.FormInt64("to")
+	if ctx.FormBool("skip") && from > 0 {
+		skipped = append(slices.DeleteFunc(skipped, func(id int64) bool { return id == from }), from)
+	}
+	items = inbox_service.QueueOrder(items, skipped)
+	next := slices.IndexFunc(items, func(item api.InboxItem) bool {
+		if to > 0 {
+			return item.ID == to
+		}
+		return item.ID != from
+	})
+	if next < 0 {
+		ctx.DeleteSiteCookie(inbox_service.QueueCookie)
+		ctx.Flash.Success(ctx.Tr("inbox.queue_finished", ctx.Tr("inbox.view_"+view)))
+		ctx.Redirect(back)
+		return
+	}
+	ctx.SetSiteCookie(inbox_service.QueueCookie, inbox_service.FormatQueueCookie(view, skipped), 0)
+	item := items[next]
+	// decision items open on the diff, every other kind on the conversation
+	target := item.HTMLURL
+	if strings.HasPrefix(item.Action.URL, item.HTMLURL) {
+		target = item.Action.URL
+	}
+	ctx.Redirect(target)
 }

@@ -1,0 +1,19 @@
+{{with .InboxQueue}}
+<div class="forge-queue-bar" data-queue-redirect="{{.Redirect}}">
+	<div class="forge-queue-where">
+		<a href="{{AppSubUrl}}/inbox?view={{.View}}">{{ctx.Locale.Tr (printf "inbox.view_%s" .View)}}</a>
+		<span class="forge-queue-count">{{if .Position}}{{ctx.Locale.Tr "inbox.queue_position" .Position .Count}}{{else}}{{ctx.Locale.Tr "inbox.queue_left" .Count}}{{end}}</span>
+		<span class="text light-2 forge-queue-hint">{{ctx.Locale.Tr "inbox.queue_hint"}}</span>
+	</div>
+	<div class="forge-queue-actions">
+		{{if .CanMerge}}
+			<a class="ui primary button forge-queue-merge" href="{{$.Issue.Link}}#merge" data-palette-action="{{ctx.Locale.Tr "inbox.queue_merge"}}" data-palette-key="m">{{svg "octicon-git-merge"}} {{ctx.Locale.Tr "inbox.queue_merge"}} <kbd>m</kbd></a>
+		{{end}}
+		{{if not $.Issue.IsClosed}}
+			<a class="ui {{if not .CanMerge}}primary{{else}}basic{{end}} button forge-queue-review" href="{{$.Issue.Link}}/files#review" data-palette-action="{{ctx.Locale.Tr "inbox.queue_review"}}" data-palette-key="r">{{svg "octicon-code-review"}} {{ctx.Locale.Tr "inbox.queue_review"}} <kbd>r</kbd></a>
+		{{end}}
+		<a class="ui basic button forge-queue-skip" href="{{.SkipURL}}" data-palette-action="{{ctx.Locale.Tr "inbox.queue_skip"}}" data-palette-key="n">{{ctx.Locale.Tr "inbox.queue_skip"}} <kbd>n</kbd></a>
+		<a class="muted forge-queue-exit" href="{{.ExitURL}}">{{ctx.Locale.Tr "inbox.queue_exit"}}</a>
+	</div>
+</div>
+{{end}}

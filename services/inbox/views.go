@@ -6,6 +6,8 @@ package inbox
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"gitea.dev/models/db"
@@ -153,6 +155,9 @@ func triageReason(ctx context.Context, issueID int64) (string, error) {
 	return "No assignee or review yet.", nil
 }
 
+// QueueCookie holds the inbox view being worked through, so pull request pages can show where you are in it
+const QueueCookie = "inbox_queue"
+
 // Queue returns one view's items in inbox order, false when the view does not exist for the user
 func Queue(ctx context.Context, doer *user_model.User, view string) ([]api.InboxItem, bool, error) {
 	result, err := GetViews(ctx, doer)
@@ -165,4 +170,39 @@ func Queue(ctx context.Context, doer *user_model.User, view string) ([]api.Inbox
 		}
 	}
 	return nil, false, nil
+}
+
+// QueueOrder puts skipped items behind the rest, so skipping sends an item to the back of the queue
+func QueueOrder(items []api.InboxItem, skipped []int64) []api.InboxItem {
+	ordered := make([]api.InboxItem, 0, len(items))
+	for _, item := range items {
+		if !slices.Contains(skipped, item.ID) {
+			ordered = append(ordered, item)
+		}
+	}
+	for _, id := range skipped {
+		if i := slices.IndexFunc(items, func(item api.InboxItem) bool { return item.ID == id }); i >= 0 {
+			ordered = append(ordered, items[i])
+		}
+	}
+	return ordered
+}
+
+// ParseQueueCookie reads "view-skippedID-skippedID"
+func ParseQueueCookie(value string) (view string, skipped []int64) {
+	parts := strings.Split(value, "-")
+	for _, part := range parts[1:] {
+		if id, err := strconv.ParseInt(part, 10, 64); err == nil && id > 0 && len(skipped) < 50 {
+			skipped = append(skipped, id)
+		}
+	}
+	return parts[0], skipped
+}
+
+func FormatQueueCookie(view string, skipped []int64) string {
+	value := view
+	for _, id := range skipped {
+		value += "-" + strconv.FormatInt(id, 10)
+	}
+	return value
 }

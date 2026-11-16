@@ -78,6 +78,7 @@ import {initGlobalModal} from './modules/modal.ts';
 const initStartTime = performance.now();
 const initPerformanceTracer = callInitFunctions([
   initInbox,
+  initInboxQueue,
   initBranchroom,
   initGiteaFomantic,
 

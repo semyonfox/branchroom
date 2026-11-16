@@ -996,6 +996,7 @@ func viewPullFiles(ctx *context.Context, beforeCommitID, afterCommitID string) {
 		ctx.HTML(http.StatusOK, tplPullDiffBox)
 		return
 	}
+	prepareInboxQueue(ctx, issue)
 	ctx.HTML(http.StatusOK, tplPullFiles)
 }
 

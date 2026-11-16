@@ -108,3 +108,42 @@
   font-size: 12px;
   font-weight: var(--font-weight-bold);
 }
+
+.forge-queue-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 8px;
+  background: var(--color-box-body);
+}
+.forge-queue-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.forge-queue-where > a { font-weight: var(--font-weight-semibold); }
+.forge-queue-count { color: var(--color-primary); font-variant-numeric: tabular-nums; }
+.forge-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.forge-queue-actions .ui.button { min-height: 44px; margin: 0; }
+.forge-queue-merge.ui.button { padding-inline: 24px; font-size: 15px; }
+.forge-queue-actions kbd { margin-left: 4px; opacity: 0.7; }
+@media (max-width: 767.98px) {
+  .forge-queue-hint { display: none; }
+  .forge-queue-actions { width: 100%; }
+  .forge-queue-actions .ui.button { flex: 1; }
+}

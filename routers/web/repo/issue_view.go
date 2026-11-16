@@ -333,6 +333,7 @@ func ViewIssue(ctx *context.Context) {
 		}
 		ctx.Data["PageIsPullList"] = true
 		ctx.Data["PageIsPullConversation"] = true
+		prepareInboxQueue(ctx, issue)
 	} else {
 		MustEnableIssues(ctx)
 		if ctx.Written() {
