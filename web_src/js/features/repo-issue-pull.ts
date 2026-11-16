@@ -3,6 +3,7 @@ import {GET} from '../modules/fetch.ts';
 import {fomanticQuery} from '../modules/fomantic/base.ts';
 import {createElementFromHTML, activePageTimerRefresh} from '../utils/dom.ts';
 import {registerGlobalEventFunc} from '../modules/observer.ts';
+import {parseDom} from '../utils.ts';
 import type {JQueryElem} from '../types.ts';
 
 export function initRepoPullRequestUpdate(el: HTMLElement) {
@@ -36,6 +37,18 @@ async function initRepoPullRequestMergeForm(box: HTMLElement) {
   view.mount(el); // TODO: can unmount when reloaded?
 }
 
+// the status card and the next step are rendered with the page, so once the merge box has settled they are a step behind
+async function refreshPullSummary(pullLink: string) {
+  const resp = await GET(pullLink);
+  if (!resp.ok) return;
+  const doc = parseDom(await resp.text(), 'text/html');
+  for (const selector of ['.forge-status-card', '.forge-next-step']) {
+    const stale = document.querySelector(selector);
+    const fresh = doc.querySelector(selector);
+    if (stale && fresh && !stale.contains(document.activeElement)) stale.replaceWith(fresh);
+  }
+}
+
 function initRepoPullMergeBoxRefresh(el: Element) {
   // The merge box has complex buttons & form, if the user has interacted with any element, don't refresh.
   // Otherwise, the user won't be able to merge or schedule a merge (auto-merge) when the PR status is not ready.
@@ -62,6 +75,7 @@ function initRepoPullMergeBoxRefresh(el: Element) {
       const scrollTop = el.querySelector<HTMLElement>('.commit-status-list')?.scrollTop;
       el.replaceWith(newEl); // don't morph, do full replacement to make sure data-global-init and Vue components are re-initialized
       if (scrollTop) newEl.querySelector<HTMLElement>('.commit-status-list')?.scrollTo({top: scrollTop, behavior: 'instant'});
+      if (!newEl.hasAttribute('data-pull-merge-box-reloading-interval')) await refreshPullSummary(pullLink);
     },
   });
 }

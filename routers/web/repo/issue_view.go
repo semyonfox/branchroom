@@ -385,6 +385,7 @@ func ViewIssue(ctx *context.Context) {
 	}
 	if issue.IsPull {
 		prepareFuncs = append(prepareFuncs,
+			preparePullCheck,
 			prViewInfo.prepareViewInfo,
 			prViewInfo.prepareMergeBox,
 		)
@@ -436,6 +437,15 @@ func ViewIssue(ctx *context.Context) {
 	ctx.HTML(http.StatusOK, tplIssueView)
 }
 
+// preparePullCheck starts a conflict check that is due and waits briefly for it. Most checks take well under a
+// second, and a page that already knows the answer saves the reader from watching "checking" turn into a merge button.
+func preparePullCheck(ctx *context.Context, issue *issues_model.Issue) {
+	pull_service.StartPullRequestCheckOnView(ctx, issue.PullRequest)
+	if err := pull_service.WaitPullRequestCheck(ctx, issue.PullRequest, pull_service.ViewCheckWait); err != nil {
+		ctx.ServerErrorAuto(err)
+	}
+}
+
 func ViewPullMergeBox(ctx *context.Context) {
 	issue := prepareIssueViewLoad(ctx)
 	if ctx.Written() {
@@ -443,6 +453,10 @@ func ViewPullMergeBox(ctx *context.Context) {
 	}
 	if !issue.IsPull {
 		ctx.NotFound()
+		return
+	}
+	preparePullCheck(ctx, issue)
+	if ctx.Written() {
 		return
 	}
 	prViewInfo := newPullRequestViewInfo()
@@ -875,8 +889,6 @@ func (prInfo *pullRequestViewInfo) prepareMergeBox(ctx *context.Context, issue *
 	canDelete := false
 	canWriteToHeadRepo := false
 
-	pull_service.StartPullRequestCheckOnView(ctx, pull)
-
 	if !prInfo.IsPullRequestBroken {
 		data.ShowUpdatePullInfo = pull.CommitsBehind > 0 && !issue.IsClosed && !pull.IsChecking() && !pull.IsFilesConflicted() && !prInfo.IsPullRequestBroken
 		prInfo.preparePullUpdateActions(ctx)
@@ -953,9 +965,12 @@ func (prInfo *pullRequestViewInfo) prepareMergeBox(ctx *context.Context, issue *
 	prConfig := issue.Repo.MustGetUnit(ctx, unit.TypePullRequests).PullRequestsConfig()
 	data.AutodetectManualMerge = prConfig.AutodetectManualMerge
 
-	needRefreshMergeBox := pull.IsChecking()
-	needRefreshMergeBox = needRefreshMergeBox || (data.StatusCheckData != nil && data.StatusCheckData.pullCommitStatusState.IsPending())
-	data.ReloadingInterval = util.Iif(needRefreshMergeBox, 5000, 0)
+	switch {
+	case pull.IsChecking():
+		data.ReloadingInterval = 1000 // a conflict check is quick, so ask again soon
+	case data.StatusCheckData != nil && data.StatusCheckData.pullCommitStatusState.IsPending():
+		data.ReloadingInterval = 5000
+	}
 
 	// Only show the merge box if the PR is not merged, or the branch is deletable.
 	// Otherwise, there is nothing to do, because the PR view page already contains enough information.

@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gitea.dev/models/db"
@@ -102,6 +104,67 @@ func StartPullRequestCheckDelayable(ctx context.Context, pr *issues_model.PullRe
 	}
 
 	AddPullRequestToCheckQueue(pr.ID)
+}
+
+// checkWaiters lets a page wait for a conflict check without polling the database, which slows the check itself down
+var checkWaiters = struct {
+	sync.Mutex
+	byPull map[int64][]chan struct{}
+}{byPull: map[int64][]chan struct{}{}}
+
+func waitForCheck(prID int64) (done chan struct{}, stop func()) {
+	done = make(chan struct{})
+	checkWaiters.Lock()
+	defer checkWaiters.Unlock()
+	checkWaiters.byPull[prID] = append(checkWaiters.byPull[prID], done)
+	return done, func() { // a waiter that gave up must not pile up for a check that never reports here
+		checkWaiters.Lock()
+		defer checkWaiters.Unlock()
+		checkWaiters.byPull[prID] = slices.DeleteFunc(checkWaiters.byPull[prID], func(c chan struct{}) bool { return c == done })
+		if len(checkWaiters.byPull[prID]) == 0 {
+			delete(checkWaiters.byPull, prID)
+		}
+	}
+}
+
+func checkFinished(prID int64) {
+	checkWaiters.Lock()
+	defer checkWaiters.Unlock()
+	for _, done := range checkWaiters.byPull[prID] {
+		close(done)
+	}
+	delete(checkWaiters.byPull, prID)
+}
+
+// ViewCheckWait is how long a page waits for a conflict check it has just asked for
+var ViewCheckWait = time.Second
+
+// WaitPullRequestCheck gives a running conflict check a moment to finish and takes up its result, so a page opened
+// right after a merge shows the outcome instead of "checking". It returns quietly when the check is still running.
+func WaitPullRequestCheck(ctx context.Context, pr *issues_model.PullRequest, timeout time.Duration) error {
+	if pr.Status != issues_model.PullRequestStatusChecking {
+		return nil
+	}
+	done, stop := waitForCheck(pr.ID) // listen first, so a check that finishes right now is not missed
+	defer stop()
+	refresh := func() error {
+		fresh, err := issues_model.GetPullRequestByID(ctx, pr.ID)
+		if err != nil {
+			return err
+		}
+		pr.Status, pr.MergeBase, pr.ConflictedFiles, pr.ChangedProtectedFiles = fresh.Status, fresh.MergeBase, fresh.ConflictedFiles, fresh.ChangedProtectedFiles
+		pr.CommitsAhead, pr.CommitsBehind = fresh.CommitsAhead, fresh.CommitsBehind
+		return nil
+	}
+	if err := refresh(); err != nil || pr.Status != issues_model.PullRequestStatusChecking {
+		return err
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+	case <-time.After(timeout): // another process may be running the check, or it is slow
+	}
+	return refresh()
 }
 
 func StartPullRequestCheckOnView(ctx context.Context, pr *issues_model.PullRequest) {
@@ -469,6 +532,7 @@ func restoreInterruptedMerge(ctx context.Context, pr *issues_model.PullRequest) 
 }
 
 func checkPullRequestMergeable(prID int64) {
+	defer checkFinished(prID)
 	ctx := graceful.GetManager().HammerContext()
 
 	ctx, _, finished := process.GetManager().AddContext(ctx, fmt.Sprintf("Test PR[%d] from patch checking queue", prID))

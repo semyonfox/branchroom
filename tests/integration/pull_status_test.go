@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	auth_model "gitea.dev/models/auth"
 	git_model "gitea.dev/models/git"
@@ -177,6 +178,7 @@ func TestPullStatusDelayCheck(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		defer test.MockVariableValue(&setting.Repository.PullRequest.DelayCheckForInactiveDays, 1)()
 		defer test.MockVariableValue(&pull.AddPullRequestToCheckQueue)()
+		defer test.MockVariableValue(&pull.ViewCheckWait, time.Millisecond)() // the mocked queue never runs the check, so don't wait for it
 
 		session := loginUser(t, "user2")
 
@@ -217,7 +219,7 @@ func TestPullStatusDelayCheck(t *testing.T) {
 		})
 		assert.Equal(t, issues.PullRequestStatusChecking, issue3.PullRequest.Status)
 		assert.Zero(t, checkedPrID)
-		assertReloadingInterval(t, "5000") // the PR status is "checking", so try to reload the merge box
+		assertReloadingInterval(t, "1000") // the PR status is "checking", so try to reload the merge box
 
 		// view a PR with status=checking, it starts the real check
 		issue3, checkedPrID = run(t, func(t *testing.T) {
