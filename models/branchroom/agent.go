@@ -24,6 +24,8 @@ type TokenIdentity struct {
 	Sponsor string `xorm:"VARCHAR(255)"`
 	Model   string `xorm:"VARCHAR(255)"`
 	Harness string `xorm:"VARCHAR(255)"`
+	// the owner lets this agent approve and request changes as them
+	ApprovesAsOwner bool `xorm:"NOT NULL DEFAULT false"`
 }
 
 func (TokenIdentity) TableName() string { return "branchroom_token_identity" }
@@ -95,7 +97,7 @@ func InsertTokenIdentity(ctx context.Context, id int64, identity *api.AgentIdent
 	if err := PrepareTokenIdentity(ctx, ownerID, identity); err != nil {
 		return err
 	}
-	return db.Insert(ctx, &TokenIdentity{TokenID: id, Agent: identity.Agent, TaskURL: identity.TaskURL, Sponsor: identity.Sponsor, Model: identity.Model, Harness: identity.Harness})
+	return db.Insert(ctx, &TokenIdentity{TokenID: id, Agent: identity.Agent, TaskURL: identity.TaskURL, Sponsor: identity.Sponsor, Model: identity.Model, Harness: identity.Harness, ApprovesAsOwner: identity.ApprovesAsOwner})
 }
 
 func GetTokenIdentity(ctx context.Context, id int64) (*api.AgentIdentity, error) {
@@ -104,7 +106,7 @@ func GetTokenIdentity(ctx context.Context, id int64) (*api.AgentIdentity, error)
 	if err != nil || !has {
 		return nil, err
 	}
-	return &api.AgentIdentity{Agent: identity.Agent, TaskURL: identity.TaskURL, Sponsor: identity.Sponsor, Model: identity.Model, Harness: identity.Harness}, nil // legacy sponsors may not name an existing user
+	return &api.AgentIdentity{Agent: identity.Agent, TaskURL: identity.TaskURL, Sponsor: identity.Sponsor, Model: identity.Model, Harness: identity.Harness, ApprovesAsOwner: identity.ApprovesAsOwner}, nil // legacy sponsors may not name an existing user
 }
 
 type AgentAction struct {
@@ -117,38 +119,41 @@ type AgentAction struct {
 	Sponsor  string `xorm:"VARCHAR(255)" json:"sponsor"`
 	Model    string `xorm:"VARCHAR(255)" json:"model"`
 	Harness  string `xorm:"VARCHAR(255)" json:"harness"`
+	// a review the agent made as the token owner, so it is the owner's own decision
+	AsOwner bool `xorm:"NOT NULL DEFAULT false" json:"as_owner"`
 }
 
 func (AgentAction) TableName() string { return "branchroom_agent_action" }
 
-// IsAgentCredential reports whether the credential is an access token carrying an agent identity
-func IsAgentCredential(ctx context.Context, credential string) (bool, error) {
+// CredentialIdentity returns the agent identity behind the credential, or nil when it is not an agent token
+func CredentialIdentity(ctx context.Context, credential string) (int64, *api.AgentIdentity, error) {
 	idText, ok := strings.CutPrefix(credential, "access-token:")
 	if !ok {
-		return false, nil
+		return 0, nil, nil
 	}
 	id, err := strconv.ParseInt(idText, 10, 64)
 	if err != nil {
-		return false, err
+		return 0, nil, err
 	}
 	identity, err := GetTokenIdentity(ctx, id)
-	return identity != nil, err
+	return id, identity, err
 }
 
 func RecordAgentAction(ctx context.Context, credential, kind string, targetID int64) error {
-	idText, ok := strings.CutPrefix(credential, "access-token:")
-	if !ok {
-		return nil
-	}
-	id, err := strconv.ParseInt(idText, 10, 64)
-	if err != nil {
-		return err
-	}
-	identity, err := GetTokenIdentity(ctx, id)
+	return recordAgentAction(ctx, credential, kind, targetID, false)
+}
+
+// RecordAgentReview credits a review. asOwner marks an approval or change request the agent made as the token owner.
+func RecordAgentReview(ctx context.Context, credential string, reviewID int64, asOwner bool) error {
+	return recordAgentAction(ctx, credential, "review", reviewID, asOwner)
+}
+
+func recordAgentAction(ctx context.Context, credential, kind string, targetID int64, asOwner bool) error {
+	id, identity, err := CredentialIdentity(ctx, credential)
 	if err != nil || identity == nil {
 		return err
 	}
-	return db.Insert(ctx, &AgentAction{Kind: kind, TargetID: targetID, TokenID: id, Agent: identity.Agent, TaskURL: identity.TaskURL, Sponsor: identity.Sponsor, Model: identity.Model, Harness: identity.Harness})
+	return db.Insert(ctx, &AgentAction{Kind: kind, TargetID: targetID, TokenID: id, Agent: identity.Agent, TaskURL: identity.TaskURL, Sponsor: identity.Sponsor, Model: identity.Model, Harness: identity.Harness, AsOwner: asOwner})
 }
 
 func GetAgentAction(ctx context.Context, kind string, targetID int64) (*api.AgentIdentity, error) {
@@ -157,7 +162,7 @@ func GetAgentAction(ctx context.Context, kind string, targetID int64) (*api.Agen
 	if err != nil || !has {
 		return nil, err
 	}
-	return &api.AgentIdentity{Agent: action.Agent, TaskURL: action.TaskURL, Sponsor: action.Sponsor, Model: action.Model, Harness: action.Harness}, nil
+	return &api.AgentIdentity{Agent: action.Agent, TaskURL: action.TaskURL, Sponsor: action.Sponsor, Model: action.Model, Harness: action.Harness, ApprovesAsOwner: action.AsOwner}, nil
 }
 
 type PushReceipt struct {

@@ -404,17 +404,20 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 			Stale:        opts.Stale,
 		}
 
+		asOwner := false
 		if opts.Reviewer != nil {
 			review.Type = opts.Type
 			review.ReviewerID = opts.Reviewer.ID
 
 			reviewCond := builder.Eq{"reviewer_id": opts.Reviewer.ID, "issue_id": opts.Issue.ID}
-			// an agent reviewing with a person's token leaves that person's own request and decision standing
-			byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(opts.Reviewer))
+			// an agent reviewing with a person's token leaves that person's own request and decision standing,
+			// unless they let it approve and request changes as them
+			_, identity, err := branchroom_model.CredentialIdentity(ctx, user_model.GetDoerCredential(opts.Reviewer))
 			if err != nil {
 				return nil, err
 			}
-			byAgent = byAgent && !opts.Reviewer.IsTypeBot()
+			asOwner = agentDecidesAsOwner(identity, opts.Reviewer, opts.Type)
+			byAgent := identity != nil && !asOwner && !opts.Reviewer.IsTypeBot()
 			// make sure user review requests are cleared
 			if opts.Type != ReviewTypePending && !byAgent {
 				if _, err := sess.Where(reviewCond.And(builder.Eq{"type": ReviewTypeRequest})).Delete(new(Review)); err != nil {
@@ -441,7 +444,7 @@ func CreateReview(ctx context.Context, opts CreateReviewOptions) (*Review, error
 		}
 		// a pending draft belongs to whoever submits it, so credit waits for SubmitReview
 		if opts.Type != ReviewTypePending {
-			if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(opts.Reviewer), "review", review.ID); err != nil {
+			if err := branchroom_model.RecordAgentReview(ctx, user_model.GetDoerCredential(opts.Reviewer), review.ID, asOwner); err != nil {
 				return nil, err
 			}
 		}
@@ -496,12 +499,13 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	defer committer.Close()
 	sess := db.GetEngine(ctx)
 
-	// a person's agent reviews alongside them, it never stands in for their own decision or approval
-	byAgent, err := branchroom_model.IsAgentCredential(ctx, user_model.GetDoerCredential(doer))
+	// a person's agent reviews alongside them. It only stands in for their decision when they have let it
+	_, identity, err := branchroom_model.CredentialIdentity(ctx, user_model.GetDoerCredential(doer))
 	if err != nil {
 		return nil, nil, err
 	}
-	byAgent = byAgent && !doer.IsTypeBot()
+	asOwner := agentDecidesAsOwner(identity, doer, reviewType)
+	byAgent := identity != nil && !asOwner && !doer.IsTypeBot()
 	isApproveOrReject := (reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject) && !byAgent
 	official := false
 	if isApproveOrReject {
@@ -551,7 +555,7 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 			return nil, nil, err
 		}
 		if reviewType != ReviewTypePending {
-			if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(doer), "review", review.ID); err != nil {
+			if err := branchroom_model.RecordAgentReview(ctx, user_model.GetDoerCredential(doer), review.ID, asOwner); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -613,11 +617,16 @@ func SubmitReview(ctx context.Context, doer *user_model.User, issue *Issue, revi
 	return review, comm, committer.Commit()
 }
 
+// agentDecidesAsOwner reports whether this review is an approval or change request the token owner lets their agent make as them
+func agentDecidesAsOwner(identity *structs.AgentIdentity, reviewer *user_model.User, reviewType ReviewType) bool {
+	return identity != nil && identity.ApprovesAsOwner && !reviewer.IsTypeBot() && (reviewType == ReviewTypeApprove || reviewType == ReviewTypeReject)
+}
+
 // personsOwnReviewCond leaves out reviews an agent made with a person's token, so they never stand in for the person's decision.
-// Bot accounts are agents in their own right and keep their reviews.
+// Bot accounts are agents in their own right and keep their reviews, and so do decisions a person let their agent make as them.
 func personsOwnReviewCond() builder.Cond {
 	return builder.Or(
-		builder.NotIn("id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review"})),
+		builder.NotIn("id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review", "as_owner": false})),
 		builder.In("reviewer_id", builder.Select("id").From("`user`").Where(builder.Eq{"type": user_model.UserTypeBot})),
 	)
 }
