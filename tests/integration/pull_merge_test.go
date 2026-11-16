@@ -32,7 +32,6 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	issue_indexer "gitea.dev/modules/indexer/issues"
-	"gitea.dev/modules/json"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
@@ -670,7 +669,7 @@ func TestPullRetargetChildOnBranchDelete(t *testing.T) {
 
 		htmlDoc := NewHTMLParser(t, resp.Body)
 		targetBranch := htmlDoc.doc.Find("#branch_target>a").Text()
-		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.issue-state-label").Text())
+		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.forge-state").Text())
 
 		assert.Equal(t, "master", targetBranch)
 		assert.Equal(t, "Open", prStatus)
@@ -710,7 +709,7 @@ func TestPullDontRetargetChildOnWrongRepo(t *testing.T) {
 		htmlDoc := NewHTMLParser(t, resp.Body)
 		// the branch has been deleted, so there is no a html tag instead of span
 		targetBranch := htmlDoc.doc.Find("#branch_target>span").Text()
-		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.issue-state-label").Text())
+		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.forge-state").Text())
 
 		assert.Equal(t, "base-pr", targetBranch)
 		assert.Equal(t, "Closed", prStatus)
@@ -1206,12 +1205,8 @@ func TestPullForceMergeForBypassAllowlistUser(t *testing.T) {
 		resp = bypassSession.MakeRequest(t, NewRequest(t, "GET", pullURL), http.StatusOK)
 		htmlDoc := NewHTMLParser(t, resp.Body)
 		assert.Contains(t, htmlDoc.doc.Find(".merge-section").Text(), "You are allowed to bypass branch protection rules for this merge.")
-		mergeFormProps, exists := htmlDoc.doc.Find("#pull-request-merge-form").Attr("data-merge-form-props")
-		require.True(t, exists)
-		var mergeForm map[string]any
-		require.NoError(t, json.Unmarshal([]byte(mergeFormProps), &mergeForm))
-		assert.Equal(t, true, mergeForm["canMergeNow"])
-		assert.Equal(t, false, mergeForm["allOverridableChecksOk"])
+		// the merge form is rendered on the server: merging now while a check still fails is a forced merge
+		assert.Equal(t, "true", htmlDoc.doc.Find(".forge-merge-actions input[name=force_merge]").First().AttrOr("value", ""))
 
 		mergeReq := func(forceMerge bool) *RequestWrapper {
 			return NewRequestWithValues(t, "POST", fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d/merge", prIndex), map[string]string{

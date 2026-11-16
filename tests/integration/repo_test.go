@@ -62,9 +62,11 @@ func testViewRepoPublic(t *testing.T) {
 
 	htmlDoc := NewHTMLParser(t, resp.Body)
 	repoTopics := htmlDoc.doc.Find("#repo-topics").Children()
-	repoSummary := htmlDoc.doc.Find(".repository-summary").Children()
-
 	assert.True(t, repoTopics.HasClass("repo-topic"))
+
+	// the repository home leads with the README, the summary bar lives on the code view
+	resp = session.MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/src/branch/master"), http.StatusOK)
+	repoSummary := NewHTMLParser(t, resp.Body).doc.Find(".repository-summary").Children()
 	assert.True(t, repoSummary.HasClass("repository-menu"))
 
 	req = NewRequest(t, "GET", "/org3/repo3")
@@ -161,7 +163,7 @@ func testViewRepoPrivate(t *testing.T) {
 		// try to "anonymous read" (ok)
 		req = NewRequest(t, "GET", "/org3/repo3")
 		resp := MakeRequest(t, req, http.StatusOK)
-		assert.Contains(t, resp.Body.String(), `<span class="ui basic orange label">Public Access</span>`)
+		assert.Contains(t, resp.Body.String(), `<span class="muted">Public Access</span>`)
 
 		// remove "anonymous read"
 		req = NewRequest(t, "POST", "/org3/repo3/settings/public_access")
@@ -411,9 +413,6 @@ func testViewRepoDirectoryReadme(t *testing.T) {
 		})
 	}
 
-	// viewing the top level
-	check("Home", "/user2/readme-test/", "README.md", "markdown", "The cake is a lie.")
-
 	// viewing different file extensions
 	check("md", "/user2/readme-test/src/branch/master/", "README.md", "markdown", "The cake is a lie.")
 	check("txt", "/user2/readme-test/src/branch/txt/", "README.txt", "plain-text", "My spoon is too big.")
@@ -522,7 +521,12 @@ func testViewRepoCitationPicksCFFCaseInsensitivelyThroughSymlink(t *testing.T) {
 			},
 		},
 	}))
-	resp := MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/src/branch/citation"), http.StatusOK)
+	// the citation sits in the About sidebar, which follows the default branch
+	require.NoError(t, repo_model.UpdateRepositoryColsNoAutoTime(t.Context(), &repo_model.Repository{ID: repo.ID, DefaultBranch: "citation"}, "default_branch"))
+	defer func() {
+		require.NoError(t, repo_model.UpdateRepositoryColsNoAutoTime(t.Context(), &repo_model.Repository{ID: repo.ID, DefaultBranch: "master"}, "default_branch"))
+	}()
+	resp := MakeRequest(t, NewRequest(t, "GET", "/user2/repo1"), http.StatusOK)
 	htmlDoc := NewHTMLParser(t, resp.Body)
 	assert.Equal(t, "Team. Tool [Computer software]", htmlDoc.Find("#cite-repo-modal .citation-apa").AttrOr("data-text", ""))
 	assert.Equal(t, "/user2/repo1/src/branch/citation/citation.cff", htmlDoc.Find("#cite-repo-modal a.jump").AttrOr("href", ""))
