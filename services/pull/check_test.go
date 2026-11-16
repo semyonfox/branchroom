@@ -76,6 +76,34 @@ func TestPullRequest_AddToTaskQueue(t *testing.T) {
 	prPatchCheckerQueue = nil
 }
 
+func TestWaitPullRequestCheck(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: 2})
+	setStatus := func(status issues_model.PullRequestStatus) {
+		_, err := db.GetEngine(ctx).ID(pr.ID).Cols("status").Update(&issues_model.PullRequest{Status: status})
+		assert.NoError(t, err)
+	}
+
+	// a check that finishes while the page waits hands its result over
+	setStatus(issues_model.PullRequestStatusChecking)
+	pr.Status = issues_model.PullRequestStatusChecking
+	time.AfterFunc(80*time.Millisecond, func() {
+		setStatus(issues_model.PullRequestStatusConflict)
+		checkFinished(pr.ID)
+	})
+	start := time.Now()
+	require.NoError(t, WaitPullRequestCheck(ctx, pr, 2*time.Second))
+	assert.Equal(t, issues_model.PullRequestStatusConflict, pr.Status)
+	assert.Less(t, time.Since(start), time.Second)
+
+	// a check that is still running is left to the page's own refresh
+	setStatus(issues_model.PullRequestStatusChecking)
+	pr.Status = issues_model.PullRequestStatusChecking
+	require.NoError(t, WaitPullRequestCheck(ctx, pr, 60*time.Millisecond))
+	assert.Equal(t, issues_model.PullRequestStatusChecking, pr.Status)
+}
+
 func TestCheckSigningRequirementsHeadCommits(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
