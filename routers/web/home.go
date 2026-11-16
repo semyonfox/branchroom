@@ -46,6 +46,24 @@ func Home(ctx *context.Context) {
 
 	ctx.Data["PageIsHome"] = true
 	ctx.Data["IsRepoIndexerEnabled"] = setting.Indexer.RepoIndexerEnabled
+	ctx.Data["ShowRegistrationButton"] = setting.Service.ShowRegistrationButton
+	if !setting.Service.Explore.RequireSigninView {
+		repos, _, err := repo_model.SearchRepository(ctx, repo_model.SearchRepoOptions{
+			ListOptions:      db.ListOptions{Page: 1, PageSize: 5},
+			OrderBy:          db.SearchOrderByRecentUpdated,
+			AllPublic:        true,
+			OnlyShowRelevant: true,
+		})
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		if err := repos.LoadAttributes(ctx); err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		ctx.Data["LandingRepos"] = repos
+	}
 	ctx.HTML(http.StatusOK, tplHome)
 }
 
