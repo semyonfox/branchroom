@@ -366,3 +366,58 @@ func TestGiteaDownloadCommentsPaging(t *testing.T) {
 		})
 	}
 }
+
+func TestGiteaGetSettings(t *testing.T) {
+	responses := map[string]string{
+		"/api/v1/version":      `{"version":"1.25.0"}`,
+		"/api/v1/settings/api": `{"max_response_items":50}`,
+		"/api/v1/repos/o/r":    `{"name":"r","owner":{"login":"o"},"permissions":{"admin":true,"push":true,"pull":true}}`,
+		"/api/v1/repos/o/r/branch_protections": `[{"rule_name":"release/*","enable_push":true,"enable_push_whitelist":true,"push_whitelist_usernames":["niamh"],
+			"enable_merge_whitelist":true,"required_approvals":2,"block_on_rejected_reviews":true,"enable_status_check":true,
+			"status_check_contexts":["CI / test (pull_request)"],"protected_file_patterns":"*.lock","block_admin_merge_override":true}]`,
+		"/api/v1/repos/o/r/collaborators":                  `[{"id":7,"login":"niamh"}]`,
+		"/api/v1/repos/o/r/collaborators/niamh/permission": `{"permission":"owner","role_name":"owner"}`,
+		"/api/v1/repos/o/r/teams": `[{"name":"Owners","permission":"owner","includes_all_repositories":true},
+			{"name":"coaches","permission":"none","units_map":{"repo.code":"write","repo.issues":"write"}},
+			{"name":"triage","permission":"none","units_map":{"repo.issues":"write"}}]`,
+		"/api/v1/repos/o/r/hooks": `[{"type":"gitea","branch_filter":"main","events":["push","pull_request_review","deployment"],"config":{"url":"https://ci.example.com/hook","content_type":"json"}},
+			{"type":"discord","events":["push"],"config":{"url":"https://discord.example.com/api/webhooks/1/secret-token"}}]`,
+		"/api/v1/repos/o/r/actions/variables": `[{"name":"NODE_VERSION","data":"24"}]`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response, ok := responses[r.URL.Path]
+		if !ok { // secrets, which this token may not read
+			w.WriteHeader(http.StatusForbidden)
+			response = `{"message":"token does not have the required scope"}`
+		}
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+	downloader, err := NewGiteaDownloader(t.Context(), server.URL, "o/r", "", "", "token")
+	require.NoError(t, err)
+
+	settings, err := downloader.GetSettings(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []*base.BranchProtection{{
+		Pattern:                "release/*",
+		BlockPush:              true,
+		RequiredApprovals:      2,
+		BlockOnRejectedReviews: true,
+		EnableStatusCheck:      true,
+		StatusCheckContexts:    []string{"CI / test (pull_request)"},
+		EnforceForAdmins:       true,
+		ProtectedFilePatterns:  "*.lock",
+		Unsupported:            []string{"push allow-list (direct pushes are off instead)", "merge allow-list (anyone with write access can merge)"},
+	}}, settings.BranchProtections)
+	assert.Equal(t, []*base.Collaborator{{ExternalID: "7", Login: "niamh", Permission: "admin"}}, settings.Collaborators)
+	assert.Equal(t, []*base.Team{{Name: "coaches", Slug: "coaches", Permission: "write"}, {Name: "triage", Slug: "triage", Permission: "none"}}, settings.Teams)
+	assert.Equal(t, []*base.Webhook{{
+		URL: "https://ci.example.com/hook", ContentType: "json", BranchFilter: "main",
+		Events: []string{"push", "pull_request_review"}, UnsupportedEvents: []string{"deployment"},
+	}}, settings.Webhooks)
+	assert.Equal(t, []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}}, settings.Variables)
+	assert.Equal(t, []base.SettingsNote{
+		{Kind: base.SettingsNoteWebhookKind, Name: "discord.example.com", Detail: "discord"},
+		{Kind: base.SettingsNoteUnreadable, Name: "Actions secrets", Detail: "HTTP 403"},
+	}, settings.Notes)
+}

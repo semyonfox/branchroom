@@ -5,13 +5,10 @@ package migrations
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 
 	"gitea.dev/modules/glob"
-	"gitea.dev/modules/log"
 	base "gitea.dev/modules/migration"
 	webhook_module "gitea.dev/modules/webhook"
 
@@ -144,19 +141,6 @@ func githubListAll[T any](ctx context.Context, g *GithubDownloaderV3, list func(
 	}
 }
 
-func readableSettings[T any](settings *base.RepoSettings, area string, items []T, err error) []T {
-	if err == nil {
-		return items
-	}
-	log.Warn("migrating %s is not possible: %v", area, err)
-	note := base.SettingsNote{Kind: base.SettingsNoteUnreadable, Name: area}
-	if response, ok := errors.AsType[*github.ErrorResponse](err); ok && response.Response != nil {
-		note.Detail = fmt.Sprintf("HTTP %d", response.Response.StatusCode)
-	}
-	settings.Notes = append(settings.Notes, note)
-	return nil
-}
-
 func convertGithubPermission(admin, write bool) string {
 	switch {
 	case admin:
@@ -220,6 +204,7 @@ func convertGithubBranchProtection(rule *gqlBranchProtectionRule) *base.BranchPr
 		AllowForcePush:          rule.AllowsForcePushes,
 		AllowDeletion:           rule.AllowsDeletions,
 		RequiredApprovals:       rule.RequiredApprovingReviewCount,
+		BlockOnRejectedReviews:  rule.RequiredApprovingReviewCount > 0,
 		DismissStaleApprovals:   rule.DismissesStaleReviews,
 		RequireCodeOwnerReviews: rule.RequiresCodeOwnerReviews,
 		EnableStatusCheck:       rule.RequiresStatusChecks && len(rule.RequiredStatusChecks) > 0,
@@ -295,13 +280,4 @@ func convertGithubWebhook(hook *github.Hook) *base.Webhook {
 		}
 	}
 	return webhook
-}
-
-// webhookHost is all of a webhook URL that is safe to show, chat services put the credential in the path
-func webhookHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return u.Host
 }

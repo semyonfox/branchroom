@@ -20,13 +20,18 @@ type BranchProtection struct {
 	AllowForcePush          bool
 	AllowDeletion           bool
 	RequiredApprovals       int64
+	BlockOnRejectedReviews  bool
+	BlockOnReviewRequests   bool
 	DismissStaleApprovals   bool
+	IgnoreStaleApprovals    bool
 	RequireCodeOwnerReviews bool
 	EnableStatusCheck       bool
 	StatusCheckContexts     []string
 	RequireUpToDateBranch   bool
 	RequireSignedCommits    bool
 	EnforceForAdmins        bool
+	ProtectedFilePatterns   string
+	UnprotectedFilePatterns string
 	Unsupported             []string // source settings with no counterpart, in the source's own words
 }
 
@@ -49,6 +54,7 @@ type Webhook struct {
 	URL               string
 	ContentType       string // json or form
 	Events            []string
+	BranchFilter      string
 	SendEverything    bool
 	UnsupportedEvents []string
 }
@@ -70,6 +76,7 @@ const (
 	SettingsNoteEnvironment      SettingsNoteKind = "environment"
 	SettingsNoteWebhook          SettingsNoteKind = "webhook"
 	SettingsNoteWebhookSkipped   SettingsNoteKind = "webhook_skipped"
+	SettingsNoteWebhookKind      SettingsNoteKind = "webhook_kind"
 	SettingsNoteCollaborator     SettingsNoteKind = "collaborator"
 	SettingsNoteTeam             SettingsNoteKind = "team"
 	SettingsNoteTeamAccess       SettingsNoteKind = "team_access"
@@ -92,6 +99,7 @@ var SettingsNoteKinds = []SettingsNoteKind{
 	SettingsNoteEnvironment,
 	SettingsNoteWebhook,
 	SettingsNoteWebhookSkipped,
+	SettingsNoteWebhookKind,
 	SettingsNoteCollaborator,
 	SettingsNoteTeam,
 	SettingsNoteTeamAccess,

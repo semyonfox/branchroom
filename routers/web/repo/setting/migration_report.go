@@ -27,6 +27,7 @@ var migrationReportLinks = map[migration.SettingsNoteKind]string{
 	migration.SettingsNoteVariable:         "/settings/actions/variables",
 	migration.SettingsNoteWebhook:          "/settings/hooks",
 	migration.SettingsNoteWebhookSkipped:   "/settings/hooks",
+	migration.SettingsNoteWebhookKind:      "/settings/hooks",
 	migration.SettingsNoteCollaborator:     "/settings/collaboration",
 	migration.SettingsNoteTeam:             "/settings/collaboration",
 	migration.SettingsNoteTeamAccess:       "/settings/collaboration",
