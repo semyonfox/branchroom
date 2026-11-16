@@ -1,5 +1,5 @@
 <div class="ui pull tabs container">
-	<div class="ui top attached pull tabular menu">
+	<div class="ui top attached pull tabular menu scroll-fade-x">
 		<a class="item {{if .PageIsPullConversation}}active{{end}}" href="{{.Issue.Link}}">
 			{{svg "octicon-comment-discussion"}}
 			{{template "shared/misc/tabtitle" (ctx.Locale.Tr "repo.pulls.tab_conversation")}}
