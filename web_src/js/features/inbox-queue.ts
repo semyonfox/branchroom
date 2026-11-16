@@ -17,7 +17,7 @@ export function initInboxQueue() {
     input.value = redirect;
   }, {capture: true});
 
-  const openMerge = () => document.querySelector<HTMLButtonElement>('.forge-merge-actions .show-modal.primary');
+  const openMerge = () => document.querySelector<HTMLButtonElement>('.forge-merge-actions .show-modal');
   const openReview = () => document.querySelector<HTMLButtonElement>('.review-box-button:not([disabled])');
   for (const [selector, find] of [['.forge-queue-merge', openMerge], ['.forge-queue-review', openReview]] as const) {
     bar.querySelector(selector)?.addEventListener('click', (event) => {
