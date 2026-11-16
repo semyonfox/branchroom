@@ -92,28 +92,30 @@ Team grants still support discovery and source read only.
 
 ## Backup
 
-`gitea dump` deliberately leaves the restricted root out. Back it up separately and
-keep that archive at least as protected as the source it holds.
+`gitea dump` leaves the restricted root out unless you add `--branchroom-stores`. With
+it, the archive holds restricted source, so keep it at least as protected as that source.
 
 1. Stop Gitea, or take an atomic filesystem snapshot of the database and the restricted
    root together. A store and its database row must come from the same moment.
-2. `gitea dump --database <type> --file gitea-dump.zip`
-3. `tar -C <parent of RESTRICTED_ROOT> -cpf branchroom-restricted.tar <root name>`
-   keeps ownership and modes. Encrypt it before it leaves the host.
-4. Back up `custom/conf/app.ini` separately. It holds secrets.
+2. `gitea dump --branchroom-stores --database <type> --file gitea-dump.zip` writes the
+   stores under `branchroom/` with their modes, and creates the archive as `0600`.
+   Encrypt it before it leaves the host.
+3. Back up `custom/conf/app.ini` separately. It holds secrets.
 
 ## Restore
 
-1. Restore the dump as for any Gitea instance, then unpack the restricted archive with
-   `tar -xpf` as the service account.
-2. Point `RESTRICTED_ROOT` at the unpacked directory and start Gitea.
-3. Run `gitea doctor check --run branchroom`. If the executable, config or restricted
+1. Restore the dump as for any Gitea instance.
+2. As the service account, move `branchroom/` from the unpacked dump to the new
+   `RESTRICTED_ROOT`. `unzip` and `tar -xpf` keep its `0700` mode. Check it with
+   `stat -c %a`, because Gitea will not serve stores from a root that others can read.
+3. Point `RESTRICTED_ROOT` at it and start Gitea.
+4. Run `gitea doctor check --run branchroom`. If the executable, config or restricted
    root moved, it reports receive hooks that fail verification. Run it again with
    `--fix`, then once more without, which must be clean.
-4. Clone a restricted workspace through its handoff page to confirm.
+5. Clone a restricted workspace through its handoff page to confirm.
 
 `contrib/branchroom/restore-drill.sh` rehearses all of this on throwaway instances,
-restoring to different paths and pushing again afterwards. Run it after upgrading Gitea
+deleting the original, restoring to different paths and pushing again afterwards. Run it after upgrading Gitea
 or changing the backup procedure.
 
 ## Upgrade

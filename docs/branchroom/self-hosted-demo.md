@@ -37,8 +37,8 @@ hides the handoff result and the restricted Git HTTP gateway.
 Restricted stores must not overlap public repositories, local storage, or the served
 `public`, `templates` and `options` directories under `CustomPath` and
 `StaticRootPath`. A root under the work path, such as `data/branchroom`, is fine. Local
-imports cannot read from the restricted root. `gitea dump` excludes restricted stores,
-including through a symlinked data path, so they need a separate backup. Branchroom
+imports cannot read from the restricted root. `gitea dump` leaves restricted stores out,
+including through a symlinked data path, unless you add `--branchroom-stores`. Branchroom
 refuses to start on MSSQL and under FastCGI (`PROTOCOL = fcgi` or `fcgi+unix`), because
 the gateway needs row locks and connection read deadlines. It also refuses
 `[security] DISABLE_GIT_HOOKS = false`, because editable server-side hooks run as the
@@ -139,6 +139,21 @@ Rotation does not revoke grants. A Git protocol phase that was already authorize
 the rotation commits may finish, but a fresh request using the old clone URL fails. The
 audit record says that the locator changed without storing either route key, a clone
 URL, a filesystem path, or a store ID.
+
+## Back up and restore
+
+Stop Gitea, then dump everything, including the restricted stores:
+
+```sh
+gitea dump --branchroom-stores --file gitea-dump.zip
+```
+
+The archive is created as `0600` and holds restricted source, so treat it like that
+source. To restore, unpack it as the service account, restore the database and data
+as for any Gitea dump, and move `branchroom/` to `RESTRICTED_ROOT`. Unpacking keeps the
+`0700` mode of the root and of the receive hooks. Then start Gitea and run
+`gitea doctor check --run branchroom --fix` so the receive hooks point at the restored
+paths. The [operations runbook](operations.md#backup) has the full steps.
 
 ## What is deliberately missing
 
