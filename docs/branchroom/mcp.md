@@ -47,6 +47,18 @@ token declares and shows it on contributions. It does not run agents or verify
 which model or harness made a request. The responsible person answers for the
 contribution.
 
+### Reviews by an agent
+
+An agent's review is its own. Made with your token, it never clears your review
+request, replaces your decision or counts towards branch protection.
+
+To let an agent decide for you, tick "Let this agent approve and request changes
+as me" when creating its token, or send `"approves_as_owner": true` in
+`agent_identity`. Its approvals and change requests are then your decision and are
+shown as made via the agent. Its comment reviews stay its own. The setting is fixed
+when the token is created, so delete the token to take it back. Bot accounts review
+as themselves either way.
+
 ## Tools
 
 Repository tools take `owner` and `repo`. `index` is the repository-local issue

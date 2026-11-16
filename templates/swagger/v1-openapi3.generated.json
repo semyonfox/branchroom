@@ -2620,6 +2620,11 @@
             "type": "string",
             "x-go-name": "Agent"
           },
+          "approves_as_owner": {
+            "description": "On a token: the owner lets this agent approve and request changes as them. On a review: it was made that way.",
+            "type": "boolean",
+            "x-go-name": "ApprovesAsOwner"
+          },
           "harness": {
             "type": "string",
             "x-go-name": "Harness"
