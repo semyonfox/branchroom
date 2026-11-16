@@ -17,6 +17,17 @@
 			<input name="new_owner_name" required>
 		</div>
 	{{end}}
+	{{if eq $repoOperationAction "make_primary"}}
+		<div class="field">
+			<label>{{ctx.Locale.Tr "username"}}</label>
+			<input name="push_mirror_username" autocomplete="off">
+		</div>
+		<div class="field">
+			<label>{{ctx.Locale.Tr "password"}}</label>
+			<input name="push_mirror_password" type="password" autocomplete="new-password">
+			<p class="help">{{ctx.Locale.Tr "repo.settings.make_primary_credentials_help"}}</p>
+		</div>
+	{{end}}
 	{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" $repoOperationText)}}
 </form>
 

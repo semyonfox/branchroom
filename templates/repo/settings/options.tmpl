@@ -844,6 +844,17 @@
 						</div>
 					</div>
 				{{end}}
+				{{if and .PullMirror .MirrorsEnabled (not .DisableNewPushMirrors)}}
+					<div class="item">
+						<div class="item-main">
+							<div class="item-title">{{ctx.Locale.Tr "repo.settings.make_primary"}}</div>
+							<div class="item-body">{{ctx.Locale.Tr "repo.settings.make_primary_desc" .PullMirror.RemoteAddress}}</div>
+						</div>
+						<div class="item-trailing">
+							<button type="button" class="ui basic red show-modal button" data-modal="#make-primary-repo-modal">{{ctx.Locale.Tr "repo.settings.make_primary"}}</button>
+						</div>
+					</div>
+				{{end}}
 				{{if .Repository.IsMirror}}
 					<div class="item">
 						<div class="item-main">
@@ -936,6 +947,24 @@
 	</div>
 
 {{if $.CanManagerDangerZone}}
+	{{if and .PullMirror .MirrorsEnabled (not .DisableNewPushMirrors)}}
+		<dialog class="modal-dialog" id="make-primary-repo-modal">
+			<div class="header">
+				{{ctx.Locale.Tr "repo.settings.make_primary"}}
+			</div>
+			<div class="content">
+				<div class="ui warning message">
+					{{ctx.Locale.Tr "repo.settings.make_primary_notice" .PullMirror.RemoteAddress}}
+				</div>
+				{{template "repo/settings/dangerous_operation_form" (dict
+					"RepoFullName" .Repository.FullName
+					"RepoOperationLink" .Link
+					"RepoOperationAction" "make_primary"
+					"RepoOperationText" (ctx.Locale.Tr "repo.settings.make_primary")
+				)}}
+			</div>
+		</dialog>
+	{{end}}
 	{{if .Repository.IsMirror}}
 		<dialog class="modal-dialog" id="convert-mirror-repo-modal">
 			<div class="header">

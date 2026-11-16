@@ -17,6 +17,7 @@ import (
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/migration"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
@@ -67,6 +68,9 @@ func TestMirrorPush(t *testing.T) {
 		})
 		t.Run("WikiDefaultBranchMismatch", func(t *testing.T) {
 			testMirrorPushWikiDefaultBranchMismatch(t, serverURL)
+		})
+		t.Run("MakePrimary", func(t *testing.T) {
+			testMirrorMakePrimary(t, serverURL)
 		})
 	})
 }
@@ -214,4 +218,47 @@ func doUpdatePushMirror(t *testing.T, session *TestSession, owner, repo string, 
 	})
 	resp := session.MakeRequest(t, req, NoExpectedStatus)
 	return resp.Code == http.StatusSeeOther
+}
+
+func testMirrorMakePrimary(t *testing.T, u *url.URL) {
+	ctx := t.Context()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	// repo16 has no pull requests: unlike GitHub, this server shows refs/pull to a push and refuses the mirror's prune of them
+	sourceRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 16})
+	sourceURL := u.String() + "user2/repo16.git"
+	cloneAddr, err := git.ParseRemoteAddr(sourceURL, user.LowerName, userPassword)
+	require.NoError(t, err)
+
+	mirrorRepo, err := repo_service.CreateRepositoryDirectly(ctx, user, user, repo_service.CreateRepoOptions{Name: "test-make-primary", IsMirror: true}, false)
+	require.NoError(t, err)
+	mirrorRepo, err = repo_service.MigrateRepositoryGitData(ctx, user, mirrorRepo, migration.MigrateOptions{RepoName: mirrorRepo.Name, Mirror: true, CloneAddr: cloneAddr}, nil)
+	require.NoError(t, err)
+
+	masterCommit := func(repo *repo_model.Repository) string {
+		commitID, err := git.GetBranchCommitID(ctx, repo, "master")
+		require.NoError(t, err)
+		return commitID
+	}
+	_, err = createFile(user, sourceRepo, "pushed-after-the-last-sync.txt")
+	require.NoError(t, err)
+	require.NotEqual(t, masterCommit(sourceRepo), masterCommit(mirrorRepo))
+
+	session := loginUser(t, user.Name)
+	session.MakeRequest(t, NewRequestWithValues(t, "POST", "/user2/test-make-primary/settings", map[string]string{
+		"action":    "make_primary",
+		"repo_name": "user2/test-make-primary",
+	}), http.StatusOK)
+
+	mirrorRepo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: mirrorRepo.ID})
+	assert.False(t, mirrorRepo.IsMirror)
+	unittest.AssertNotExistsBean(t, &repo_model.Mirror{RepoID: mirrorRepo.ID})
+	assert.Equal(t, masterCommit(sourceRepo), masterCommit(mirrorRepo), "the switch pulls once more before it starts pushing")
+	pushMirror := unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{RepoID: mirrorRepo.ID})
+	assert.Equal(t, sourceURL, pushMirror.RemoteAddress)
+	assert.True(t, pushMirror.SyncOnCommit)
+
+	_, err = createFile(user, mirrorRepo, "written-here.txt")
+	require.NoError(t, err)
+	require.True(t, mirror_service.SyncPushMirror(ctx, pushMirror.ID))
+	assert.Equal(t, masterCommit(mirrorRepo), masterCommit(sourceRepo))
 }

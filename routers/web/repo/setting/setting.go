@@ -188,6 +188,8 @@ func SettingsPost(ctx *context.Context) {
 		handleSettingsPostAdmin(ctx)
 	case "admin_index":
 		handleSettingsPostAdminIndex(ctx)
+	case "make_primary":
+		handleSettingsPostMakePrimary(ctx)
 	case "convert":
 		handleSettingsPostConvert(ctx)
 	case "convert_fork":
@@ -799,6 +801,58 @@ func handleSettingsPostConvert(ctx *context.Context) {
 	log.Trace("Repository converted from mirror to regular: %s", repo.FullName())
 	ctx.Flash.Success(ctx.Tr("repo.settings.convert_succeed"))
 	ctx.JSONRedirect(repo.Link())
+}
+
+func handleSettingsPostMakePrimary(ctx *context.Context) {
+	if !canManageRepoDangerZone(ctx) {
+		return
+	}
+
+	form := web.GetForm[*forms.RepoSettingForm](ctx)
+	repo := ctx.Repo.Repository
+	if repo.FullName() != form.RepoName {
+		ctx.JSONError(ctx.Tr("form.enterred_invalid_repo_name"))
+		return
+	}
+	if !setting.Mirror.Enabled || setting.Mirror.DisableNewPush || !repo.IsMirror {
+		ctx.JSONErrorNotFound()
+		return
+	}
+
+	pullMirror, err := repo_model.GetMirrorByRepoID(ctx, repo.ID)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	source, err := git.ParseRemoteAddressURL(ctx, repo, pullMirror.GetRemoteName())
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	address := source.String()
+	if form.PushMirrorUsername != "" || form.PushMirrorPassword != "" {
+		address, err = git.ParseRemoteAddr(pullMirror.RemoteAddress, form.PushMirrorUsername, form.PushMirrorPassword)
+	}
+	if err == nil {
+		err = migrations.IsMigrateURLAllowed(address, ctx.Doer)
+	}
+	if err != nil {
+		ctx.JSONError(ctx.Tr("repo.settings.make_primary_address_denied"))
+		return
+	}
+
+	if err := mirror_service.MakePrimary(ctx, repo, address); err != nil {
+		if errors.Is(err, mirror_service.ErrFinalPullFailed) {
+			ctx.JSONError(ctx.Tr("repo.settings.make_primary_pull_failed"))
+			return
+		}
+		ctx.ServerErrorAuto(err)
+		return
+	}
+
+	log.Trace("Repository made primary, pushing back to its former source: %s", repo.FullName())
+	ctx.Flash.Success(ctx.Tr("repo.settings.make_primary_succeed", pullMirror.RemoteAddress))
+	ctx.JSONRedirect(repo.Link() + "/settings")
 }
 
 func handleSettingsPostConvertFork(ctx *context.Context) {
