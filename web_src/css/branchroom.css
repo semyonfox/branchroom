@@ -57,7 +57,7 @@
 }
 
 .branchroom .repo-setting-content details > summary:hover {
-  text-decoration: underline;
+  color: var(--color-primary-hover);
 }
 
 .branchroom .repo-setting-content details[open] > summary {
