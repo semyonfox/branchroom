@@ -104,7 +104,9 @@ it, the archive holds restricted source, so keep it at least as protected as tha
 
 ## Restore
 
-1. Restore the dump as for any Gitea instance.
+1. Restore the dump as for any Gitea instance. On SQLite, loading `gitea-db.sql` needs
+   `sqlite3` 3.50 or newer, because text with control characters is written with
+   `unistr()`. Ubuntu 24.04 ships 3.45.
 2. As the service account, move `branchroom/` from the unpacked dump to the new
    `RESTRICTED_ROOT`. `unzip` and `tar -xpf` keep its `0700` mode. Check it with
    `stat -c %a`, because Gitea will not serve stores from a root that others can read.
