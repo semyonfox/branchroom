@@ -13,10 +13,12 @@ While it is a mirror the repository is read-only here. Pushes are refused, and i
 Open the repository settings and choose **Make this repository primary** in the danger zone. Branchroom then:
 
 1. pulls from GitHub one last time, and stops if that pull fails
-2. turns the mirror into a regular repository you can push to
+2. turns the mirror into a regular repository you can push to, with pull requests and Actions switched on
 3. sets up a push mirror back to GitHub, which runs after every push and every eight hours
 
 The push uses the credentials the mirror pulled with, unless you enter others. They need write access to the GitHub repository. A classic token also needs the `workflow` scope before GitHub accepts changes to workflow files.
+
+GitHub still runs its own workflows on everything pushed back. Switch Actions off there once the workflows run here.
 
 From then on GitHub is a copy. Every branch and tag is overwritten from here, and a branch deleted here is deleted there. Anything pushed straight to GitHub is lost at the next push, so tell the team to stop pushing there.
 

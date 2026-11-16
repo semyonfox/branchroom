@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/audit"
@@ -39,6 +41,23 @@ func MakePrimary(ctx context.Context, repo *repo_model.Repository, pushAddr stri
 		return fmt.Errorf("MakePrimary: %w", err)
 	}
 	audit.Record(ctx, audit_model.RepositoryConvertMirror, repo)
+
+	// a mirror is created without the units only a writable repository needs, such as pull requests
+	var units []repo_model.RepoUnit
+	for _, tp := range unit.DefaultRepoUnits {
+		switch {
+		case slices.Contains(unit.DefaultMirrorRepoUnits, tp), repo.UnitEnabled(ctx, tp):
+		case tp == unit.TypePullRequests:
+			units = append(units, repo_model.DefaultPullRequestsUnit(repo.ID))
+		default:
+			units = append(units, repo_model.RepoUnit{RepoID: repo.ID, Type: tp})
+		}
+	}
+	if len(units) > 0 {
+		if err := repo_service.UpdateRepositoryUnits(ctx, repo, units, nil); err != nil {
+			return fmt.Errorf("MakePrimary: %w", err)
+		}
+	}
 
 	pushMirror := &repo_model.PushMirror{
 		RepoID:        repo.ID,

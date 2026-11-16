@@ -14,6 +14,7 @@ import (
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
@@ -251,6 +252,7 @@ func testMirrorMakePrimary(t *testing.T, u *url.URL) {
 
 	mirrorRepo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: mirrorRepo.ID})
 	assert.False(t, mirrorRepo.IsMirror)
+	assert.True(t, mirrorRepo.UnitEnabled(ctx, unit.TypePullRequests), "a mirror has no pull requests, a primary repository needs them")
 	unittest.AssertNotExistsBean(t, &repo_model.Mirror{RepoID: mirrorRepo.ID})
 	assert.Equal(t, masterCommit(sourceRepo), masterCommit(mirrorRepo), "the switch pulls once more before it starts pushing")
 	pushMirror := unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{RepoID: mirrorRepo.ID})
