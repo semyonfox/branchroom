@@ -409,14 +409,23 @@ td .commit-summary {
   max-width: 100%;
 }
 
-.repository.view.issue .pull.tabular.menu {
-  margin-bottom: 0;
+.repository.view.issue .pull.menu {
+  margin: 0 0 var(--page-spacing);
   overflow-x: auto;
   overflow-y: hidden;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--color-border); /* the scroller clips its own border, so draw the baseline inside it */
 }
 
-.repository.view.issue .pull.tabular.menu .svg {
-  margin-right: 5px;
+.repository.view.issue .pull.menu .item {
+  margin-bottom: 0;
+  min-height: 44px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.repository.view.issue .pull.menu .item:not(.active) {
+  color: var(--color-text-light-1);
 }
 
 .repository.view.issue .comment-list {
