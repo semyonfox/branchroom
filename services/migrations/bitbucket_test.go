@@ -159,3 +159,44 @@ func TestBitbucketPullRequestClosedTime(t *testing.T) {
 	assert.Equal(t, *prs[0].MergedTime, *prs[0].Closed)
 	assert.Equal(t, time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC), *prs[1].Closed) // falls back to updated_on
 }
+
+func TestBitbucketGetSettings(t *testing.T) {
+	responses := map[string]string{
+		"/2.0/repositories/w/r/branch-restrictions": `{"values":[
+			{"kind":"push","branch_match_kind":"glob","pattern":"main","users":[{"uuid":"{u-1}"}],"groups":[]},
+			{"kind":"force","branch_match_kind":"glob","pattern":"main"},
+			{"kind":"require_approvals_to_merge","branch_match_kind":"glob","pattern":"main","value":2},
+			{"kind":"require_passing_builds_to_merge","branch_match_kind":"glob","pattern":"main","value":1},
+			{"kind":"delete","branch_match_kind":"glob","pattern":"release/*"},
+			{"kind":"delete","branch_match_kind":"branching_model","branch_type":"development"}]}`,
+		"/2.0/repositories/w/r/permissions-config/users":   `{"values":[{"permission":"write","user":{"uuid":"{u-1}","nickname":"niamh"}}]}`,
+		"/2.0/repositories/w/r/permissions-config/groups":  `{"values":[{"permission":"admin","group":{"name":"Administrators","slug":"administrators"}}]}`,
+		"/2.0/repositories/w/r/pipelines_config/variables": `{"values":[{"key":"NODE_VERSION","value":"24","secured":false},{"key":"DEPLOY_KEY","secured":true}]}`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response, ok := responses[r.URL.Path]
+		if !ok { // hooks, which this token may not read
+			w.WriteHeader(http.StatusForbidden)
+		}
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	settings, err := NewBitbucketDownloader(server.URL+"/2.0", "w", "r", "tok").GetSettings(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []*base.BranchProtection{
+		{
+			Pattern: "main", BlockPush: true, AllowDeletion: true, RequiredApprovals: 2,
+			Unsupported: []string{"only named people and groups could push (direct pushes are off instead)", "1 builds must pass (no check is required here until you pick one)"},
+		},
+		{Pattern: "release/**", AllowForcePush: true},
+	}, settings.BranchProtections)
+	assert.Equal(t, []*base.Collaborator{{ExternalID: "{u-1}", Login: "niamh", Permission: "write"}}, settings.Collaborators)
+	assert.Equal(t, []*base.Team{{Name: "Administrators", Slug: "administrators", Permission: "admin"}}, settings.Teams)
+	assert.Equal(t, []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}}, settings.Variables)
+	assert.Equal(t, []base.SettingsNote{
+		{Kind: base.SettingsNoteRuleset, Name: "branching model: development"},
+		{Kind: base.SettingsNoteUnreadable, Name: "webhooks", Detail: "HTTP 403"},
+		{Kind: base.SettingsNoteSecret, Name: "DEPLOY_KEY"},
+	}, settings.Notes)
+}

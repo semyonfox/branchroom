@@ -1,6 +1,6 @@
 # Moving a repository from another forge
 
-**New migration** copies a repository with its history, wiki, LFS files, labels, milestones, issues, pull requests, reviews, comments and releases. Tick **Settings** to copy how the repository is run as well. Settings can be copied from GitHub, GitLab, Gitea, Forgejo and Codeberg.
+**New migration** copies a repository with its history, wiki, LFS files, labels, milestones, issues, pull requests, reviews, comments and releases. Tick **Settings** to copy how the repository is run as well. Settings can be copied from GitHub, GitLab, Bitbucket Cloud, Gitea, Forgejo and Codeberg.
 
 Settings need an access token from an admin of the source repository, because forges only show branch protection, webhooks and teams to admins.
 
@@ -59,6 +59,19 @@ Use a token from a Maintainer or Owner of the project with the `read_api` scope.
 - The number of approvals comes from the merge request approval rules.
 - Webhooks are not copied. GitLab sends its own kind of message, so whatever receives them has to be set up for this forge first.
 - `.gitlab-ci.yml` does not run here. Pipelines have to be rewritten as Actions workflows.
+
+## From Bitbucket Cloud
+
+The token needs to administer the repository and read its pipelines and webhooks. With OAuth scopes that is `repository:admin`, `pipeline` and `webhook`.
+
+- Branch restrictions for the same pattern become one rule, and `*` becomes `**` because a Bitbucket wildcard also matches `/`. Restrictions tied to the branching model are not copied, and the report lists them.
+- Bitbucket only enforces merge checks on its Premium plan. Here a required number of approvals always blocks the merge.
+- Pipeline variables become Actions variables. Secured ones can not be read, so the report lists them to enter again. Deployment variables are not read.
+- People with explicit access become collaborators, matched through a Bitbucket sign-in source. Groups are matched to teams by name.
+- Webhooks are not copied. Bitbucket sends its own kind of message, so whatever receives them has to be set up for this forge first.
+- `bitbucket-pipelines.yml` does not run here. Pipelines have to be rewritten as Actions workflows.
+
+Settings can not be copied from Bitbucket Server or Data Center.
 
 ## From the API
 

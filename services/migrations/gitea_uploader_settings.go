@@ -153,6 +153,9 @@ func loginSourceHost(loginSource *auth_model.Source) string {
 	if !ok {
 		return ""
 	}
+	if config.Provider == structs.BitbucketService.Name() {
+		return "bitbucket.org" // the one provider here that can not point anywhere else
+	}
 	provider, err := oauth2.CreateProviderFromSource(loginSource)
 	if err != nil || provider.CustomURLSettings() == nil {
 		return ""

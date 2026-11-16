@@ -34,6 +34,8 @@ func readableSettings[T any](settings *base.RepoSettings, area string, items []T
 		note.Detail = fmt.Sprintf("HTTP %d", response.Response.StatusCode)
 	} else if failed, ok := errors.AsType[*settingsStatusError](err); ok {
 		note.Detail = fmt.Sprintf("HTTP %d", failed.status)
+	} else if failed, ok := errors.AsType[*bbsStatusError](err); ok {
+		note.Detail = fmt.Sprintf("HTTP %d", failed.Status)
 	}
 	settings.Notes = append(settings.Notes, note)
 	return nil

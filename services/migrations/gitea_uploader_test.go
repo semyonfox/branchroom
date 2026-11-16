@@ -488,3 +488,37 @@ func TestGiteaUploadSettings(t *testing.T) {
 		},
 	}, report.Report)
 }
+
+func TestGiteaUploadLinkedUserByHost(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	for i, tc := range []struct {
+		service        structs.GitServiceType
+		source         string
+		provider, auth string
+		linked         bool
+	}{
+		{structs.ForgejoService, "https://codeberg.org/o/r", "gitea", "https://codeberg.org/login/oauth/authorize", true},
+		{structs.GiteaService, "https://gitea.example.com/o/r", "gitea", "https://codeberg.org/login/oauth/authorize", false},
+		{structs.GitlabService, "https://gitlab.com/o/r", "gitlab", "", true},
+		{structs.GitlabService, "https://gitlab.example.com/o/r", "gitlab", "", false},
+		{structs.BitbucketService, "https://bitbucket.org/w/r", "bitbucket", "", true},
+	} {
+		externalID := strconv.Itoa(100 + i)
+		config := &oauth2.Source{Provider: tc.provider}
+		if tc.auth != "" {
+			config.CustomURLMapping = &oauth2.CustomURLMapping{AuthURL: tc.auth}
+		}
+		source := &auth_model.Source{Type: auth_model.OAuth2, Name: "source " + externalID, IsActive: true, Cfg: config}
+		require.NoError(t, auth_model.CreateSource(ctx, source))
+		require.NoError(t, user_model.LinkExternalToUser(ctx, user, &user_model.ExternalLoginUser{ExternalID: externalID, UserID: user.ID, LoginSourceID: source.ID, Provider: tc.provider}))
+
+		uploader := NewGiteaLocalUploader(ctx, user, "org3", "repo5")
+		uploader.gitServiceType = tc.service
+		uploader.repo = &repo_model.Repository{OriginalURL: tc.source}
+		userID, err := uploader.linkedUserID(ctx, externalID)
+		require.NoError(t, err)
+		assert.Equal(t, tc.linked, userID == user.ID, "%s account from %s", tc.provider, tc.source)
+	}
+}
