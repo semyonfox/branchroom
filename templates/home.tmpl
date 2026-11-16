@@ -1,51 +1,59 @@
 {{template "base/head" .}}
-<div role="main" aria-label="{{if .IsSigned}}{{ctx.Locale.Tr "dashboard"}}{{else}}{{ctx.Locale.Tr "home_title"}}{{end}}" class="page-content home">
-	<div class="tw-mb-8 tw-px-8">
-		<div class="center">
-			<img class="logo" width="220" height="220" src="{{AssetUrlPrefix}}/img/logo.svg" alt="{{ctx.Locale.Tr "logo"}}">
-			<div class="hero">
-				<h1 class="ui icon header title tw-text-balance">
-					{{AppName}}
-				</h1>
-				<h2 class="tw-text-balance">{{ctx.Locale.Tr "startpage.app_desc"}}</h2>
+<div role="main" aria-label="{{if .IsSigned}}{{ctx.Locale.Tr "dashboard"}}{{else}}{{ctx.Locale.Tr "home_title"}}{{end}}" class="page-content forge-landing">
+	<section class="forge-landing-hero{{if not .LandingRepos}} forge-landing-hero-solo{{end}}">
+		<div class="forge-landing-pitch">
+			<p class="forge-landing-kicker">{{AppName}}</p>
+			<h1>{{ctx.Locale.Tr "startpage.headline"}}</h1>
+			<p class="forge-landing-lead">{{ctx.Locale.Tr "startpage.lead"}}</p>
+			<div class="forge-landing-actions">
+				{{if .ShowRegistrationButton}}
+					<a class="ui primary button" href="{{AppSubUrl}}/user/sign_up">{{ctx.Locale.Tr "startpage.create_account"}}</a>
+					<a class="ui basic button" rel="nofollow" href="{{AppSubUrl}}/user/login">{{ctx.Locale.Tr "sign_in"}}</a>
+				{{else}}
+					<a class="ui primary button" rel="nofollow" href="{{AppSubUrl}}/user/login">{{ctx.Locale.Tr "sign_in"}}</a>
+				{{end}}
+				<a class="forge-landing-link" href="{{AppSubUrl}}/explore/repos">{{ctx.Locale.Tr "startpage.explore"}} {{svg "octicon-arrow-right" 14}}</a>
 			</div>
 		</div>
-	</div>
-	<div class="ui stackable middle very relaxed page grid">
-		<div class="eight wide center column">
-			<h1 class="hero ui icon header">
-				{{svg "octicon-flame"}} {{ctx.Locale.Tr "startpage.install"}}
-			</h1>
-			<p class="large tw-text-balance">
-				{{ctx.Locale.Tr "startpage.install_desc" "https://docs.gitea.com/installation/install-from-binary" "https://github.com/go-gitea/gitea/tree/master/docker" "https://docs.gitea.com/installation/install-from-package"}}
-			</p>
-		</div>
-		<div class="eight wide center column">
-			<h1 class="hero ui icon header">
-				{{svg "octicon-device-desktop"}} {{ctx.Locale.Tr "startpage.platform"}}
-			</h1>
-			<p class="large tw-text-balance">
-				{{ctx.Locale.Tr "startpage.platform_desc" "https://go.dev/"}}
-			</p>
-		</div>
-	</div>
-	<div class="ui stackable middle very relaxed page grid">
-		<div class="eight wide center column">
-			<h1 class="hero ui icon header">
-				{{svg "octicon-rocket"}} {{ctx.Locale.Tr "startpage.lightweight"}}
-			</h1>
-			<p class="large tw-text-balance">
-				{{ctx.Locale.Tr "startpage.lightweight_desc"}}
-			</p>
-		</div>
-		<div class="eight wide center column">
-			<h1 class="hero ui icon header">
-				{{svg "octicon-code"}} {{ctx.Locale.Tr "startpage.license"}}
-			</h1>
-			<p class="large tw-text-balance">
-				{{ctx.Locale.Tr "startpage.license_desc" "https://gitea.dev" "gitea.dev" "https://github.com/go-gitea/gitea"}}
-			</p>
-		</div>
-	</div>
+		{{if .LandingRepos}}
+		<aside class="forge-landing-live" aria-labelledby="landing-live-heading">
+			<h2 id="landing-live-heading">{{ctx.Locale.Tr "startpage.recent"}}</h2>
+			<ul>
+				{{range $repo := .LandingRepos}}
+					<li>
+						<a href="{{$repo.Link}}">{{svg "octicon-repo" 16}} <span>{{$repo.FullName}}</span></a>
+						{{if $repo.Description}}<p>{{$repo.Description}}</p>{{end}}
+						<div class="forge-landing-meta">
+							{{if $repo.PrimaryLanguage}}<span><i class="color-icon" style="background-color: {{$repo.PrimaryLanguage.Color}}"></i> {{$repo.PrimaryLanguage.Language}}</span>{{end}}
+							<span>{{ctx.Locale.Tr "org.repo_updated"}} {{DateUtils.TimeSince $repo.UpdatedUnix}}</span>
+						</div>
+					</li>
+				{{end}}
+			</ul>
+		</aside>
+		{{end}}
+	</section>
+	<section class="forge-landing-features" aria-label="{{ctx.Locale.Tr "startpage.features"}}">
+		<article>
+			{{svg "octicon-inbox" 24}}
+			<h2>{{ctx.Locale.Tr "startpage.work"}}</h2>
+			<p>{{ctx.Locale.Tr "startpage.work_desc"}}</p>
+		</article>
+		<article>
+			{{svg "octicon-git-pull-request" 24}}
+			<h2>{{ctx.Locale.Tr "startpage.review"}}</h2>
+			<p>{{ctx.Locale.Tr "startpage.review_desc"}}</p>
+		</article>
+		<article>
+			{{svg "octicon-dependabot" 24}}
+			<h2>{{ctx.Locale.Tr "startpage.agents"}}</h2>
+			<p>{{ctx.Locale.Tr "startpage.agents_desc"}}</p>
+		</article>
+		<article>
+			{{svg "octicon-search" 24}}
+			<h2>{{ctx.Locale.Tr "startpage.find"}}</h2>
+			<p>{{ctx.Locale.Tr "startpage.find_desc"}}</p>
+		</article>
+	</section>
 </div>
 {{template "base/footer" .}}
