@@ -817,7 +817,7 @@ func TestGithubGetSettings(t *testing.T) {
 		EnforceForAdmins:      true,
 		Unsupported:           []string{`required check "codecov/patch" is not from GitHub Actions and nothing reports it here yet`, "require linear history"},
 	}}, settings.BranchProtections)
-	assert.Equal(t, []*base.Collaborator{{ID: 7, Login: "niamh", Permission: "admin"}, {ID: 8, Login: "cian", Permission: "read"}}, settings.Collaborators)
+	assert.Equal(t, []*base.Collaborator{{ExternalID: "7", Login: "niamh", Permission: "admin"}, {ExternalID: "8", Login: "cian", Permission: "read"}}, settings.Collaborators)
 	assert.Equal(t, []*base.Team{{Name: "Core Team", Slug: "core-team", Permission: "write"}}, settings.Teams)
 	assert.Equal(t, []*base.Webhook{
 		{

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 
 	"gitea.dev/modules/glob"
 	"gitea.dev/modules/log"
@@ -50,7 +51,7 @@ func (g *GithubGraphQLDownloader) GetSettings(ctx context.Context) (*base.RepoSe
 	})
 	for _, collaborator := range readableSettings(settings, "collaborators", collaborators, err) {
 		settings.Collaborators = append(settings.Collaborators, &base.Collaborator{
-			ID:         collaborator.GetID(),
+			ExternalID: strconv.FormatInt(collaborator.GetID(), 10),
 			Login:      collaborator.GetLogin(),
 			Permission: convertGithubPermission(collaborator.GetPermissions().GetAdmin(), collaborator.GetPermissions().GetPush()),
 		})

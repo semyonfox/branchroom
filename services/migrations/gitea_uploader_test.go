@@ -13,6 +13,7 @@ import (
 	"time"
 
 	actions_model "gitea.dev/models/actions"
+	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
@@ -29,6 +30,7 @@ import (
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/structs"
 	webhook_module "gitea.dev/modules/webhook"
+	"gitea.dev/services/auth/source/oauth2"
 	repo_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -418,8 +420,16 @@ func TestGiteaUploadSettings(t *testing.T) {
 	ctx := t.Context()
 	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2}) // owner of org3
 	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 5})
+	repo.OriginalURL = "https://github.com/harbour-club/tides"
 	linked := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
-	require.NoError(t, user_model.LinkExternalToUser(ctx, linked, &user_model.ExternalLoginUser{ExternalID: "7", UserID: linked.ID, Provider: structs.GithubService.Name()}))
+	link := func(user *user_model.User, externalID string, urls *oauth2.CustomURLMapping) {
+		source := &auth_model.Source{Type: auth_model.OAuth2, Name: "github " + externalID, IsActive: true, Cfg: &oauth2.Source{Provider: "github", CustomURLMapping: urls}}
+		require.NoError(t, auth_model.CreateSource(ctx, source))
+		require.NoError(t, user_model.LinkExternalToUser(ctx, user, &user_model.ExternalLoginUser{ExternalID: externalID, UserID: user.ID, LoginSourceID: source.ID, Provider: "github"}))
+	}
+	link(linked, "7", nil)
+	// the same id on a GitHub Enterprise server is another person
+	link(unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5}), "8", &oauth2.CustomURLMapping{AuthURL: "https://github.example.com/login/oauth/authorize"})
 
 	uploader := NewGiteaLocalUploader(ctx, doer, "org3", repo.Name)
 	uploader.gitServiceType = structs.GithubService
@@ -427,8 +437,8 @@ func TestGiteaUploadSettings(t *testing.T) {
 	require.NoError(t, uploader.CreateSettings(ctx, &base.RepoSettings{
 		BranchProtections: []*base.BranchProtection{{Pattern: "release/*", BlockPush: true, AllowDeletion: true, RequiredApprovals: 2, Unsupported: []string{"require linear history"}}},
 		Collaborators: []*base.Collaborator{
-			{ID: 7, Login: "niamh", Permission: "write"},
-			{ID: 8, Login: "user5", Permission: "admin"}, // a local user5 exists, a matching name alone must not grant access
+			{ExternalID: "7", Login: "niamh", Permission: "write"},
+			{ExternalID: "8", Login: "user5", Permission: "admin"}, // neither the matching name nor the matching id proves it is the local user5
 		},
 		Teams: []*base.Team{
 			{Name: "Team 1", Slug: "team1", Permission: "write"},
