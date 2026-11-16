@@ -25,7 +25,9 @@
 					</div>
 					<div class="item-main">
 						<details>
-							<summary><span class="item-title">{{$token.Name}}</span></summary>
+							{{$agent := index $.TokenAgents $token.ID}}
+							<summary><span class="item-title">{{$token.Name}}</span>{{if $agent}} <span class="forge-chip">{{$agent.Agent}} · {{ctx.Locale.Tr "repo.conversation.agent"}}</span>{{if $agent.ApprovesAsOwner}} <span class="forge-chip forge-chip-new">{{ctx.Locale.Tr "settings.token_approves_as_owner_short"}}</span>{{end}}{{end}}</summary>
+							{{if $agent}}<p class="tw-my-1">{{if $agent.Model}}{{$agent.Model}}{{end}}{{if and $agent.Model $agent.Harness}} {{ctx.Locale.Tr "repo.conversation.agent_in"}} {{end}}{{if $agent.Harness}}{{$agent.Harness}}{{end}}{{if and $agent.Sponsor (or $agent.Model $agent.Harness)}} · {{end}}{{if $agent.Sponsor}}{{ctx.Locale.Tr "repo.conversation.agent_responsible"}}: {{$agent.Sponsor}}{{end}}</p>{{end}}
 							<p class="tw-my-1">
 								{{ctx.Locale.Tr "settings.repo_and_org_access"}}:
 								{{if $token.DisplayPublicOnly}}
@@ -95,6 +97,15 @@
                         <label>{{ctx.Locale.Tr "settings.token_responsible"}}</label>
                         <input type="text" name="sponsor" maxlength="255">
                     </div>
+                    {{if not .IsBot}}
+                    <div class="field">
+                        <div class="ui checkbox">
+                            <input type="checkbox" id="token-approves-as-owner" name="approves_as_owner" value="true">
+                            <label for="token-approves-as-owner">{{ctx.Locale.Tr "settings.token_approves_as_owner"}}</label>
+                        </div>
+                        <p class="help">{{ctx.Locale.Tr "settings.token_approves_as_owner_help"}}</p>
+                    </div>
+                    {{end}}
                 </div>
 
                 <div class="field">

@@ -10,4 +10,6 @@ type AgentIdentity struct {
 	Agent   string `json:"agent"`
 	TaskURL string `json:"task_url,omitempty"`
 	Sponsor string `json:"sponsor,omitempty"`
+	// On a token: the owner lets this agent approve and request changes as them. On a review: it was made that way.
+	ApprovesAsOwner bool `json:"approves_as_owner,omitempty"`
 }

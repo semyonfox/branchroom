@@ -139,6 +139,7 @@ func get(ctx context.Context, doer *user_model.User, kinds []string) (*api.Inbox
 				}
 				err = db.GetEngine(ctx).Table("review").Select("review.issue_id, review.type, branchroom_agent_action.agent").
 					Join("INNER", "branchroom_agent_action", "branchroom_agent_action.target_id = review.id AND branchroom_agent_action.kind = 'review'").
+					Where(builder.Eq{"branchroom_agent_action.as_owner": false}).
 					Where(headCond).And(builder.Eq{"reviewer_id": doer.ID, "dismissed": false}).
 					In("type", issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeComment).
 					OrderBy("review.id ASC").Find(&rows)
@@ -296,7 +297,7 @@ type agentActivity struct {
 }
 
 func humanReview() builder.Cond {
-	return builder.NotIn("review.id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review"}))
+	return builder.NotIn("review.id", builder.Select("target_id").From("branchroom_agent_action").Where(builder.Eq{"kind": "review", "as_owner": false}))
 }
 
 func loadAgents(ctx context.Context, ids []int64, since int64) (map[int64]agentActivity, error) {

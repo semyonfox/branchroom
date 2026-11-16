@@ -44,6 +44,7 @@ func Applications(ctx *context.Context) {
 type AccessTokensPanel struct {
 	Tokens            []*auth_model.AccessToken
 	TokenRepositories map[int64][]string
+	TokenAgents       map[int64]*api.AgentIdentity
 	ScopeCategories   []string
 	ScopePublicOnly   auth_model.AccessTokenScope
 	Link              string
@@ -58,8 +59,14 @@ func NewAccessTokensPanel(ctx *context.Context, owner *user_model.User, link str
 		return nil
 	}
 	names := make(map[int64][]string, len(tokens))
+	agents := make(map[int64]*api.AgentIdentity, len(tokens))
 	for _, token := range tokens {
 		names[token.ID], err = auth_service.TokenRepositoryNames(ctx, token)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return nil
+		}
+		agents[token.ID], err = branchroom_model.GetTokenIdentity(ctx, token.ID)
 		if err != nil {
 			ctx.ServerErrorAuto(err)
 			return nil
@@ -67,6 +74,7 @@ func NewAccessTokensPanel(ctx *context.Context, owner *user_model.User, link str
 	}
 	panel := &AccessTokensPanel{
 		TokenRepositories: names,
+		TokenAgents:       agents,
 		Tokens:            tokens,
 		ScopeCategories:   auth_model.GetAccessTokenCategories(),
 		ScopePublicOnly:   auth_model.AccessTokenScopePublicOnly,
@@ -180,7 +188,7 @@ func CreateAccessToken(ctx *context.Context, owner *user_model.User) {
 	}
 
 	if agent := ctx.FormString("agent"); agent != "" || ctx.FormString("task_url") != "" || ctx.FormString("sponsor") != "" || ctx.FormString("model") != "" || ctx.FormString("harness") != "" {
-		t.AgentIdentity = &api.AgentIdentity{Agent: agent, TaskURL: ctx.FormString("task_url"), Sponsor: ctx.FormString("sponsor"), Model: ctx.FormString("model"), Harness: ctx.FormString("harness")}
+		t.AgentIdentity = &api.AgentIdentity{Agent: agent, TaskURL: ctx.FormString("task_url"), Sponsor: ctx.FormString("sponsor"), Model: ctx.FormString("model"), Harness: ctx.FormString("harness"), ApprovesAsOwner: ctx.FormBool("approves_as_owner")}
 		if err := branchroom_model.PrepareTokenIdentity(ctx, owner.ID, t.AgentIdentity); err != nil {
 			ctx.JSONError(err.Error())
 			return

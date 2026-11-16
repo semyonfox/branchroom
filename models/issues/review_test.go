@@ -6,6 +6,7 @@ package issues_test
 import (
 	"testing"
 
+	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
@@ -363,6 +364,43 @@ func TestSubmitReviewClearsStaleReviewRequest(t *testing.T) {
 	comment, err := issues_model.AddReviewRequest(t.Context(), issue, reviewer, doer, false)
 	assert.NoError(t, err)
 	assert.NotNil(t, comment)
+}
+
+func TestAgentReviewAsOwner(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 3})
+	assert.NoError(t, issue.LoadRepo(ctx))
+	assert.NoError(t, issue.Repo.LoadOwner(ctx))
+
+	approve := func(tokenID int64, approvesAsOwner bool) (request, review *issues_model.Review) {
+		reviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+		request, err := issues_model.CreateReview(ctx, issues_model.CreateReviewOptions{Type: issues_model.ReviewTypeRequest, Issue: issue, Reviewer: reviewer})
+		assert.NoError(t, err)
+		assert.NoError(t, db.Insert(ctx, &branchroom_model.TokenIdentity{TokenID: tokenID, Agent: "helper", ApprovesAsOwner: approvesAsOwner}))
+		reviewer.ExtDoerData = user_model.NewAccessTokenExtDoerData(&auth_model.AccessToken{ID: tokenID, UID: reviewer.ID, Scope: auth_model.AccessTokenScopeAll})
+		review, _, err = issues_model.SubmitReview(ctx, reviewer, issue, issues_model.ReviewTypeApprove, "", "", false, nil)
+		assert.NoError(t, err)
+		return request, review
+	}
+
+	request, own := approve(9001, false)
+	unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: request.ID})
+	assert.False(t, own.Official, "the agent's own approval never counts as the person's")
+
+	request, asOwner := approve(9002, true)
+	unittest.AssertNotExistsBean(t, &issues_model.Review{ID: request.ID})
+	assert.True(t, asOwner.Official, "an approval the person let their agent make counts as theirs")
+	identity, err := asOwner.AgentIdentity(ctx)
+	assert.NoError(t, err)
+	assert.True(t, identity.ApprovesAsOwner)
+
+	agentReviews, err := issues_model.AgentReviewIDs(ctx, []int64{own.ID, asOwner.ID})
+	assert.NoError(t, err)
+	assert.Equal(t, []int64{own.ID}, agentReviews.Values())
+	latest, err := issues_model.GetReviewByIssueIDAndUserID(ctx, issue.ID, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, asOwner.ID, latest.ID)
 }
 
 func TestAddReviewRequest(t *testing.T) {

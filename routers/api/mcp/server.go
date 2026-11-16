@@ -271,7 +271,7 @@ func newServer(c *client) *mcp.Server {
 		text, err := c.json(ctx, "POST", path+"/comments", api.CreateIssueCommentOption{Body: a.Body})
 		return result(text, err)
 	})
-	mcp.AddTool(s, &mcp.Tool{Name: "submit_review", Description: "Submit a PR review. Event: APPROVED, REQUEST_CHANGES or COMMENT. Optional inline comments use REST review comment fields."}, func(ctx context.Context, _ *mcp.CallToolRequest, a struct {
+	mcp.AddTool(s, &mcp.Tool{Name: "submit_review", Description: "Submit a PR review. Event: APPROVED, REQUEST_CHANGES or COMMENT. Optional inline comments use REST review comment fields. With an agent token the review is the agent's own and does not count as the token owner's decision, unless the owner allowed that for this token."}, func(ctx context.Context, _ *mcp.CallToolRequest, a struct {
 		pullInput
 		Event    api.ReviewStateType           `json:"event"`
 		Body     string                        `json:"body"`
