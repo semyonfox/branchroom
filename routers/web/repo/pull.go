@@ -32,6 +32,7 @@ import (
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/glob"
 	issue_template "gitea.dev/modules/issue/template"
+	"gitea.dev/modules/httplib"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
@@ -1191,7 +1192,7 @@ func MergePullRequest(ctx *context.Context) {
 		} else if scheduled {
 			// nothing more to do ...
 			ctx.Flash.Success(ctx.Tr("repo.pulls.auto_merge_newly_scheduled"))
-			ctx.JSONRedirect(fmt.Sprintf("%s/pulls/%d", ctx.Repo.RepoLink, pr.Index))
+			ctx.JSONRedirect(queueRedirect(ctx, fmt.Sprintf("%s/pulls/%d", ctx.Repo.RepoLink, pr.Index)))
 			return
 		}
 	}
@@ -1271,7 +1272,16 @@ func MergePullRequest(ctx *context.Context) {
 	if deleteBranchAfterMerge {
 		deleteBranchAfterMergeAndFlashMessage(ctx, pr.ID)
 	}
-	ctx.JSONRedirect(issue.Link())
+	ctx.JSONRedirect(queueRedirect(ctx, issue.Link()))
+}
+
+// queueRedirect lets the inbox carry on to the next item after a successful merge or review.
+// Failures keep landing on the pull request, so callers can tell the two apart by the redirect
+func queueRedirect(ctx *context.Context, fallback string) string {
+	if to := ctx.FormString("redirect_to"); to != "" && httplib.IsCurrentGiteaSiteURL(ctx, to) {
+		return to
+	}
+	return fallback
 }
 
 func deleteBranchAfterMergeAndFlashMessage(ctx *context.Context, prID int64) {

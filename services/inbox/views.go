@@ -152,3 +152,17 @@ func triageReason(ctx context.Context, issueID int64) (string, error) {
 	}
 	return "No assignee or review yet.", nil
 }
+
+// Queue returns one view's items in inbox order, false when the view does not exist for the user
+func Queue(ctx context.Context, doer *user_model.User, view string) ([]api.InboxItem, bool, error) {
+	result, err := GetViews(ctx, doer)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, group := range result.Groups {
+		if group.Kind == view && (view != "triage" || result.CanTriage) {
+			return group.Items, true, nil
+		}
+	}
+	return nil, false, nil
+}
