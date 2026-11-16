@@ -1,6 +1,7 @@
 import '../fomantic/build/fomantic.js';
 import '../css/index.css';
 import {initInbox} from './features/inbox.ts';
+import {initInboxQueue} from './features/inbox-queue.ts';
 import {initBranchroom} from './features/branchroom.ts';
 import {localUserSettings} from './modules/user-settings.ts';
 
