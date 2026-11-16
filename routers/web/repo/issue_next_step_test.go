@@ -96,6 +96,11 @@ func TestNextStepReviews(t *testing.T) {
 	if latest[0] != agentApproval || latest[1] != ownRejection {
 		t.Fatalf("an agent review replaced the person's own decision: %+v", latest)
 	}
+	ownRejection.Dismissed = true
+	_, latest = conversationReviews(issues_model.ReviewList{ownRejection, agentApprovalAfter}, container.SetOf[int64](10))
+	if latest[0] != agentApprovalAfter {
+		t.Fatal("a dismissed decision no longer stands, so the agent review shows like it does on the home card")
+	}
 }
 
 func TestNextStepUnresolvedConversations(t *testing.T) {

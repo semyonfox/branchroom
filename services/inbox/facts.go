@@ -12,6 +12,7 @@ import (
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/cache"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/log"
 	"gitea.dev/services/gitdiff"
 )
 
@@ -39,7 +40,7 @@ func ListPullFacts(ctx context.Context, issues issues_model.IssueList) (map[int6
 		}
 		size, err := pullSize(ctx, issue)
 		if err != nil {
-			return nil, err
+			log.Warn("ListPullFacts: size of pull request %d in repository %d: %v", issue.Index, issue.RepoID, err) // a size chip is not worth the list
 		}
 		facts[issue.ID] = PullFacts{Size: size, Trust: trust[key]}
 	}
@@ -86,7 +87,10 @@ func pullSize(ctx context.Context, issue *issues_model.Issue) (string, error) {
 	}
 	stat, err := gitdiff.GetDiffShortStat(ctx, gitRepo, &gitdiff.DiffCommonOptions{BeforeCommitID: pr.MergeBase, AfterCommitID: head})
 	if err != nil {
-		return "", nil // a merge base that no longer exists costs the chip, not the list
+		// a merge base that no longer exists costs the chip, not the list, and is not retried on every view
+		log.Warn("pullSize: diff stat for pull request %d in repository %d: %v", issue.Index, issue.RepoID, err)
+		_ = cache.GetCache().PutJSON(key, "", 10*60)
+		return "", nil
 	}
 	size = sizeLabel(stat.TotalAddition + stat.TotalDeletion)
 	_ = cache.GetCache().PutJSON(key, size, 24*60*60)

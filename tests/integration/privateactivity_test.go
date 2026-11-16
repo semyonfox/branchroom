@@ -93,15 +93,6 @@ func testPrivateActivityHelperHasVisibleProfileHeatmapFromSession(t *testing.T, 
 	return testPrivateActivityHelperHasVisibleHeatmapInHTMLDoc(htmlDoc)
 }
 
-func testPrivateActivityHelperHasVisibleDashboardHeatmapFromSession(t *testing.T, session *TestSession) bool {
-	req := NewRequest(t, "GET", "/")
-	resp := session.MakeRequest(t, req, http.StatusOK)
-
-	htmlDoc := NewHTMLParser(t, resp.Body)
-
-	return testPrivateActivityHelperHasVisibleHeatmapInHTMLDoc(htmlDoc)
-}
-
 func testPrivateActivityHelperHasVisibleHeatmapFromPublic(t *testing.T) bool {
 	req := NewRequestf(t, "GET", "/%s?tab=activity", privateActivityTestUser)
 	resp := MakeRequest(t, req, http.StatusOK)
@@ -176,24 +167,21 @@ func TestPrivateActivityVisibility(t *testing.T) {
 
 func TestPrivateActivityHeatmapVisibility(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		private   bool
-		user      string
-		dashboard bool
-		visible   bool
+		name    string
+		private bool
+		user    string
+		visible bool
 	}{
 		// check heatmap visibility if the visibility is enabled
-		{"NoHeatmapVisibleForPublic", false, "", false, true},
-		{"NoHeatmapVisibleForUserItselfAtProfile", false, privateActivityTestUser, false, true},
-		{"NoHeatmapVisibleForUserItselfAtDashboard", false, privateActivityTestUser, true, true},
-		{"NoHeatmapVisibleForOtherUser", false, privateActivityTestOtherUser, false, true},
-		{"NoHeatmapVisibleForAdmin", false, privateActivityTestAdmin, false, true},
+		{"NoHeatmapVisibleForPublic", false, "", true},
+		{"NoHeatmapVisibleForUserItselfAtProfile", false, privateActivityTestUser, true},
+		{"NoHeatmapVisibleForOtherUser", false, privateActivityTestOtherUser, true},
+		{"NoHeatmapVisibleForAdmin", false, privateActivityTestAdmin, true},
 		// check heatmap visibility if the visibility is disabled
-		{"YesHeatmapInvisibleForPublic", true, "", false, false},
-		{"YesHeatmapVisibleForUserItselfAtProfile", true, privateActivityTestUser, false, true},
-		{"YesHeatmapVisibleForUserItselfAtDashboard", true, privateActivityTestUser, true, true},
-		{"YesHeatmapInvisibleForOtherUser", true, privateActivityTestOtherUser, false, false},
-		{"YesHeatmapVisibleForAdmin", true, privateActivityTestAdmin, false, true},
+		{"YesHeatmapInvisibleForPublic", true, "", false},
+		{"YesHeatmapVisibleForUserItselfAtProfile", true, privateActivityTestUser, true},
+		{"YesHeatmapInvisibleForOtherUser", true, privateActivityTestOtherUser, false},
+		{"YesHeatmapVisibleForAdmin", true, privateActivityTestAdmin, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			defer tests.PrepareTestEnv(t)()
@@ -205,8 +193,6 @@ func TestPrivateActivityHeatmapVisibility(t *testing.T) {
 			var visible bool
 			if test.user == "" {
 				visible = testPrivateActivityHelperHasVisibleHeatmapFromPublic(t)
-			} else if test.dashboard {
-				visible = testPrivateActivityHelperHasVisibleDashboardHeatmapFromSession(t, loginUser(t, test.user))
 			} else {
 				visible = testPrivateActivityHelperHasVisibleProfileHeatmapFromSession(t, loginUser(t, test.user))
 			}

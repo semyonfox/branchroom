@@ -6,6 +6,7 @@ package issues_test
 import (
 	"testing"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
@@ -129,6 +130,20 @@ func TestCreateReview(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "New Review", review.Content)
 	unittest.AssertExistsAndLoadBean(t, &issues_model.Review{Content: "New Review"})
+}
+
+func TestAgentReviewIDs(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	bot := &user_model.User{Name: "review-bot", LowerName: "review-bot", Email: "review-bot@example.com", Type: user_model.UserTypeBot}
+	assert.NoError(t, db.Insert(ctx, bot))
+	botReview := &issues_model.Review{Type: issues_model.ReviewTypeApprove, ReviewerID: bot.ID, IssueID: 2}
+	assert.NoError(t, db.Insert(ctx, botReview))
+	assert.NoError(t, db.Insert(ctx, &branchroom_model.AgentAction{Kind: "review", TargetID: 1, Agent: "helper"}, &branchroom_model.AgentAction{Kind: "review", TargetID: botReview.ID, Agent: "helper"}))
+
+	ids, err := issues_model.AgentReviewIDs(ctx, []int64{1, 5, botReview.ID})
+	assert.NoError(t, err)
+	assert.Equal(t, []int64{1}, ids.Values(), "a bot account's review is its own, and review 5 has no agent")
 }
 
 func TestGetReviewersByIssueID(t *testing.T) {

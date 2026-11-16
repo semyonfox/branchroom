@@ -3,6 +3,7 @@ attribution: on
 - Never assume, verify before claiming
 - List development targets with `make help`
 - Before working on code, read the `docs` guides for every area touched: `guidelines-backend.md` for Go, `guidelines-frontend.md` for TS, CSS and Vue, both for templates, `testing.md` for tests, `development.md` for config options and migrations, `guidelines-refactoring.md` for refactors
+- Before changing a template, a stylesheet or text a person sees, read `docs/branchroom/design-system.md`. When an upstream merge brings in new UI, port it to those rules in the same change
 - Before designing a feature or behavior, check prior art in GitHub and GitLab
 - Don't add code for theoretical edge cases, only for ones that can realistically occur. Ask humans to make decisions if the edge case matters, comment the edge case for why it can be ignored if it doesn't matter
 - Write docs concisely and user-facing, skip implementation details

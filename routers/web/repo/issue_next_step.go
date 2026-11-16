@@ -7,7 +7,6 @@ import (
 	"cmp"
 	"slices"
 
-	branchroom_model "gitea.dev/models/branchroom"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
@@ -152,7 +151,7 @@ func prepareIssueConversation(ctx *context.Context, issue *issues_model.Issue, m
 		for _, review := range reviews {
 			reviewIDs = append(reviewIDs, review.ID)
 		}
-		agentReviews, err := branchroom_model.AgentReviewIDs(ctx, reviewIDs)
+		agentReviews, err := issues_model.AgentReviewIDs(ctx, reviewIDs)
 		if err != nil {
 			ctx.ServerErrorAuto(err)
 			return
@@ -275,8 +274,8 @@ func conversationReviews(reviews issues_model.ReviewList, agentReviews container
 		if previous != nil && previous.Type == issues_model.ReviewTypeRequest {
 			continue
 		}
-		// an agent working with a person's token never replaces that person's own decision
-		if previous != nil && agentReviews.Contains(review.ID) && !agentReviews.Contains(previous.ID) &&
+		// an agent working with a person's token never replaces that person's own standing decision
+		if previous != nil && agentReviews.Contains(review.ID) && !agentReviews.Contains(previous.ID) && !previous.Dismissed &&
 			(previous.Type == issues_model.ReviewTypeApprove || previous.Type == issues_model.ReviewTypeReject) {
 			continue
 		}

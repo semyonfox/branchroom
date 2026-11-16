@@ -17,7 +17,6 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	"gitea.dev/modules/commitstatus"
-	"gitea.dev/modules/json"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
@@ -136,23 +135,12 @@ func TestPullCreate_EmptyChangesWithDifferentCommits(t *testing.T) {
 		text := strings.TrimSpace(doc.doc.Find(".merge-section").Text())
 		assert.Contains(t, text, "The changes on this branch are already on the target branch. This will be an empty commit.")
 		assert.Contains(t, text, "This pull request can be merged automatically.")
-		mergeFormProps, exists := doc.doc.Find("#pull-request-merge-form").Attr("data-merge-form-props")
-		require.True(t, exists)
-		var mergeForm struct {
-			EmptyCommit bool `json:"emptyCommit"`
-			CanMergeNow bool `json:"canMergeNow"`
-			MergeStyles []struct {
-				Name    string `json:"name"`
-				Allowed bool   `json:"allowed"`
-			} `json:"mergeStyles"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(mergeFormProps), &mergeForm))
-		assert.True(t, mergeForm.EmptyCommit)
-		assert.True(t, mergeForm.CanMergeNow)
-		assert.Contains(t, mergeForm.MergeStyles, struct {
-			Name    string `json:"name"`
-			Allowed bool   `json:"allowed"`
-		}{Name: "merge", Allowed: true})
+		// the merge form is rendered on the server: a dialog per allowed style, unforced and not waiting on checks
+		mergeDialog := doc.doc.Find("#forge-merge-merge")
+		require.Equal(t, 1, mergeDialog.Length())
+		assert.Equal(t, "false", mergeDialog.Find("input[name=force_merge]").AttrOr("value", ""))
+		_, waitsForChecks := mergeDialog.Find("input[name=merge_when_checks_succeed]").Attr("checked")
+		assert.False(t, waitsForChecks)
 	})
 }
 
