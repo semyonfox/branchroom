@@ -10,7 +10,8 @@ type RepoSettings struct {
 	Teams             []*Team
 	Webhooks          []*Webhook
 	Variables         []*ActionsVariable
-	Notes             []SettingsNote // what the source could not hand over
+	Secrets           []*ActionsSecret // only from sources that give the values back
+	Notes             []SettingsNote   // what the source could not hand over
 }
 
 // BranchProtection is a branch protection rule
@@ -65,6 +66,12 @@ type ActionsVariable struct {
 	Value string
 }
 
+// ActionsSecret is a secret whose value the source was willing to return
+type ActionsSecret struct {
+	Name  string
+	Value string
+}
+
 // SettingsNoteKind groups notes in the report, each kind has its own heading and explanation
 type SettingsNoteKind string
 
@@ -77,7 +84,9 @@ const (
 	SettingsNoteWebhook          SettingsNoteKind = "webhook"
 	SettingsNoteWebhookSkipped   SettingsNoteKind = "webhook_skipped"
 	SettingsNoteWebhookKind      SettingsNoteKind = "webhook_kind"
+	SettingsNoteWebhookFormat    SettingsNoteKind = "webhook_format"
 	SettingsNoteCollaborator     SettingsNoteKind = "collaborator"
+	SettingsNoteCollaboratorRole SettingsNoteKind = "collaborator_role"
 	SettingsNoteTeam             SettingsNoteKind = "team"
 	SettingsNoteTeamAccess       SettingsNoteKind = "team_access"
 	SettingsNoteBranchProtection SettingsNoteKind = "branch_protection"
@@ -100,7 +109,9 @@ var SettingsNoteKinds = []SettingsNoteKind{
 	SettingsNoteWebhook,
 	SettingsNoteWebhookSkipped,
 	SettingsNoteWebhookKind,
+	SettingsNoteWebhookFormat,
 	SettingsNoteCollaborator,
+	SettingsNoteCollaboratorRole,
 	SettingsNoteTeam,
 	SettingsNoteTeamAccess,
 	SettingsNoteBranchProtection,
@@ -121,5 +132,6 @@ type SettingsReport struct {
 	Teams             int
 	Webhooks          int
 	Variables         int
+	Secrets           int
 	Notes             []SettingsNote
 }

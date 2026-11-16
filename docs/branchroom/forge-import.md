@@ -1,6 +1,6 @@
 # Moving a repository from another forge
 
-**New migration** copies a repository with its history, wiki, LFS files, labels, milestones, issues, pull requests, reviews, comments and releases. Tick **Settings** to copy how the repository is run as well. Settings can be copied from GitHub, Gitea, Forgejo and Codeberg.
+**New migration** copies a repository with its history, wiki, LFS files, labels, milestones, issues, pull requests, reviews, comments and releases. Tick **Settings** to copy how the repository is run as well. Settings can be copied from GitHub, GitLab, Gitea, Forgejo and Codeberg.
 
 Settings need an access token from an admin of the source repository, because forges only show branch protection, webhooks and teams to admins.
 
@@ -46,6 +46,19 @@ The token needs the `read:repository` scope.
 - Branch protection carries over as it is, apart from its allow-lists. Those name people and teams of the source, so the rule is kept at its strictest where it can be and the report says which lists were dropped.
 - Only plain webhooks are copied. The report lists Slack, Discord and other kinds for you to add again.
 - People are matched through a Gitea sign-in source for that server. Forgejo and Codeberg use the same kind of source.
+
+## From GitLab
+
+Use a token from a Maintainer or Owner of the project with the `read_api` scope.
+
+- CI/CD variables become Actions variables. Masked and protected ones become Actions secrets with their values, because GitLab gives those back. Hidden variables can not be read, so the report lists them to enter again.
+- A variable set for one environment only is not copied. The report lists it beside the environment.
+- Maintainers and Owners become admins, Developers get write access and Reporters read access. Guests and Planners are not added, because nothing here gives less than read access to the code.
+- Groups the project is shared with are matched to teams by name.
+- A protected branch keeps its name, and `*` becomes `**` because a GitLab wildcard also matches `/`. Where only Maintainers could push, direct pushes are switched off. Where only Maintainers could merge, anyone with write access can merge here, and the report says so.
+- The number of approvals comes from the merge request approval rules.
+- Webhooks are not copied. GitLab sends its own kind of message, so whatever receives them has to be set up for this forge first.
+- `.gitlab-ci.yml` does not run here. Pipelines have to be rewritten as Actions workflows.
 
 ## From the API
 

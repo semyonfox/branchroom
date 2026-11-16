@@ -20,6 +20,7 @@ import (
 	"gitea.dev/models/organization"
 	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
+	secret_model "gitea.dev/models/secret"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	webhook_model "gitea.dev/models/webhook"
@@ -449,8 +450,9 @@ func TestGiteaUploadSettings(t *testing.T) {
 			{URL: "https://hooks.example.com/services/T0/secret-token", ContentType: "json", Events: []string{"push"}, UnsupportedEvents: []string{"deployment"}},
 			{URL: "https://deploy.example.com/hook", UnsupportedEvents: []string{"deployment"}},
 		},
-		Variables: []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}, {Name: "GITHUB_SHADOW", Value: "x"}},
-		Notes:     []base.SettingsNote{{Kind: base.SettingsNoteSecret, Name: "DEPLOY_KEY"}},
+		Variables: []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}, {Name: "GITHUB_SHADOW", Value: "x"}, {Name: "node_version", Value: "22"}},
+		Secrets:   []*base.ActionsSecret{{Name: "DEPLOY_KEY", Value: "s3cr3t"}},
+		Notes:     []base.SettingsNote{{Kind: base.SettingsNoteSecret, Name: "SIGNING_KEY"}},
 	}))
 
 	rule := unittest.AssertExistsAndLoadBean(t, &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "release/*"})
@@ -467,13 +469,14 @@ func TestGiteaUploadSettings(t *testing.T) {
 	assert.False(t, webhook.IsActive)
 	assert.True(t, webhook.HasEvent(webhook_module.HookEventPush))
 	unittest.AssertExistsAndLoadBean(t, &actions_model.ActionVariable{RepoID: repo.ID, Name: "NODE_VERSION", Data: "24"})
+	unittest.AssertExistsAndLoadBean(t, &secret_model.Secret{RepoID: repo.ID, Name: "DEPLOY_KEY"})
 
 	report, err := repo_model.GetMigrationReport(ctx, repo.ID)
 	require.NoError(t, err)
 	assert.Equal(t, &base.SettingsReport{
-		BranchProtections: 1, Collaborators: 1, Teams: 1, Webhooks: 1, Variables: 1,
+		BranchProtections: 1, Collaborators: 1, Teams: 1, Webhooks: 1, Variables: 1, Secrets: 1,
 		Notes: []base.SettingsNote{
-			{Kind: base.SettingsNoteSecret, Name: "DEPLOY_KEY"},
+			{Kind: base.SettingsNoteSecret, Name: "SIGNING_KEY"},
 			{Kind: base.SettingsNoteBranchProtection, Name: "release/*", Detail: "require linear history"},
 			{Kind: base.SettingsNoteCollaborator, Name: "user5", Detail: "admin"},
 			{Kind: base.SettingsNoteTeamAccess, Name: "test_team", Detail: "read"},
@@ -481,6 +484,7 @@ func TestGiteaUploadSettings(t *testing.T) {
 			{Kind: base.SettingsNoteWebhook, Name: "hooks.example.com", Detail: "deployment"},
 			{Kind: base.SettingsNoteWebhookSkipped, Name: "deploy.example.com", Detail: "deployment"},
 			{Kind: base.SettingsNoteVariable, Name: "GITHUB_SHADOW"},
+			{Kind: base.SettingsNoteVariable, Name: "node_version"},
 		},
 	}, report.Report)
 }
