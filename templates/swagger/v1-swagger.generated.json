@@ -31191,6 +31191,10 @@
           ],
           "x-go-name": "Service"
         },
+        "settings": {
+          "type": "boolean",
+          "x-go-name": "Settings"
+        },
         "uid": {
           "description": "deprecated (only for backwards compatibility, use repo_owner instead)",
           "type": "integer",

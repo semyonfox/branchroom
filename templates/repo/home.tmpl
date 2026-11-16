@@ -14,6 +14,13 @@
 			</div>
 		{{end}}
 
+		{{if .HasMigrationReport}}
+			<div class="ui info message">
+				{{ctx.Locale.Tr "repo.migrate.report.notice"}}
+				<a href="{{.RepoLink}}/settings/migrate/report">{{ctx.Locale.Tr "repo.migrate.report.title"}}</a>
+			</div>
+		{{end}}
+
 		{{template "repo/code/recently_pushed_new_branches" dict "RecentBranchesPromptData" .RecentBranchesPromptData}}
 
 		{{if .PageIsRepoOverview}}

@@ -1,0 +1,36 @@
+{{template "repo/settings/layout_head" (dict "ctxData" . "pageClass" "repository settings")}}
+	<div class="repo-setting-content">
+		<h4 class="ui top attached header">{{ctx.Locale.Tr "repo.migrate.report.copied"}}</h4>
+		<div class="ui attached segment">
+			<table class="ui very basic compact table">
+				<tbody>
+					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.branch_protections"}}</td><td>{{.Report.BranchProtections}}</td></tr>
+					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.collaborators"}}</td><td>{{.Report.Collaborators}}</td></tr>
+					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.teams"}}</td><td>{{.Report.Teams}}</td></tr>
+					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.webhooks"}}</td><td>{{.Report.Webhooks}}</td></tr>
+					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.variables"}}</td><td>{{.Report.Variables}}</td></tr>
+				</tbody>
+			</table>
+			{{if not .ReportSections}}<p>{{ctx.Locale.Tr "repo.migrate.report.nothing_left"}}</p>{{end}}
+		</div>
+		{{range $section := .ReportSections}}
+			<h4 class="ui top attached header">{{ctx.Locale.Tr (printf "repo.migrate.report.%s.title" $section.Kind)}}</h4>
+			<div class="ui attached segment">
+				<p>{{ctx.Locale.Tr (printf "repo.migrate.report.%s.desc" $section.Kind)}}</p>
+				<ul>
+					{{range $note := $section.Notes}}
+						{{if $note.Name}}<li><code>{{$note.Name}}</code>{{if $note.Detail}} <span class="tw-text-text-light">{{$note.Detail}}</span>{{end}}</li>{{end}}
+					{{end}}
+				</ul>
+				{{if $section.Link}}<a href="{{$.RepoLink}}{{$section.Link}}">{{ctx.Locale.Tr "repo.migrate.report.open_settings"}}</a>{{end}}
+			</div>
+		{{end}}
+		<h4 class="ui top attached header">{{ctx.Locale.Tr "repo.migrate.report.dismiss"}}</h4>
+		<div class="ui attached segment">
+			<p>{{ctx.Locale.Tr "repo.migrate.report.dismiss_desc"}}</p>
+			<form class="form-fetch-action" action="{{.RepoLink}}/settings/migrate/report/dismiss" method="post">
+				<button type="submit" class="ui button">{{ctx.Locale.Tr "repo.migrate.report.dismiss"}}</button>
+			</form>
+		</div>
+	</div>
+{{template "repo/settings/layout_footer" .}}

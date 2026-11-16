@@ -149,6 +149,7 @@ func Migrate(ctx *context.APIContext) {
 		Comments:       form.Issues || form.PullRequests,
 		PullRequests:   form.PullRequests,
 		Releases:       form.Releases,
+		Settings:       form.Settings,
 		GitServiceType: gitServiceType,
 		MirrorInterval: form.MirrorInterval,
 	}

@@ -467,6 +467,14 @@ func Home(ctx *context.Context) {
 		title += ": " + ctx.Repo.Repository.Description
 	}
 	ctx.Data["Title"] = title
+	if ctx.Repo.Permission.IsAdmin() {
+		hasReport, err := repo_model.HasMigrationReport(ctx, ctx.Repo.Repository)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return
+		}
+		ctx.Data["HasMigrationReport"] = hasReport
+	}
 	prepareRepoViewContent(ctx, ctx.Repo.RefTypeNameSubURL())
 
 	if ctx.Repo.Commit == nil || ctx.Repo.Repository.IsEmpty || ctx.Repo.Repository.IsBroken() {

@@ -36,6 +36,7 @@ type MigrateOptions struct {
 	Comments        bool
 	PullRequests    bool
 	ReleaseAssets   bool
+	Settings        bool
 	MigrateToRepoID int64
 	MirrorInterval  string `json:"mirror_interval"`
 

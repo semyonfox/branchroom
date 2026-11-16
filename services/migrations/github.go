@@ -57,7 +57,7 @@ func (f *GithubDownloaderV3Factory) New(ctx context.Context, opts base.MigrateOp
 		return nil, err
 	}
 	// GitHub rejects anonymous GraphQL requests, and comments only ride along with the issue and PR sweeps
-	if (opts.AuthToken != "" || opts.AuthPassword != "") && (opts.Issues || opts.PullRequests) {
+	if (opts.AuthToken != "" || opts.AuthPassword != "") && (opts.Issues || opts.PullRequests || opts.Settings) {
 		return newGithubGraphQLDownloader(downloader, !opts.Comments), nil
 	}
 	return downloader, nil

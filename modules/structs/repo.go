@@ -445,6 +445,7 @@ type MigrateRepoOptions struct {
 	Issues         bool   `json:"issues"`
 	PullRequests   bool   `json:"pull_requests"`
 	Releases       bool   `json:"releases"`
+	Settings       bool   `json:"settings"`
 	MirrorInterval string `json:"mirror_interval"`
 
 	AWSAccessKeyID     string `json:"aws_access_key_id"`

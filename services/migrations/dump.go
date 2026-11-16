@@ -623,6 +623,11 @@ func (g *RepositoryDumper) CreateReviews(_ context.Context, reviews ...*base.Rev
 	return g.createItems(g.reviewDir(), g.reviewFiles, reviewsMap)
 }
 
+// CreateSettings is not part of a dump
+func (g *RepositoryDumper) CreateSettings(_ context.Context, _ *base.RepoSettings) error {
+	return nil
+}
+
 // Rollback when migrating failed, this will rollback all the changes.
 func (g *RepositoryDumper) Rollback() error {
 	g.Close()

@@ -186,6 +186,7 @@ func MigratePost(ctx *context.Context) {
 		Comments:       form.Issues || form.PullRequests,
 		PullRequests:   form.PullRequests,
 		Releases:       form.Releases,
+		Settings:       form.Settings,
 	}
 	if opts.Mirror {
 		opts.Issues = false
