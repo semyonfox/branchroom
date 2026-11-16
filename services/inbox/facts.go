@@ -40,7 +40,7 @@ func ListPullFacts(ctx context.Context, issues issues_model.IssueList) (map[int6
 		}
 		size, err := pullSize(ctx, issue)
 		if err != nil {
-			return nil, err
+			log.Warn("ListPullFacts: size of pull request %d in repository %d: %v", issue.Index, issue.RepoID, err) // a size chip is not worth the list
 		}
 		facts[issue.ID] = PullFacts{Size: size, Trust: trust[key]}
 	}
