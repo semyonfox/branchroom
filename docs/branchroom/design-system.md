@@ -64,6 +64,7 @@ These came from logic passes on a seeded forge. Each one was a real bug.
 - State colours are the theme's own: green for passing or open, red for failing or changes requested, yellow for waiting or new, purple for merged.
 - The dark theme uses neutral near-black surfaces. The light theme uses warm off-white. Both must work for every change.
 - Use theme variables. Never write a raw colour in a feature stylesheet.
+- A link shows hover and press with the theme's hover colour, brighter in the dark theme and deeper in the light one. Never an underline.
 
 ### Surfaces and shape
 
