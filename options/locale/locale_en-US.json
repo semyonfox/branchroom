@@ -2375,6 +2375,8 @@
   "repo.settings.branchroom.create_failed": "Could not create the restricted workspace.",
   "repo.settings.branchroom.workspace": "Workspace copy",
   "repo.settings.branchroom.workspace_unreachable": "Only people with permission to see and clone this workspace can access its source.",
+  "repo.settings.branchroom.workspace_store_missing": "copy missing",
+  "repo.settings.branchroom.workspace_store_missing_help": "The workspace copy is missing from the server, so nobody can clone or push to it. Ask a site administrator to restore it from a backup.",
   "repo.settings.branchroom.workspace_default_branch": "Copy the current default branch into a separate repository. Grant clone access to let people read it.",
   "repo.settings.branchroom.provision_workspace": "Set up workspace",
   "repo.settings.branchroom.workspace_provisioned": "Workspace set up. Grant clone access to let people read it.",

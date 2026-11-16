@@ -49,7 +49,9 @@ installed receive hook records the executable, configuration and restricted root
 so moving any of them stops pushes until you run
 `gitea doctor check --run branchroom --fix`. Without `--fix` the same check verifies every
 audit chain and reports mappings without a store, stores without a mapping, and hooks
-that fail verification. It never deletes a store or repairs an audit row.
+that fail verification. It never deletes a store or repairs an audit row. A workspace
+whose store is missing is never served, and its owner sees **copy missing** in
+Branchroom settings.
 
 Pushes run with `receive.fsckObjects`, which is stricter than an ordinary Gitea push.
 Incoming objects with legacy defects such as zero-padded file modes, a missing email or

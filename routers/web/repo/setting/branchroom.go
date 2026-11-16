@@ -46,6 +46,7 @@ type branchroomScopeData struct {
 	CanPurgeWorkspace     bool
 	HasWorkspace          bool
 	WorkspaceState        branchroom_model.WorkspaceState
+	WorkspaceStoreMissing bool
 	WorkspacePublicBase   string
 	DiscoveryGrants       []branchroomDirectUserGrantData
 	SourceReadGrants      []branchroomDirectUserGrantData
@@ -211,10 +212,11 @@ func Branchroom(ctx *context.Context) {
 		}
 		if workspace != nil {
 			data.WorkspaceState = workspace.State
+			data.WorkspaceStoreMissing = workspace.State == branchroom_model.WorkspaceStateReady && !branchroom_service.WorkspaceStoreAvailable(workspace)
 			data.WorkspacePublicBase = workspace.PublicBaseSHA
 			data.CanGrantSourceRead = scope.State == branchroom_model.ScopeStateActive && workspace.State == branchroom_model.WorkspaceStateReady
 			data.CanGrantSourceWrite = data.CanGrantSourceRead
-			data.CanRotateRouteKey = data.CanGrantSourceRead
+			data.CanRotateRouteKey = data.CanGrantSourceRead && !data.WorkspaceStoreMissing
 			data.CanRetryWorkspace = scope.State == branchroom_model.ScopeStateActive && (workspace.State == branchroom_model.WorkspaceStateFailed || branchroom_service.WorkspaceProvisioningAbandoned(workspace))
 			data.CanRetireWorkspace = scope.State == branchroom_model.ScopeStateActive && (workspace.State == branchroom_model.WorkspaceStateReady || workspace.State == branchroom_model.WorkspaceStateFailed)
 			data.CanPurgeWorkspace = workspace.State == branchroom_model.WorkspaceStateReady || workspace.State == branchroom_model.WorkspaceStateFailed || workspace.State == branchroom_model.WorkspaceStateRetired || branchroom_service.WorkspaceProvisioningAbandoned(workspace)

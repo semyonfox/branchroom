@@ -86,7 +86,7 @@ func ListRepositorySourceHandoffs(ctx context.Context, request ListRepositorySou
 				}
 				return nil, err
 			}
-			if workspace.Validate() != nil || workspace.ScopeID != scope.ID || workspace.RepoID != request.RepoID || workspace.State != branchroom_model.WorkspaceStateReady {
+			if workspace.Validate() != nil || workspace.ScopeID != scope.ID || workspace.RepoID != request.RepoID || workspace.State != branchroom_model.WorkspaceStateReady || !WorkspaceStoreAvailable(workspace) {
 				continue
 			}
 			handoffs = append(handoffs, RepositorySourceHandoff{

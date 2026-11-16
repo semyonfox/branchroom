@@ -12,7 +12,7 @@
 				<div class="flex-left-right tw-flex-wrap tw-gap-2">
 					<div class="flex-text-block tw-flex-wrap">
 						<h5 class="branchroom-workspace-name">{{.Name}}</h5>
-						{{if .HasWorkspace}}<span class="ui basic label">{{.WorkspaceState}}</span>{{else if ne .State "active"}}<span class="ui basic label">{{.State}}</span>{{end}}
+						{{if .WorkspaceStoreMissing}}<span class="ui red basic label">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_store_missing"}}</span>{{else if .HasWorkspace}}<span class="ui basic label">{{.WorkspaceState}}</span>{{else if ne .State "active"}}<span class="ui basic label">{{.State}}</span>{{end}}
 					</div>
 					<div class="flex-text-block tw-flex-wrap">
 						{{if .CanProvisionWorkspace}}
@@ -62,7 +62,7 @@
 					<p class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_default_branch"}}</p>
 				{{else if .HasWorkspace}}
 					<p class="help tw-mt-2">
-						{{if eq .WorkspaceState "ready"}}{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}{{end}}
+						{{if .WorkspaceStoreMissing}}{{ctx.Locale.Tr "repo.settings.branchroom.workspace_store_missing_help"}}{{else if eq .WorkspaceState "ready"}}{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}{{end}}
 						{{if .WorkspacePublicBase}}<code class="tw-ml-1" data-tooltip-content="{{ctx.Locale.Tr "repo.settings.branchroom.workspace"}}">{{ShortSha .WorkspacePublicBase}}</code>{{end}}
 					</p>
 				{{end}}
