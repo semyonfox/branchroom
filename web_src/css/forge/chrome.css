@@ -49,6 +49,28 @@ nav#navbar {
   max-width: 220px;
 }
 
+/* links answer hover and press with a stronger colour, never an underline */
+a:hover,
+a:active,
+.interact-link:hover {
+  color: var(--color-primary-hover);
+  text-decoration-line: none;
+}
+
+a.muted:hover,
+a.suppressed:hover,
+.muted-links a:hover {
+  color: var(--color-primary);
+}
+
+a.silenced:hover {
+  color: inherit;
+}
+
+.title-full-link-hover:not(:has(:not(.title-full-link):hover)):hover > a.title-full-link {
+  text-decoration: none;
+}
+
 .forge-search {
   width: 280px;
   margin-right: auto;
