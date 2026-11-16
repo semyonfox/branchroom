@@ -4,6 +4,11 @@
 		<a class="{{if .PageIsSettingsOptions}}active {{end}}item" href="{{.RepoLink}}/settings">
 			{{ctx.Locale.Tr "repo.settings.options"}}
 		</a>
+		{{if .HasMigrationReport}}
+			<a class="{{if .PageIsSettingsMigrationReport}}active {{end}}item" href="{{.RepoLink}}/settings/migrate/report">
+				{{ctx.Locale.Tr "repo.migrate.report.title"}}
+			</a>
+		{{end}}
 		<div class="header item">{{ctx.Locale.Tr "forge.access"}}</div>
 		<a class="{{if .PageIsSettingsCollaboration}}active {{end}}item" href="{{.RepoLink}}/settings/collaboration">
 			{{ctx.Locale.Tr "repo.settings.collaboration"}}

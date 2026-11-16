@@ -776,3 +776,62 @@ func TestGitBucketPaginatesWithoutLinkHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestGithubGetSettings(t *testing.T) {
+	responses := map[string]string{
+		"/api/v3/repos/o/r":       `{"owner":{"type":"Organization"},"permissions":{"admin":false,"push":true}}`,
+		"/api/v3/repos/o/r/teams": `[{"name":"Core Team","slug":"core-team","permission":"maintain"}]`,
+		"/api/v3/repos/o/r/collaborators": `[{"id":7,"login":"niamh","permissions":{"admin":true,"push":true,"pull":true}},
+			{"id":8,"login":"cian","permissions":{"triage":true,"pull":true}}]`,
+		"/api/v3/repos/o/r/hooks": `[{"name":"web","events":["push","pull_request","deployment"],"config":{"url":"https://hooks.example.com/services/T0/secret-token","content_type":"json","secret":"********"}},
+			{"name":"web","events":["*"],"config":{"url":"https://ci.example.com/hook","content_type":"form"}}]`,
+		"/api/v3/repos/o/r/actions/variables":              `{"total_count":1,"variables":[{"name":"NODE_VERSION","value":"24"}]}`,
+		"/api/v3/repos/o/r/actions/secrets":                `{"total_count":1,"secrets":[{"name":"DEPLOY_KEY"}]}`,
+		"/api/v3/repos/o/r/actions/organization-secrets":   `{"total_count":1,"secrets":[{"name":"NPM_TOKEN"}]}`,
+		"/api/v3/repos/o/r/actions/organization-variables": `{"total_count":0,"variables":[]}`,
+		"/api/v3/repos/o/r/environments":                   `{"total_count":1,"environments":[{"name":"production"}]}`,
+		"/api/graphql": `{"data":{"repository":{"branchProtectionRules":{"nodes":[{"pattern":"release/*","requiresApprovingReviews":true,"requiredApprovingReviewCount":2,
+			"dismissesStaleReviews":true,"requiresStatusChecks":true,"requiresStrictStatusChecks":true,"requiresLinearHistory":true,"isAdminEnforced":true,
+			"requiredStatusChecks":[{"context":"build [linux]","app":{"slug":"github-actions"}},{"context":"codecov/patch","app":null}]}]}}}}`,
+	}
+	downloader := newGithubTestDownloader(t, func(writer http.ResponseWriter, request *http.Request) {
+		response, ok := responses[request.URL.Path]
+		if !ok { // rulesets, which this token may not read
+			writer.WriteHeader(http.StatusForbidden)
+			response = `{"message":"Resource not accessible by personal access token"}`
+		}
+		_, _ = writer.Write([]byte(response))
+	})
+
+	settings, err := downloader.GetSettings(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, []*base.BranchProtection{{
+		Pattern:               "release/*",
+		BlockPush:             true,
+		RequiredApprovals:     2,
+		DismissStaleApprovals: true,
+		EnableStatusCheck:     true,
+		StatusCheckContexts:   []string{`* / build \[linux\] (*)`, "codecov/patch"},
+		RequireUpToDateBranch: true,
+		EnforceForAdmins:      true,
+		Unsupported:           []string{`required check "codecov/patch" is not from GitHub Actions and nothing reports it here yet`, "require linear history"},
+	}}, settings.BranchProtections)
+	assert.Equal(t, []*base.Collaborator{{ID: 7, Login: "niamh", Permission: "admin"}, {ID: 8, Login: "cian", Permission: "read"}}, settings.Collaborators)
+	assert.Equal(t, []*base.Team{{Name: "Core Team", Slug: "core-team", Permission: "write"}}, settings.Teams)
+	assert.Equal(t, []*base.Webhook{
+		{
+			URL: "https://hooks.example.com/services/T0/secret-token", ContentType: "json", UnsupportedEvents: []string{"deployment"},
+			Events: []string{"push", "pull_request", "pull_request_assign", "pull_request_label", "pull_request_milestone", "pull_request_sync", "pull_request_review_request"},
+		},
+		{URL: "https://ci.example.com/hook", ContentType: "form", SendEverything: true},
+	}, settings.Webhooks)
+	assert.Equal(t, []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}}, settings.Variables)
+	assert.Equal(t, []base.SettingsNote{
+		{Kind: base.SettingsNoteNotAdmin},
+		{Kind: base.SettingsNoteUnreadable, Name: "rulesets", Detail: "HTTP 403"},
+		{Kind: base.SettingsNoteSecret, Name: "DEPLOY_KEY"},
+		{Kind: base.SettingsNoteOrgSecret, Name: "NPM_TOKEN"},
+		{Kind: base.SettingsNoteEnvironment, Name: "production"},
+	}, settings.Notes)
+}

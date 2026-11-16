@@ -232,7 +232,26 @@ func migrateRepository(ctx context.Context, doer *user_model.User, downloader ba
 	if err := migrateRepositoryIssueData(ctx, downloader, uploader, opts, messenger); err != nil {
 		return err
 	}
+	if opts.Settings {
+		log.Trace("migrating settings")
+		messenger("repo.migrate.migrating_settings")
+		if err := migrateRepositorySettings(ctx, downloader, uploader); err != nil {
+			return err
+		}
+	}
 	return uploader.Finish(ctx)
+}
+
+func migrateRepositorySettings(ctx context.Context, downloader base.Downloader, uploader base.Uploader) error {
+	settings, err := downloader.GetSettings(ctx)
+	if err != nil {
+		if !base.IsErrNotSupported(err) {
+			return err
+		}
+		log.Warn("migrating settings is not supported, ignored")
+		settings = &base.RepoSettings{Notes: []base.SettingsNote{{Kind: base.SettingsNoteUnsupported}}}
+	}
+	return uploader.CreateSettings(ctx, settings)
 }
 
 func migrateRepositoryMetadata(ctx context.Context, downloader base.Downloader, uploader base.Uploader, opts base.MigrateOptions, messenger base.Messenger) error {

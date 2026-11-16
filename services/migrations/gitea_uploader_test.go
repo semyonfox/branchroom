@@ -12,17 +12,23 @@ import (
 	"testing"
 	"time"
 
+	actions_model "gitea.dev/models/actions"
 	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
+	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	webhook_model "gitea.dev/models/webhook"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/graceful"
 	base "gitea.dev/modules/migration"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/structs"
+	webhook_module "gitea.dev/modules/webhook"
 	repo_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -405,4 +411,66 @@ func TestGiteaUploadReviewCommentsWithoutHead(t *testing.T) {
 	reviewsAfter, err := issues_model.CountReviews(ctx, opts)
 	require.NoError(t, err)
 	assert.Equal(t, reviewsBefore, reviewsAfter) // no empty review is left behind
+}
+
+func TestGiteaUploadSettings(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2}) // owner of org3
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 5})
+	linked := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	require.NoError(t, user_model.LinkExternalToUser(ctx, linked, &user_model.ExternalLoginUser{ExternalID: "7", UserID: linked.ID, Provider: structs.GithubService.Name()}))
+
+	uploader := NewGiteaLocalUploader(ctx, doer, "org3", repo.Name)
+	uploader.gitServiceType = structs.GithubService
+	uploader.repo = repo
+	require.NoError(t, uploader.CreateSettings(ctx, &base.RepoSettings{
+		BranchProtections: []*base.BranchProtection{{Pattern: "release/*", BlockPush: true, AllowDeletion: true, RequiredApprovals: 2, Unsupported: []string{"require linear history"}}},
+		Collaborators: []*base.Collaborator{
+			{ID: 7, Login: "niamh", Permission: "write"},
+			{ID: 8, Login: "user5", Permission: "admin"}, // a local user5 exists, a matching name alone must not grant access
+		},
+		Teams: []*base.Team{
+			{Name: "Team 1", Slug: "team1", Permission: "write"},
+			{Name: "test_team", Slug: "test_team", Permission: "read"}, // the local team writes
+			{Name: "Ghosts", Slug: "ghosts", Permission: "admin"},
+		},
+		Webhooks: []*base.Webhook{
+			{URL: "https://hooks.example.com/services/T0/secret-token", ContentType: "json", Events: []string{"push"}, UnsupportedEvents: []string{"deployment"}},
+			{URL: "https://deploy.example.com/hook", UnsupportedEvents: []string{"deployment"}},
+		},
+		Variables: []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}, {Name: "GITHUB_SHADOW", Value: "x"}},
+		Notes:     []base.SettingsNote{{Kind: base.SettingsNoteSecret, Name: "DEPLOY_KEY"}},
+	}))
+
+	rule := unittest.AssertExistsAndLoadBean(t, &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "release/*"})
+	assert.False(t, rule.CanPush)
+	assert.False(t, rule.CanDelete)
+	assert.EqualValues(t, 2, rule.RequiredApprovals)
+
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Collaboration{RepoID: repo.ID, UserID: linked.ID, Mode: perm.AccessModeWrite})
+	unittest.AssertNotExistsBean(t, &repo_model.Collaboration{RepoID: repo.ID, UserID: 5})
+	assert.True(t, organization.HasTeamRepo(ctx, repo.OwnerID, 2, repo.ID))
+	assert.False(t, organization.HasTeamRepo(ctx, repo.OwnerID, 7, repo.ID))
+
+	webhook := unittest.AssertExistsAndLoadBean(t, &webhook_model.Webhook{RepoID: repo.ID})
+	assert.False(t, webhook.IsActive)
+	assert.True(t, webhook.HasEvent(webhook_module.HookEventPush))
+	unittest.AssertExistsAndLoadBean(t, &actions_model.ActionVariable{RepoID: repo.ID, Name: "NODE_VERSION", Data: "24"})
+
+	report, err := repo_model.GetMigrationReport(ctx, repo.ID)
+	require.NoError(t, err)
+	assert.Equal(t, &base.SettingsReport{
+		BranchProtections: 1, Collaborators: 1, Teams: 1, Webhooks: 1, Variables: 1,
+		Notes: []base.SettingsNote{
+			{Kind: base.SettingsNoteSecret, Name: "DEPLOY_KEY"},
+			{Kind: base.SettingsNoteBranchProtection, Name: "release/*", Detail: "require linear history"},
+			{Kind: base.SettingsNoteCollaborator, Name: "user5", Detail: "admin"},
+			{Kind: base.SettingsNoteTeamAccess, Name: "test_team", Detail: "read"},
+			{Kind: base.SettingsNoteTeam, Name: "Ghosts", Detail: "admin"},
+			{Kind: base.SettingsNoteWebhook, Name: "hooks.example.com", Detail: "deployment"},
+			{Kind: base.SettingsNoteWebhookSkipped, Name: "deploy.example.com", Detail: "deployment"},
+			{Kind: base.SettingsNoteVariable, Name: "GITHUB_SHADOW"},
+		},
+	}, report.Report)
 }

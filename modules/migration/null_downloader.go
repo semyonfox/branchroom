@@ -63,6 +63,11 @@ func (n NullDownloader) GetReviews(_ context.Context, reviewable Reviewable) ([]
 	return nil, ErrNotSupported{Entity: "Reviews"}
 }
 
+// GetSettings returns repository settings
+func (n NullDownloader) GetSettings(_ context.Context) (*RepoSettings, error) {
+	return nil, ErrNotSupported{Entity: "Settings"}
+}
+
 // FormatCloneURL add authentication into remote URLs
 func (n NullDownloader) FormatCloneURL(opts MigrateOptions, remoteAddr string) (string, error) {
 	if len(opts.AuthToken) > 0 || len(opts.AuthUsername) > 0 {

@@ -127,6 +127,12 @@ type issueMigration struct {
 	base.Uploader
 	repoComments bool
 	calls        []string
+	settings     *base.RepoSettings
+}
+
+func (m *issueMigration) CreateSettings(_ctx context.Context, settings *base.RepoSettings) error {
+	m.settings = settings
+	return nil
 }
 
 func (m *issueMigration) MaxBatchInsertSize(_tp string) int { return 2 }
@@ -180,4 +186,10 @@ func recordMigrationCall[Item any](migration *issueMigration, name string, items
 	}
 	migration.calls = append(migration.calls, fmt.Sprintf("%s %v", name, indexes))
 	return nil
+}
+
+func TestMigrateRepositorySettings(t *testing.T) {
+	migration := &issueMigration{}
+	require.NoError(t, migrateRepositorySettings(t.Context(), migration, migration))
+	assert.Equal(t, &base.RepoSettings{Notes: []base.SettingsNote{{Kind: base.SettingsNoteUnsupported}}}, migration.settings)
 }

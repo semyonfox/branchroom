@@ -56,7 +56,7 @@ export const initRepoMigration = () => registerGlobalInitFunc('initGitMigrateFor
     if (enableItems && Number(service?.value) > 1) {
       if (mirror?.checked) {
         for (const item of items) {
-          item.disabled = item.name !== 'wiki';
+          item.disabled = !['wiki', 'settings'].includes(item.name);
         }
         return;
       }

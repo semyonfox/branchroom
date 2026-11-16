@@ -8446,6 +8446,10 @@
             "type": "string",
             "x-go-name": "Service"
           },
+          "settings": {
+            "type": "boolean",
+            "x-go-name": "Settings"
+          },
           "uid": {
             "deprecated": true,
             "description": "deprecated (only for backwards compatibility, use repo_owner instead)",

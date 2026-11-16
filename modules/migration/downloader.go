@@ -23,6 +23,7 @@ type Downloader interface {
 	SupportGetRepoComments() bool
 	GetPullRequests(ctx context.Context, page, perPage int) ([]*PullRequest, bool, error)
 	GetReviews(ctx context.Context, reviewable Reviewable) ([]*Review, error)
+	GetSettings(ctx context.Context) (*RepoSettings, error)
 	FormatCloneURL(opts MigrateOptions, remoteAddr string) (string, error)
 }
 

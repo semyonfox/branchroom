@@ -10,6 +10,7 @@ import (
 	audit_model "gitea.dev/models/audit"
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/perm"
+	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/consts"
@@ -259,6 +260,12 @@ func ctxDataSet(data reqctx.ContextData) func(ctx *context.Context) {
 func repoSettingsCtxData(ctx *context.Context) {
 	ctx.Data.MergeFrom(reqctx.ContextData{"PageIsRepoSettings": true, "LFSStartServer": setting.LFS.StartServer})
 	ctx.Data["EnableBranchroom"] = setting.Branchroom.Enabled
+	hasReport, err := repo_model.HasMigrationReport(ctx, ctx.Repo.Repository)
+	if err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	ctx.Data["HasMigrationReport"] = hasReport
 }
 
 const RouterMockPointBeforeWebRoutes = "before-web-routes"
@@ -1307,6 +1314,8 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		m.Group("/migrate", func() {
 			m.Post("/retry", repo.MigrateRetryPost)
 			m.Post("/cancel", repo.MigrateCancelPost)
+			m.Get("/report", repo_setting.MigrationReport)
+			m.Post("/report/dismiss", repo_setting.MigrationReportDismiss)
 		})
 	},
 		reqSignIn, context.RepoAssignment, reqRepoAdmin,
