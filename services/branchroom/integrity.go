@@ -69,7 +69,7 @@ func CheckIntegrity(ctx context.Context, repairHooks bool) (*IntegrityReport, er
 			problem("workspace %d store is unavailable: %v", workspace.ID, err)
 			continue
 		}
-		if exists, err := git.IsRepositoryExist(ctx, restricted); err != nil || !exists {
+		if !WorkspaceStoreAvailable(workspace) {
 			problem("workspace %d (%s) has no store on disk", workspace.ID, workspace.State)
 			continue
 		}

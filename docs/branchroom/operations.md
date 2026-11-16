@@ -85,6 +85,10 @@ Team grants still support discovery and source read only.
   becomes a system notice under Site administration. It verifies every audit chain,
   that each workspace has its store and a verified receive hook, and that no store
   lacks a workspace.
+- A ready workspace whose store is missing, for example after restoring a dump taken
+  without `--branchroom-stores`, is never served. Clones and pushes fail as if it did
+  not exist, the handoff page leaves it out and its owner sees **copy missing** in
+  Branchroom settings. Restore the store, or purge the workspace.
 - `gitea doctor check --run branchroom` runs the same check on demand. `--fix` only
   reinstalls receive hooks. It never deletes a store or repairs an audit row, since
   either would destroy restricted source or evidence. A broken audit chain means rows

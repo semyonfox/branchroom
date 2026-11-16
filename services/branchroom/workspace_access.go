@@ -6,6 +6,7 @@ package branchroom
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -176,7 +177,7 @@ func authorizeWorkspaceReadByIdentity(ctx context.Context, repoID, userID int64,
 		if err != nil {
 			return authorizedWorkspaceRead{}, err
 		}
-		if scope.RepoID == repoID && scope.Kind == branchroom_model.ScopeKindRepository && scope.State == branchroom_model.ScopeStateActive && workspace.State != branchroom_model.WorkspaceStateReady {
+		if scope.RepoID == repoID && scope.Kind == branchroom_model.ScopeKindRepository && scope.State == branchroom_model.ScopeStateActive && (workspace.State != branchroom_model.WorkspaceStateReady || !WorkspaceStoreAvailable(workspace)) {
 			if err := recordWorkspaceReadUnavailable(txCtx, scope, workspace, actor, ceiling, surface); err != nil {
 				return authorizedWorkspaceRead{}, err
 			}
@@ -239,7 +240,8 @@ func authorizeWorkspaceWriteByIdentity(ctx context.Context, repoID, userID int64
 		}
 		if scope.Validate() != nil || workspace.Validate() != nil || !identity.matches(workspace) ||
 			scope.RepoID != repoID || workspace.ScopeID != scope.ID || workspace.RepoID != repoID || workspace.RepoID != scope.RepoID ||
-			scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive || workspace.State != branchroom_model.WorkspaceStateReady {
+			scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive || workspace.State != branchroom_model.WorkspaceStateReady ||
+			!WorkspaceStoreAvailable(workspace) {
 			return authorizedWorkspaceRead{denied: true}, nil
 		}
 
@@ -287,6 +289,17 @@ func recordWorkspaceReadUnavailable(ctx context.Context, scope *branchroom_model
 		CreatedUnix:     now,
 	})
 	return err
+}
+
+// WorkspaceStoreAvailable reports whether a workspace's store is on disk. A database restored
+// without its stores, or with an interrupted copy, leaves ready rows that must not be routed.
+func WorkspaceStoreAvailable(workspace *branchroom_model.Workspace) bool {
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	if err != nil {
+		return false
+	}
+	exists, err := util.IsExist(filepath.Join(gitrepo.RepoLocalPath(restricted), "HEAD"))
+	return err == nil && exists
 }
 
 func workspaceReadNotFound() error {
