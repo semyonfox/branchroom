@@ -807,15 +807,16 @@ func TestGithubGetSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []*base.BranchProtection{{
-		Pattern:               "release/*",
-		BlockPush:             true,
-		RequiredApprovals:     2,
-		DismissStaleApprovals: true,
-		EnableStatusCheck:     true,
-		StatusCheckContexts:   []string{`* / build \[linux\] (*)`, "codecov/patch"},
-		RequireUpToDateBranch: true,
-		EnforceForAdmins:      true,
-		Unsupported:           []string{`required check "codecov/patch" is not from GitHub Actions and nothing reports it here yet`, "require linear history"},
+		Pattern:                "release/*",
+		BlockPush:              true,
+		RequiredApprovals:      2,
+		BlockOnRejectedReviews: true,
+		DismissStaleApprovals:  true,
+		EnableStatusCheck:      true,
+		StatusCheckContexts:    []string{`* / build \[linux\] (*)`, "codecov/patch"},
+		RequireUpToDateBranch:  true,
+		EnforceForAdmins:       true,
+		Unsupported:            []string{`required check "codecov/patch" is not from GitHub Actions and nothing reports it here yet`, "require linear history"},
 	}}, settings.BranchProtections)
 	assert.Equal(t, []*base.Collaborator{{ExternalID: "7", Login: "niamh", Permission: "admin"}, {ExternalID: "8", Login: "cian", Permission: "read"}}, settings.Collaborators)
 	assert.Equal(t, []*base.Team{{Name: "Core Team", Slug: "core-team", Permission: "write"}}, settings.Teams)

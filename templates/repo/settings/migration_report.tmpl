@@ -9,6 +9,7 @@
 					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.teams"}}</td><td>{{.Report.Teams}}</td></tr>
 					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.webhooks"}}</td><td>{{.Report.Webhooks}}</td></tr>
 					<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.variables"}}</td><td>{{.Report.Variables}}</td></tr>
+					{{if .Report.Secrets}}<tr><td>{{ctx.Locale.Tr "repo.migrate.report.copied.secrets"}}</td><td>{{.Report.Secrets}}</td></tr>{{end}}
 				</tbody>
 			</table>
 			{{if not .ReportSections}}<p>{{ctx.Locale.Tr "repo.migrate.report.nothing_left"}}</p>{{end}}

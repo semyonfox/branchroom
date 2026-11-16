@@ -652,3 +652,51 @@ func TestGitlabIIDResolver(t *testing.T) {
 		r.recordIssueIID(3) // the generation procedure has been started, it shouldn't accept any new issue IID, so it panics
 	})
 }
+
+func TestGitlabGetSettings(t *testing.T) {
+	mux, server, client := gitlabClientMockSetup(t)
+	defer gitlabClientMockTeardown(server)
+	downloader := &GitlabDownloader{client: client, repoID: 1, maxPerPage: 100}
+	for path, response := range map[string]string{
+		"/api/v4/projects/1": `{"id":1,"permissions":{"project_access":{"access_level":40}},"only_allow_merge_if_pipeline_succeeds":true,
+			"shared_with_groups":[{"group_name":"Coaches","group_full_path":"harbour/coaches","group_access_level":30},{"group_name":"Guests","group_full_path":"harbour/guests","group_access_level":10}]}`,
+		"/api/v4/projects/1/protected_branches": `[{"name":"main","push_access_levels":[{"access_level":0}],"merge_access_levels":[{"access_level":40}],"code_owner_approval_required":true},
+			{"name":"release-*","push_access_levels":[{"access_level":30},{"access_level":40}],"merge_access_levels":[{"access_level":30}],"allow_force_push":true},
+			{"name":"hotfix","push_access_levels":[{"access_level":40,"user_id":7}],"merge_access_levels":[{"access_level":30}]}]`,
+		"/api/v4/projects/1/approval_rules": `[{"rule_type":"regular","approvals_required":2,"protected_branches":[{"name":"main"}]},
+			{"rule_type":"any_approver","approvals_required":1},{"rule_type":"report_approver","approvals_required":5}]`,
+		"/api/v4/projects/1/members": `[{"id":7,"username":"niamh","access_level":40},{"id":8,"username":"cian","access_level":20},{"id":9,"username":"guest","access_level":10}]`,
+		"/api/v4/projects/1/hooks":   `[{"url":"https://ci.example.com/gitlab/hook?token=secret","push_events":true}]`,
+		"/api/v4/projects/1/variables": `[{"key":"NODE_VERSION","value":"24","environment_scope":"*"},
+			{"key":"DEPLOY_KEY","value":"s3cr3t","masked":true,"environment_scope":"*"},
+			{"key":"SIGNING_KEY","value":null,"hidden":true,"masked":true,"environment_scope":"*"},
+			{"key":"API_URL","value":"https://staging.example.com","environment_scope":"staging"}]`,
+	} {
+		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, response) })
+	}
+
+	settings, err := downloader.GetSettings(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []*base.BranchProtection{
+		{
+			Pattern: "main", BlockPush: true, RequiredApprovals: 2, RequireCodeOwnerReviews: true,
+			Unsupported: []string{"only Maintainers or named people could merge (anyone with write access can merge)", "pipelines must succeed (no check is required here until you pick one)"},
+		},
+		{Pattern: "release-**", AllowForcePush: true, RequiredApprovals: 1, Unsupported: []string{"pipelines must succeed (no check is required here until you pick one)"}},
+		{
+			Pattern: "hotfix", BlockPush: true, RequiredApprovals: 1,
+			Unsupported: []string{"only Maintainers or named people could push (direct pushes are off instead)", "pipelines must succeed (no check is required here until you pick one)"},
+		},
+	}, settings.BranchProtections)
+	assert.Equal(t, []*base.Collaborator{{ExternalID: "7", Login: "niamh", Permission: "admin"}, {ExternalID: "8", Login: "cian", Permission: "read"}}, settings.Collaborators)
+	assert.Equal(t, []*base.Team{{Name: "Coaches", Slug: "coaches", Permission: "write"}, {Name: "Guests", Slug: "guests", Permission: "none"}}, settings.Teams)
+	assert.Empty(t, settings.Webhooks)
+	assert.Equal(t, []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}}, settings.Variables)
+	assert.Equal(t, []*base.ActionsSecret{{Name: "DEPLOY_KEY", Value: "s3cr3t"}}, settings.Secrets)
+	assert.Equal(t, []base.SettingsNote{
+		{Kind: base.SettingsNoteCollaboratorRole, Name: "guest"},
+		{Kind: base.SettingsNoteWebhookFormat, Name: "ci.example.com"},
+		{Kind: base.SettingsNoteSecret, Name: "SIGNING_KEY"},
+		{Kind: base.SettingsNoteEnvironment, Name: "staging", Detail: "API_URL"},
+	}, settings.Notes)
+}

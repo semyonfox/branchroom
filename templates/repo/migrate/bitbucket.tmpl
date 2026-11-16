@@ -37,6 +37,12 @@
 							<input name="pull_requests" type="checkbox">
 							<label>{{ctx.Locale.Tr "repo.migrate_items_pullrequests"}}</label>
 						</div>
+						{{if eq .service.Name "bitbucket"}}
+						<div class="ui checkbox">
+							<input name="settings" type="checkbox">
+							<label data-tooltip-content="{{ctx.Locale.Tr "repo.migrate_items_settings_desc"}}">{{ctx.Locale.Tr "repo.migrate_items_settings"}}</label>
+						</div>
+						{{end}}
 					</div>
 				</div>
 

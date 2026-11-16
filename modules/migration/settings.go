@@ -10,7 +10,8 @@ type RepoSettings struct {
 	Teams             []*Team
 	Webhooks          []*Webhook
 	Variables         []*ActionsVariable
-	Notes             []SettingsNote // what the source could not hand over
+	Secrets           []*ActionsSecret // only from sources that give the values back
+	Notes             []SettingsNote   // what the source could not hand over
 }
 
 // BranchProtection is a branch protection rule
@@ -20,13 +21,18 @@ type BranchProtection struct {
 	AllowForcePush          bool
 	AllowDeletion           bool
 	RequiredApprovals       int64
+	BlockOnRejectedReviews  bool
+	BlockOnReviewRequests   bool
 	DismissStaleApprovals   bool
+	IgnoreStaleApprovals    bool
 	RequireCodeOwnerReviews bool
 	EnableStatusCheck       bool
 	StatusCheckContexts     []string
 	RequireUpToDateBranch   bool
 	RequireSignedCommits    bool
 	EnforceForAdmins        bool
+	ProtectedFilePatterns   string
+	UnprotectedFilePatterns string
 	Unsupported             []string // source settings with no counterpart, in the source's own words
 }
 
@@ -49,12 +55,19 @@ type Webhook struct {
 	URL               string
 	ContentType       string // json or form
 	Events            []string
+	BranchFilter      string
 	SendEverything    bool
 	UnsupportedEvents []string
 }
 
 // ActionsVariable is a plain-text Actions variable
 type ActionsVariable struct {
+	Name  string
+	Value string
+}
+
+// ActionsSecret is a secret whose value the source was willing to return
+type ActionsSecret struct {
 	Name  string
 	Value string
 }
@@ -70,7 +83,10 @@ const (
 	SettingsNoteEnvironment      SettingsNoteKind = "environment"
 	SettingsNoteWebhook          SettingsNoteKind = "webhook"
 	SettingsNoteWebhookSkipped   SettingsNoteKind = "webhook_skipped"
+	SettingsNoteWebhookKind      SettingsNoteKind = "webhook_kind"
+	SettingsNoteWebhookFormat    SettingsNoteKind = "webhook_format"
 	SettingsNoteCollaborator     SettingsNoteKind = "collaborator"
+	SettingsNoteCollaboratorRole SettingsNoteKind = "collaborator_role"
 	SettingsNoteTeam             SettingsNoteKind = "team"
 	SettingsNoteTeamAccess       SettingsNoteKind = "team_access"
 	SettingsNoteBranchProtection SettingsNoteKind = "branch_protection"
@@ -92,7 +108,10 @@ var SettingsNoteKinds = []SettingsNoteKind{
 	SettingsNoteEnvironment,
 	SettingsNoteWebhook,
 	SettingsNoteWebhookSkipped,
+	SettingsNoteWebhookKind,
+	SettingsNoteWebhookFormat,
 	SettingsNoteCollaborator,
+	SettingsNoteCollaboratorRole,
 	SettingsNoteTeam,
 	SettingsNoteTeamAccess,
 	SettingsNoteBranchProtection,
@@ -113,5 +132,6 @@ type SettingsReport struct {
 	Teams             int
 	Webhooks          int
 	Variables         int
+	Secrets           int
 	Notes             []SettingsNote
 }

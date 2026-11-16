@@ -20,12 +20,15 @@ import (
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
 	webhook_model "gitea.dev/models/webhook"
+	"gitea.dev/modules/container"
 	base "gitea.dev/modules/migration"
+	"gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
 	webhook_module "gitea.dev/modules/webhook"
 	actions_service "gitea.dev/services/actions"
 	"gitea.dev/services/auth/source/oauth2"
 	repo_service "gitea.dev/services/repository"
+	secret_service "gitea.dev/services/secrets"
 )
 
 // CreateSettings applies the settings and saves a report of what a person still has to do
@@ -51,18 +54,22 @@ func (g *GiteaLocalUploader) createBranchProtections(ctx context.Context, settin
 			RepoID:   g.repo.ID,
 			RuleName: protection.Pattern,
 			ProtectedBranchConfig: git_model.ProtectedBranchConfig{
-				CanPush:                 canPush,
-				CanForcePush:            canPush && protection.AllowForcePush,
-				CanDelete:               canPush && protection.AllowDeletion,
-				EnableStatusCheck:       protection.EnableStatusCheck,
-				StatusCheckContexts:     protection.StatusCheckContexts,
-				RequiredApprovals:       protection.RequiredApprovals,
-				BlockOnRejectedReviews:  protection.RequiredApprovals > 0,
-				BlockOnCodeownerReviews: protection.RequireCodeOwnerReviews,
-				BlockOnOutdatedBranch:   protection.RequireUpToDateBranch,
-				DismissStaleApprovals:   protection.DismissStaleApprovals,
-				RequireSignedCommits:    protection.RequireSignedCommits,
-				BlockAdminMergeOverride: protection.EnforceForAdmins,
+				CanPush:                       canPush,
+				CanForcePush:                  canPush && protection.AllowForcePush,
+				CanDelete:                     canPush && protection.AllowDeletion,
+				EnableStatusCheck:             protection.EnableStatusCheck,
+				StatusCheckContexts:           protection.StatusCheckContexts,
+				RequiredApprovals:             protection.RequiredApprovals,
+				BlockOnRejectedReviews:        protection.BlockOnRejectedReviews,
+				BlockOnOfficialReviewRequests: protection.BlockOnReviewRequests,
+				IgnoreStaleApprovals:          protection.IgnoreStaleApprovals,
+				ProtectedFilePatterns:         protection.ProtectedFilePatterns,
+				UnprotectedFilePatterns:       protection.UnprotectedFilePatterns,
+				BlockOnCodeownerReviews:       protection.RequireCodeOwnerReviews,
+				BlockOnOutdatedBranch:         protection.RequireUpToDateBranch,
+				DismissStaleApprovals:         protection.DismissStaleApprovals,
+				RequireSignedCommits:          protection.RequireSignedCommits,
+				BlockAdminMergeOverride:       protection.EnforceForAdmins,
 			},
 		}
 		if err := git_model.UpdateProtectBranch(ctx, g.repo, rule, git_model.WhitelistOptions{}); err != nil {
@@ -77,6 +84,7 @@ func (g *GiteaLocalUploader) createBranchProtections(ctx context.Context, settin
 }
 
 var settingsAccessModes = map[string]perm.AccessMode{
+	"none":  perm.AccessModeNone,
 	"read":  perm.AccessModeRead,
 	"write": perm.AccessModeWrite,
 	"admin": perm.AccessModeAdmin,
@@ -117,7 +125,11 @@ func (g *GiteaLocalUploader) linkedUserID(ctx context.Context, externalID string
 	if err != nil {
 		return 0, err
 	}
-	links, err := db.Find[user_model.ExternalLoginUser](ctx, user_model.FindExternalUserOptions{Provider: g.gitServiceType.Name(), ExternalID: externalID})
+	provider := g.gitServiceType.Name()
+	if g.gitServiceType == structs.ForgejoService {
+		provider = structs.GiteaService.Name() // Forgejo has no sign-in provider of its own
+	}
+	links, err := db.Find[user_model.ExternalLoginUser](ctx, user_model.FindExternalUserOptions{Provider: provider, ExternalID: externalID})
 	if err != nil {
 		return 0, err
 	}
@@ -140,6 +152,9 @@ func loginSourceHost(loginSource *auth_model.Source) string {
 	config, ok := loginSource.Cfg.(*oauth2.Source)
 	if !ok {
 		return ""
+	}
+	if config.Provider == structs.BitbucketService.Name() {
+		return "bitbucket.org" // the one provider here that can not point anywhere else
 	}
 	provider, err := oauth2.CreateProviderFromSource(loginSource)
 	if err != nil || provider.CustomURLSettings() == nil {
@@ -214,6 +229,7 @@ func (g *GiteaLocalUploader) createWebhooks(ctx context.Context, settings *base.
 				SendEverything: source.SendEverything,
 				ChooseEvents:   !source.SendEverything,
 				HookEvents:     events,
+				BranchFilter:   source.BranchFilter,
 			},
 			// the secret can not be read and the source may still be sending, so a person switches it on
 			IsActive: false,
@@ -231,17 +247,40 @@ func (g *GiteaLocalUploader) createWebhooks(ctx context.Context, settings *base.
 	return nil
 }
 
+// createVariables also stores the secrets a source gave back. Names are upper-cased here, so two that differ only by case would collide
 func (g *GiteaLocalUploader) createVariables(ctx context.Context, settings *base.RepoSettings, report *base.SettingsReport) error {
+	scope := actions_model.BelongingScopeRepo(g.repo.ID)
+	names := container.Set[string]{}
 	for _, variable := range settings.Variables {
-		_, err := actions_service.CreateVariable(ctx, actions_model.BelongingScopeRepo(g.repo.ID), variable.Name, variable.Value, "")
-		if errors.Is(err, util.ErrInvalidArgument) {
+		created := false
+		if names.Add(strings.ToUpper(variable.Name)) {
+			_, err := actions_service.CreateVariable(ctx, scope, variable.Name, variable.Value, "")
+			if err != nil && !errors.Is(err, util.ErrInvalidArgument) {
+				return err
+			}
+			created = err == nil
+		}
+		if created {
+			report.Variables++
+		} else {
 			report.Notes = append(report.Notes, base.SettingsNote{Kind: base.SettingsNoteVariable, Name: variable.Name})
-			continue
 		}
-		if err != nil {
-			return err
+	}
+	names = container.Set[string]{}
+	for _, secret := range settings.Secrets {
+		created := false
+		if names.Add(strings.ToUpper(secret.Name)) {
+			_, _, err := secret_service.CreateOrUpdateSecret(ctx, scope, secret.Name, secret.Value, "")
+			if err != nil && !errors.Is(err, util.ErrInvalidArgument) {
+				return err
+			}
+			created = err == nil
 		}
-		report.Variables++
+		if created {
+			report.Secrets++
+		} else {
+			report.Notes = append(report.Notes, base.SettingsNote{Kind: base.SettingsNoteSecret, Name: secret.Name})
+		}
 	}
 	return nil
 }
