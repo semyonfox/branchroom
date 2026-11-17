@@ -16,7 +16,7 @@
 			{{end}}
 			<div>git checkout {{$args.LocalBranchArg}}</div>
 		</div>
-		{{if $data.ShowMergeInstructions}}
+		{{if and $data.ShowMergeInstructions (not $pull.IsFilesConflicted)}}{{/* none of the merge recipes gets past a conflict, the conflict help above does */}}
 		<div>
 			<h3 class="tw-m-0">{{ctx.Locale.Tr "repo.pulls.cmd_instruction_merge_title"}}</h3>
 			{{ctx.Locale.Tr "repo.pulls.cmd_instruction_merge_desc"}}

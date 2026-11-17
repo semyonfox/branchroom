@@ -109,41 +109,102 @@
   font-weight: var(--font-weight-bold);
 }
 
+/* one fixed set of slots on every pull request, so each button stays where the eye left it */
 .forge-queue-bar {
   position: sticky;
   top: 0;
   z-index: 3;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 136px 176px 136px 216px; /* fixed, so a disabled button never shifts its neighbours */
   align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
+  gap: 8px;
   margin-bottom: 12px;
   padding: 8px 12px;
   border: 1px solid var(--color-secondary);
   border-radius: 8px;
   background: var(--color-box-body);
 }
-.forge-queue-where {
+.forge-queue-where { min-width: 0; }
+.forge-queue-place {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 12px;
-  min-width: 0;
+  gap: 12px;
+  white-space: nowrap;
 }
-.forge-queue-where > a { font-weight: var(--font-weight-semibold); }
+.forge-queue-place > a:first-child { font-weight: var(--font-weight-semibold); }
 .forge-queue-count { color: var(--color-primary); font-variant-numeric: tabular-nums; }
-.forge-queue-actions {
+.forge-queue-line {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  height: 20px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-light);
+  white-space: nowrap;
 }
-.forge-queue-actions .ui.button { min-height: 44px; margin: 0; }
-.forge-queue-merge.ui.button { padding-inline: 24px; font-size: 15px; }
-.forge-queue-actions kbd { margin-left: 4px; opacity: 0.7; }
+.forge-queue-line > span { flex-shrink: 0; }
+.forge-queue-line > .forge-queue-hint { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.forge-queue-line > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.forge-queue-line.is-receipt { color: var(--color-text); animation: forge-queue-receipt 0.4s ease-out; }
+.forge-queue-line[data-did="merged"] svg { color: var(--color-purple); }
+.forge-queue-line[data-did="approve"] svg { color: var(--color-green); }
+.forge-queue-line[data-did="reject"] svg { color: var(--color-red); }
+.forge-queue-bar .ui.button { width: 100%; min-height: 44px; margin: 0; padding-inline: 8px; white-space: nowrap; }
+.forge-queue-bar kbd { margin-left: 4px; opacity: 0.7; }
+.forge-queue-approve svg { color: var(--color-green); }
+.forge-queue-approve:disabled svg { color: inherit; }
+.forge-queue-merge.ui.button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
+.forge-queue-bar .is-busy { cursor: progress; }
+.forge-queue-changes { position: relative; }
+.forge-queue-changes-form {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 4;
+  width: 320px;
+  padding: 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 8px;
+  background: var(--color-box-body);
+  box-shadow: 0 6px 18px var(--color-shadow);
+}
+.forge-queue-changes-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius);
+  color: var(--color-input-text);
+  background: var(--color-input-background);
+  resize: vertical;
+}
+.forge-queue-changes-send {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.forge-queue-changes-send kbd { margin: 0; }
+/* the pull request below the bar slides off like a handled envelope while the next one loads */
+.forge-queue-leaving .forge-queue-bar ~ * {
+  transform: translateX(-48px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.2s ease-in, opacity 0.2s ease-in;
+}
+@keyframes forge-queue-receipt {
+  from { transform: translateY(-4px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .forge-queue-leaving .forge-queue-bar ~ * { transform: none; transition: opacity 0.1s; }
+  .forge-queue-line.is-receipt { animation: none; }
+}
 @media (max-width: 767.98px) {
-  .forge-queue-hint { display: none; }
-  .forge-queue-actions { width: 100%; }
-  .forge-queue-actions .ui.button { flex: 1; }
+  .forge-queue-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .forge-queue-where, .forge-queue-merge.ui.button { grid-column: 1 / -1; }
+  .forge-queue-merge.ui.button { order: 1; }
+  .forge-queue-bar kbd { display: none; }
+  .forge-queue-bar .ui.button { width: 100%; padding-inline: 8px; line-height: 1.2; white-space: normal; }
+  .forge-queue-changes { position: static; }
+  .forge-queue-changes-form { right: 12px; left: 12px; width: auto; }
 }

@@ -10,14 +10,11 @@ import (
 	"strconv"
 	"strings"
 
-	issues_model "gitea.dev/models/issues"
-	access_model "gitea.dev/models/perm/access"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/templates"
 	"gitea.dev/services/context"
 	inbox_service "gitea.dev/services/inbox"
-	pull_service "gitea.dev/services/pull"
 )
 
 func Inbox(ctx *context.Context) {
@@ -107,24 +104,18 @@ func InboxNext(ctx *context.Context) {
 		return
 	}
 	from, to := ctx.FormInt64("from"), ctx.FormInt64("to")
-	if from > 0 && to == 0 && !ctx.FormBool("skip") {
-		// an approval that leaves the pull request ready goes back to it, so the merge is one more click
-		if link := mergeableNow(ctx, from); link != "" {
-			ctx.SetSiteCookie(inbox_service.QueueCookie, inbox_service.FormatQueueCookie(view, skipped), 0)
-			ctx.Redirect(link + "#merge")
-			return
-		}
-	}
-	if ctx.FormBool("skip") && from > 0 {
+	if from > 0 {
+		// skipped, or acted on but still waiting (approved, not merged): either way it goes to the back
 		skipped = append(slices.DeleteFunc(skipped, func(id int64) bool { return id == from }), from)
 	}
-	items = inbox_service.QueueOrder(items, skipped)
-	next := slices.IndexFunc(items, func(item api.InboxItem) bool {
-		if to > 0 {
-			return item.ID == to
-		}
-		return item.ID != from
+	skipped = slices.DeleteFunc(skipped, func(id int64) bool { // keeps the cookie to what is still waiting
+		return !slices.ContainsFunc(items, func(item api.InboxItem) bool { return item.ID == id })
 	})
+	items = inbox_service.QueueOrder(items, skipped)
+	next := slices.IndexFunc(items, func(item api.InboxItem) bool { return item.ID == to })
+	if next < 0 { // no target, or it has left the view since the list loaded
+		next = slices.IndexFunc(items, func(item api.InboxItem) bool { return item.ID != from })
+	}
 	if next < 0 {
 		ctx.DeleteSiteCookie(inbox_service.QueueCookie)
 		ctx.Flash.Success(ctx.Tr("inbox.queue_finished", ctx.Tr("inbox.view_"+view)))
@@ -138,24 +129,14 @@ func InboxNext(ctx *context.Context) {
 	if strings.HasPrefix(item.Action.URL, item.HTMLURL) {
 		target = item.Action.URL
 	}
+	if did := ctx.FormString("did"); from > 0 && did != "" && !ctx.FormBool("skip") {
+		if u, err := url.Parse(target); err == nil {
+			q := u.Query()
+			q.Set("done", strconv.FormatInt(from, 10))
+			q.Set("did", did)
+			u.RawQuery = q.Encode()
+			target = u.String()
+		}
+	}
 	ctx.Redirect(target)
-}
-
-func mergeableNow(ctx *context.Context, issueID int64) string {
-	issue, err := issues_model.GetIssueByID(ctx, issueID)
-	if err != nil || !issue.IsPull || issue.IsClosed || issue.LoadAttributes(ctx) != nil {
-		return ""
-	}
-	r, err := pull_service.GetReadiness(ctx, issue.PullRequest)
-	if err != nil || len(r.Blockers) > 0 {
-		return ""
-	}
-	perm, err := access_model.GetDoerRepoPermission(ctx, issue.Repo, ctx.Doer)
-	if err != nil {
-		return ""
-	}
-	if allowed, err := pull_service.IsUserAllowedToMerge(ctx, issue.PullRequest, perm, ctx.Doer); err != nil || !allowed {
-		return ""
-	}
-	return issue.Link()
 }

@@ -247,3 +247,16 @@
   background: var(--color-yellow-badge-bg);
   color: var(--color-yellow-badge);
 }
+
+.forge-conflict-help p { margin: 6px 0; }
+.forge-conflict-steps {
+  margin: 8px 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: var(--border-radius);
+  background: var(--color-code-bg);
+  font-family: var(--fonts-monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}

@@ -31,8 +31,8 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/glob"
-	issue_template "gitea.dev/modules/issue/template"
 	"gitea.dev/modules/httplib"
+	issue_template "gitea.dev/modules/issue/template"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
@@ -1086,6 +1086,10 @@ func UpdatePullRequest(ctx *context.Context) {
 
 	time.Sleep(100 * time.Millisecond) // TODO: it is really questionable whether the Sleep is useful here, need to figure out
 
+	if to := queueRedirect(ctx, ""); to != "" {
+		ctx.JSONRedirect(to) // the queue's receipt says it, a flash would land on the next pull request
+		return
+	}
 	ctx.Flash.Success(ctx.Tr("repo.pulls.update_branch_success"))
 	ctx.JSONRedirect(issue.Link())
 }

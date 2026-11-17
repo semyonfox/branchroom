@@ -58,7 +58,7 @@ func issueNextStep(in conversationNextInput) conversationNextStep {
 	case in.Draft:
 		return step("draft", in.AuthorName, "waiting", "", "")
 	case in.Conflict:
-		return step("conflict", in.AuthorName, "waiting", "repo.conversation.resolve", "#pull-merge-box")
+		return step("conflict", in.AuthorName, "waiting", "repo.conversation.how_to_fix", "#pull-conflict-help")
 	case in.Failing > 0:
 		return step("checks", in.AuthorName, "waiting", "repo.conversation.failing_log", in.FailingURL)
 	case in.Checking || in.Pending > 0:

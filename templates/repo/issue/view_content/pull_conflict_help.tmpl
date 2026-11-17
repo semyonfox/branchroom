@@ -1,0 +1,19 @@
+{{$pull := .Issue.PullRequest}}
+{{$args := $pull.GetInstructionsCliArgs}}
+{{$remote := .SystemConfig.Repository.GitGuideRemoteName.Value ctx}}
+{{$headRemote := $remote}}
+{{if and $pull.HeadRepo (ne $pull.HeadRepo.ID $pull.BaseRepo.ID)}}{{$headRemote = $pull.HeadRepo.HTMLURL ctx}}{{end}}
+<div class="item forge-conflict-help" id="pull-conflict-help">
+	<h3 class="tw-m-0">{{ctx.Locale.Tr "repo.pulls.conflict_help_title"}}</h3>
+	<p>{{ctx.Locale.Tr "repo.pulls.conflict_help_what" $pull.BaseBranch (StringUtils.Join $pull.ConflictedFiles ", ")}}</p>
+	<p>{{ctx.Locale.Tr "repo.pulls.conflict_help_how" $pull.BaseBranch}} {{ctx.Locale.Tr "repo.pulls.conflict_help_who" .Issue.Poster.Name}}</p>
+	{{if eq $pull.Flow 0}}
+		<pre class="forge-conflict-steps" id="pull-conflict-steps">git fetch -u {{$headRemote}} {{$args.HeadBranchArg}}:{{$args.LocalBranchArg}}
+git checkout {{$args.LocalBranchArg}}
+git pull --no-rebase {{$remote}} {{$args.BaseBranchArg}}
+# {{ctx.Locale.Tr "repo.pulls.conflict_help_markers"}}
+git commit -a --no-edit
+git push {{$headRemote}} {{$args.LocalBranchArg}}:{{$args.HeadBranchArg}}</pre>
+		<button type="button" class="ui small basic button" data-clipboard-target="#pull-conflict-steps">{{svg "octicon-copy"}} {{ctx.Locale.Tr "repo.pulls.conflict_help_copy"}}</button>
+	{{end}}
+</div>

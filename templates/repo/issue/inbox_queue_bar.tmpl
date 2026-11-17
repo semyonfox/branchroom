@@ -1,19 +1,81 @@
 {{with .InboxQueue}}
-<div class="forge-queue-bar" data-queue-redirect="{{.Redirect}}">
+<div class="forge-queue-bar" data-queue-next="{{.Next}}" data-failed="{{ctx.Locale.Tr "inbox.queue_failed"}}">
 	<div class="forge-queue-where">
-		<a href="{{AppSubUrl}}/inbox?view={{.View}}">{{ctx.Locale.Tr (printf "inbox.view_%s" .View)}}</a>
-		<span class="forge-queue-count">{{if .Position}}{{ctx.Locale.Tr "inbox.queue_position" .Position .Count}}{{else}}{{ctx.Locale.Tr "inbox.queue_left" .Count}}{{end}}</span>
-		<span class="text light-2 forge-queue-hint">{{ctx.Locale.Tr "inbox.queue_hint"}}</span>
-	</div>
-	<div class="forge-queue-actions">
-		{{if .CanMerge}}
-			<a class="ui primary button forge-queue-merge" href="{{$.Issue.Link}}#merge" data-palette-action="{{ctx.Locale.Tr "inbox.queue_merge"}}" data-palette-key="m">{{svg "octicon-git-merge"}} {{ctx.Locale.Tr "inbox.queue_merge"}} <kbd>m</kbd></a>
+		<div class="forge-queue-place">
+			<a href="{{AppSubUrl}}/inbox?view={{.View}}">{{ctx.Locale.Tr (printf "inbox.view_%s" .View)}}</a>
+			<span class="forge-queue-count">{{if .Position}}{{ctx.Locale.Tr "inbox.queue_position" .Position .Count}}{{else}}{{ctx.Locale.Tr "inbox.queue_left" .Count}}{{end}}</span>
+			<a class="muted forge-queue-exit" href="{{.ExitURL}}">{{ctx.Locale.Tr "inbox.queue_exit"}}</a>
+		</div>
+		{{with .Done}}
+			<p class="forge-queue-line is-receipt" role="status" data-did="{{$.InboxQueue.DoneDid}}">
+				{{svg $.InboxQueue.DoneIcon}}
+				<span>{{ctx.Locale.Tr (printf "inbox.queue_done_%s" $.InboxQueue.DoneDid) (printf "%s#%d" .Repo.Name .Index)}}</span>
+				<a href="{{.Link}}">{{.Title}}</a>
+			</p>
+		{{else}}
+			<p class="forge-queue-line" data-fix="{{.Fix.Kind}}"><span class="forge-queue-hint">{{or .Why (ctx.Locale.Tr "inbox.queue_hint")}}</span></p>
 		{{end}}
-		{{if not $.Issue.IsClosed}}
-			<a class="ui {{if not .CanMerge}}primary{{else}}basic{{end}} button forge-queue-review" href="{{$.Issue.Link}}/files#review" data-palette-action="{{ctx.Locale.Tr "inbox.queue_review"}}" data-palette-key="r">{{svg "octicon-code-review"}} {{ctx.Locale.Tr "inbox.queue_review"}} <kbd>r</kbd></a>
-		{{end}}
-		<a class="ui basic button forge-queue-skip" href="{{.SkipURL}}" data-palette-action="{{ctx.Locale.Tr "inbox.queue_skip"}}" data-palette-key="n">{{ctx.Locale.Tr "inbox.queue_skip"}} <kbd>n</kbd></a>
-		<a class="muted forge-queue-exit" href="{{.ExitURL}}">{{ctx.Locale.Tr "inbox.queue_exit"}}</a>
 	</div>
+
+	<a class="ui basic button forge-queue-skip" href="{{.SkipURL}}" data-queue-key="n">{{ctx.Locale.Tr "inbox.queue_skip"}} <kbd>n</kbd></a>
+
+	<div class="forge-queue-changes">
+		{{if .CanReview}}
+			<button type="button" class="ui basic red button forge-queue-changes-toggle" aria-expanded="false" aria-controls="forge-queue-changes-form" data-queue-key="c">{{ctx.Locale.Tr "repo.diff.review.reject"}} <kbd>c</kbd></button>
+			<form class="forge-queue-form forge-queue-changes-form" id="forge-queue-changes-form" action="{{$.Issue.Link}}/files/reviews/submit" method="post" hidden>
+				<input type="hidden" name="commit_id" value="{{.HeadSHA}}">
+				<input type="hidden" name="type" value="reject">{{/* Ctrl+Enter submits without a submitter */}}
+				<textarea name="content" rows="3" required aria-label="{{ctx.Locale.Tr "inbox.queue_note"}}" placeholder="{{ctx.Locale.Tr "inbox.queue_note"}}"></textarea>
+				<div class="forge-queue-changes-send">
+					<span class="text light-2"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+					<button type="submit" class="ui red button" data-busy="{{ctx.Locale.Tr "inbox.queue_sending"}}">{{ctx.Locale.Tr "inbox.queue_send_changes"}}</button>
+				</div>
+			</form>
+		{{else}}
+			<button type="button" class="ui basic button" disabled title="{{.ReviewReason}}">{{ctx.Locale.Tr "repo.diff.review.reject"}}</button>
+		{{end}}
+	</div>
+
+	{{if .CanReview}}
+		<form class="forge-queue-form forge-queue-approve" action="{{$.Issue.Link}}/files/reviews/submit" method="post">
+			<input type="hidden" name="commit_id" value="{{.HeadSHA}}">
+			<button type="submit" name="type" value="approve" class="ui basic button" data-queue-key="a" data-busy="{{ctx.Locale.Tr "inbox.queue_sending"}}">{{svg "octicon-check"}} {{ctx.Locale.Tr "repo.diff.review.approve"}} <kbd>a</kbd></button>
+		</form>
+	{{else}}
+		<button type="button" class="ui basic button forge-queue-approve" disabled title="{{.ReviewReason}}">{{svg "octicon-check"}} {{ctx.Locale.Tr "repo.diff.review.approve"}}</button>
+	{{end}}
+
+	{{$fix := .Fix}}
+	{{if or (eq $fix.Kind "merge") (eq $fix.Kind "automerge")}}
+		{{$auto := eq $fix.Kind "automerge"}}
+		<button type="button" class="ui primary button forge-queue-merge show-modal" data-modal="#forge-queue-merge" data-queue-key="m">{{svg (Iif $auto "octicon-clock" "octicon-git-merge")}} <span>{{$fix.Label}}</span> <kbd>m</kbd></button>
+		<dialog class="modal-dialog" id="forge-queue-merge">
+			<div class="header">{{if $auto}}{{ctx.Locale.Tr (Iif .ApproveFirst "inbox.queue_approve_automerge_confirm" "inbox.queue_automerge_confirm") $.Repository.Name $.Issue.Index}}{{else}}{{ctx.Locale.Tr (Iif .ApproveFirst "inbox.queue_approve_merge_confirm" "inbox.queue_merge_confirm") $.Repository.Name $.Issue.Index}}{{end}}</div>
+			<div class="content">
+				<form class="ui form forge-queue-form forge-queue-merge-form" action="{{$.Issue.Link}}/merge" method="post" data-did="{{Iif $auto "scheduled" "merged"}}" {{if .ApproveFirst}}data-approve-url="{{$.Issue.Link}}/files/reviews/submit" data-approve-commit="{{.HeadSHA}}" data-approve-failed="{{ctx.Locale.Tr "inbox.queue_approve_failed"}}"{{end}}>
+					<input type="hidden" name="head_commit_id" value="{{.HeadSHA}}">
+					{{if $auto}}<input type="hidden" name="merge_when_checks_succeed" value="true">{{end}}
+					<p>{{.MergeLabel}} · {{ctx.Locale.Tr "inbox.queue_into" $.Issue.PullRequest.BaseBranch}}</p>
+					{{if $auto}}<p class="text light-2">{{ctx.Locale.Tr "inbox.queue_automerge_explain"}}</p>{{end}}
+					{{if .ApproveFirst}}<p class="text light-2">{{ctx.Locale.Tr "inbox.queue_approve_first"}}</p>{{end}}
+					<div class="field"><label><input type="checkbox" name="delete_branch_after_merge" value="true" {{if .DeleteBranch}}checked{{end}}> {{ctx.Locale.Tr "inbox.queue_delete_branch" $.Issue.PullRequest.HeadBranch}}</label></div>
+					<div class="actions">
+						<button type="button" class="ui cancel button">{{ctx.Locale.Tr "cancel"}}</button>
+						<button type="submit" class="ui primary button" name="do" value="{{.MergeStyle}}" autofocus data-busy="{{ctx.Locale.Tr (Iif $auto "inbox.queue_sending" "inbox.queue_merging")}}">{{$fix.Label}}</button>
+					</div>
+				</form>
+			</div>
+		</dialog>
+	{{else if eq $fix.Kind "link"}}
+		<a class="ui primary button forge-queue-merge" href="{{$fix.URL}}" data-queue-key="m">{{svg "octicon-arrow-right"}} <span>{{$fix.Label}}</span> <kbd>m</kbd></a>
+	{{else if ne $fix.Kind "off"}}
+		{{/* one click fixes: each posts to the pull request's own endpoint and hands back to the queue */}}
+		<form class="forge-queue-form forge-queue-fix" action="{{$fix.URL}}" method="post" data-did="{{Iif (eq $fix.Kind "update") "updated" (Iif (eq $fix.Kind "ask") "asked" (Iif (eq $fix.Kind "rerequest") "rerequested" "ready"))}}" {{if ne $fix.Kind "update"}}data-expect="ok"{{end}}>
+			{{range $name, $value := $fix.Data}}<input type="hidden" name="{{$name}}" value="{{$value}}">{{end}}
+			<button type="submit" class="ui primary button forge-queue-merge" data-queue-key="m" data-busy="{{ctx.Locale.Tr "inbox.queue_sending"}}">{{svg "octicon-zap"}} <span>{{$fix.Label}}</span> <kbd>m</kbd></button>
+		</form>
+	{{else}}
+		<button type="button" class="ui basic button forge-queue-merge" disabled>{{svg "octicon-git-merge"}} <span>{{$fix.Label}}</span></button>
+	{{end}}
 </div>
 {{end}}
