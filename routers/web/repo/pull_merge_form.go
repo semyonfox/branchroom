@@ -13,7 +13,6 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/svg"
-	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
 	pull_service "gitea.dev/services/pull"
@@ -60,8 +59,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 
 	var hasPendingPullRequestMergeTip template.HTML
 	if hasPendingPullRequestMerge {
-		createdPRMergeStr := templates.TimeSince(pendingPullRequestMerge.CreatedUnix)
-		hasPendingPullRequestMergeTip = ctx.Locale.Tr("repo.pulls.auto_merge_has_pending_schedule", pendingPullRequestMerge.Doer.Name, createdPRMergeStr)
+		hasPendingPullRequestMergeTip = ctx.Locale.Tr("repo.pulls.auto_merge_scheduled_by", pendingPullRequestMerge.Doer.Name)
 	}
 
 	var defaultMergeTitle, defaultMergeBody string
@@ -91,6 +89,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 		"textAutoMergeButtonWhenSucceed": ctx.Locale.Tr("repo.pulls.auto_merge_button_when_succeed"),
 		"textAutoMergeWhenSucceed":       ctx.Locale.Tr("repo.pulls.auto_merge_when_succeed"),
 		"textAutoMergeCancelSchedule":    ctx.Locale.Tr("repo.pulls.auto_merge_cancel_schedule"),
+		"textMergeWithoutWaiting":        ctx.Locale.Tr("repo.pulls.merge_without_waiting"),
 		"textClearMergeMessage":          ctx.Locale.Tr("repo.pulls.clear_merge_message"),
 		"textClearMergeMessageHint":      ctx.Locale.Tr("repo.pulls.clear_merge_message_hint"),
 		"textMergeCommitId":              ctx.Locale.Tr("repo.pulls.merge_commit_id"),

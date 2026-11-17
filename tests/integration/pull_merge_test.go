@@ -855,6 +855,13 @@ func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 		assert.False(t, pr.HasMerged)
 		assert.Empty(t, pr.MergedCommitID)
 
+		resp := session.MakeRequest(t, NewRequestf(t, "GET", "/user2/repo1/pulls/%d", pr.Index), http.StatusOK)
+		actions := NewHTMLParser(t, resp.Body).Find(".forge-merge-actions")
+		assert.Contains(t, actions.Find(".ui.info.message").Text(), "user1 scheduled this pull request to merge when all checks succeed.")
+		row := actions.Find(".flex-text-block")
+		assert.Equal(t, 1, row.Find("button.show-modal").Length())
+		assert.Equal(t, 1, row.Find(`form[action$="/cancel_auto_merge"]`).Length())
+
 		// update commit status to success, then it should be merged automatically
 		baseGitRepo, err := git.OpenRepository(t.Context(), baseRepo)
 		assert.NoError(t, err)
