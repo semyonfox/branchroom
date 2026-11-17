@@ -7,14 +7,20 @@
 	<div class="flex-text-block tw-flex-wrap">
 		{{range $props.mergeStyles}}
 			{{if and .allowed (or (ne .name "manually-merged") $admin)}}
+				{{$bypass := and $props.canMergeNow (not $props.allOverridableChecksOk)}}
 				{{if eq .name $props.defaultMergeStyle}}
-					<button type="button" class="ui {{if and $props.canMergeNow $.Ready}}primary{{else}}basic{{end}} button show-modal" data-modal="#forge-merge-{{.name}}" {{if and $.Ready $props.canMergeNow}}data-palette-action="{{ctx.Locale.Tr "repo.conversation.open_merge_dialog" .textDoMerge}}"{{end}}>
-						{{if and $props.hasPendingPullRequestMerge $props.canMergeNow}}{{$props.textMergeWithoutWaiting}}{{else}}{{.textDoMerge}}{{if and (not $props.canMergeNow) (not .hideAutoMerge)}} {{$props.textAutoMergeButtonWhenSucceed}}{{end}}{{end}}
+					{{if and (not $props.canMergeNow) (not $props.autoMergeCanFire)}}
+						<button type="button" class="ui basic button" disabled title="{{$props.textAutoMergeCannotFire}}">{{.textDoMerge}}</button>
+					{{else}}
+					<button type="button" class="ui {{if $bypass}}basic red{{else if and $props.canMergeNow $.Ready}}primary{{else}}basic{{end}} button show-modal" data-modal="#forge-merge-{{.name}}" {{if and $.Ready $props.canMergeNow}}data-palette-action="{{ctx.Locale.Tr "repo.conversation.open_merge_dialog" .textDoMerge}}"{{end}}>
+						{{if $bypass}}{{$props.textMergeAnyway}}{{else if and $props.hasPendingPullRequestMerge $props.canMergeNow}}{{$props.textMergeWithoutWaiting}}{{else}}{{.textDoMerge}}{{if and (not $props.canMergeNow) (not .hideAutoMerge)}} {{$props.textAutoMergeButtonWhenSucceed}}{{end}}{{end}}
 					</button>
+					{{end}}
 				{{end}}
 				<dialog class="modal-dialog" id="forge-merge-{{.name}}">
-					<div class="header">{{.textDoMerge}}</div>
+					<div class="header">{{if $bypass}}{{$props.textMergeAnyway}}: {{.textDoMerge}}{{else}}{{.textDoMerge}}{{end}}</div>
 					<div class="content">
+						{{if $bypass}}<p class="tw-text-red">{{$props.textMergeAnywaySkips}}</p>{{end}}
 						<form class="ui form form-fetch-action" action="{{$props.baseLink}}/merge" method="post">
 							<input type="hidden" name="head_commit_id" value="{{$props.pullHeadCommitID}}">
 							<input type="hidden" name="force_merge" value="{{and $props.canMergeNow (not $props.allOverridableChecksOk)}}">
@@ -24,7 +30,7 @@
 							{{end}}
 							{{if eq .name "manually-merged"}}
 								<div class="field"><input required name="merge_commit_id" placeholder="{{$props.textMergeCommitId}}" aria-label="{{$props.textMergeCommitId}}"></div>
-							{{else}}
+							{{else if $props.autoMergeCanFire}}
 								<div class="field"><label><input type="checkbox" name="merge_when_checks_succeed" value="true" {{if not $props.canMergeNow}}checked{{end}}> {{$props.textAutoMergeWhenSucceed}}</label></div>
 							{{end}}
 							{{if $props.isPullBranchDeletable}}

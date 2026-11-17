@@ -31,6 +31,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/glob"
+	"gitea.dev/modules/httplib"
 	issue_template "gitea.dev/modules/issue/template"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/optional"
@@ -995,6 +996,7 @@ func viewPullFiles(ctx *context.Context, beforeCommitID, afterCommitID string) {
 		ctx.HTML(http.StatusOK, tplPullDiffBox)
 		return
 	}
+	prepareInboxQueue(ctx, issue)
 	ctx.HTML(http.StatusOK, tplPullFiles)
 }
 
@@ -1084,6 +1086,10 @@ func UpdatePullRequest(ctx *context.Context) {
 
 	time.Sleep(100 * time.Millisecond) // TODO: it is really questionable whether the Sleep is useful here, need to figure out
 
+	if to := queueRedirect(ctx, ""); to != "" {
+		ctx.JSONRedirect(to) // the queue's receipt says it, a flash would land on the next pull request
+		return
+	}
 	ctx.Flash.Success(ctx.Tr("repo.pulls.update_branch_success"))
 	ctx.JSONRedirect(issue.Link())
 }
@@ -1191,7 +1197,7 @@ func MergePullRequest(ctx *context.Context) {
 		} else if scheduled {
 			// nothing more to do ...
 			ctx.Flash.Success(ctx.Tr("repo.pulls.auto_merge_newly_scheduled"))
-			ctx.JSONRedirect(fmt.Sprintf("%s/pulls/%d", ctx.Repo.RepoLink, pr.Index))
+			ctx.JSONRedirect(queueRedirect(ctx, fmt.Sprintf("%s/pulls/%d", ctx.Repo.RepoLink, pr.Index)))
 			return
 		}
 	}
@@ -1271,7 +1277,16 @@ func MergePullRequest(ctx *context.Context) {
 	if deleteBranchAfterMerge {
 		deleteBranchAfterMergeAndFlashMessage(ctx, pr.ID)
 	}
-	ctx.JSONRedirect(issue.Link())
+	ctx.JSONRedirect(queueRedirect(ctx, issue.Link()))
+}
+
+// queueRedirect lets the inbox carry on to the next item after a successful merge or review.
+// Failures keep landing on the pull request, so callers can tell the two apart by the redirect
+func queueRedirect(ctx *context.Context, fallback string) string {
+	if to := ctx.FormString("redirect_to"); to != "" && httplib.IsCurrentGiteaSiteURL(ctx, to) {
+		return to
+	}
+	return fallback
 }
 
 func deleteBranchAfterMergeAndFlashMessage(ctx *context.Context, prID int64) {

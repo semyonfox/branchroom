@@ -12,7 +12,10 @@
   </nav>
   <section class="forge-inbox-main">
    {{template "base/alert" .}}
-   <h1>{{ctx.Locale.Tr (printf "inbox.view_%s" .InboxView)}}</h1>
+   <div class="flex-text-block tw-justify-between tw-flex-wrap">
+    <h1>{{ctx.Locale.Tr (printf "inbox.view_%s" .InboxView)}}</h1>
+    {{if .InboxItems}}<a class="ui primary button tw-min-h-[44px]" href="{{AppSubUrl}}/inbox/next?view={{.InboxView}}" data-palette-action="{{ctx.Locale.Tr "inbox.queue_start"}}">{{svg "octicon-play"}} {{ctx.Locale.Tr "inbox.queue_start"}}</a>{{end}}
+   </div>
    {{if eq .InboxView "triage"}}<p class="text light-2">{{ctx.Locale.Tr "inbox.triage_description"}}</p>{{end}}
    {{range $result := .InboxResults}}
     <p role="status" class="ui message {{if $result.Error}}error{{else}}success{{end}}">#{{$result.ID}}: {{if $result.Error}}{{$result.Error}}{{else}}{{ctx.Locale.Tr "inbox.action_complete"}}{{end}}</p>
@@ -43,7 +46,7 @@
        <div class="forge-inbox-meta"><span>{{$item.Repo}} #{{$item.Index}} · {{$item.Kind}}</span>{{if $item.Size}}<span class="ui basic label">{{$item.Size}}</span>{{end}}{{if $item.Agent}}{{template "shared/agent_label" (dict "Agent" $item.Agent.Name "TaskURL" $item.Agent.TaskURL "Model" $item.Agent.Model "Harness" $item.Agent.Harness "Sponsor" $item.Agent.Sponsor)}}{{else if $item.Trust}}<span>{{$item.Trust}}</span>{{end}}{{if $item.Checks}}<span>{{ctx.Locale.Tr "inbox.checks"}}: {{$item.Checks}}</span>{{end}}{{DateUtils.TimeSince $item.CreatedAt}}</div>
        {{if $item.Reason}}<div class="text light-2">{{$item.Reason}}</div>{{end}}
       </div>
-      <a class="ui small basic button forge-inbox-primary" href="{{$item.Action.URL}}" data-palette-action="{{$item.Action.Label}} {{$item.Title}}" data-palette-key="enter">{{$item.Action.Label}}</a>
+      <a class="ui small basic button forge-inbox-primary" href="{{AppSubUrl}}/inbox/next?view={{$.InboxView}}&to={{$item.ID}}" data-palette-action="{{$item.Action.Label}} {{$item.Title}}" data-palette-key="enter">{{$item.Action.Label}}</a>
      </article>
     {{else}}
      <div class="forge-inbox-empty">

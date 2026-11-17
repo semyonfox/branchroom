@@ -26,7 +26,7 @@ func TestIssueNextStep(t *testing.T) {
 		{"author changes", conversationNextInput{Pull: true, Author: true, Changes: true}, "your_changes", "repo.conversation.answer"},
 		{"waiting author", conversationNextInput{Pull: true, Changes: true, CanMerge: true}, "changes", ""},
 		{"draft", conversationNextInput{Pull: true, Draft: true, CanMerge: true}, "draft", ""},
-		{"conflict", conversationNextInput{Pull: true, Conflict: true, CanMerge: true}, "conflict", "repo.conversation.resolve"},
+		{"conflict", conversationNextInput{Pull: true, Conflict: true, CanMerge: true}, "conflict", "repo.conversation.how_to_fix"},
 		{"pending", conversationNextInput{Pull: true, Pending: 1, CanMerge: true}, "pending", ""},
 		{"reviews", conversationNextInput{Pull: true, WaitingReviews: true, CanMerge: true}, "reviews", ""},
 		{"blocked", conversationNextInput{Pull: true, Blocked: true, CanMerge: true}, "blocked", "repo.conversation.merge_requirements"},

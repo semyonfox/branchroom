@@ -6,6 +6,7 @@ package repo
 import (
 	"errors"
 	"html/template"
+	"strings"
 
 	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
@@ -82,6 +83,27 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 	}
 
 	allOverridableChecksOk := !prInfo.MergeBoxData.hasOverridableBlockers
+	data := prInfo.MergeBoxData
+	// auto merge only waits for checks, so with anything else in the way it would never fire
+	autoMergeCanFire := !(data.isBlockedByApprovals || data.isBlockedByRejection || data.isBlockedByOfficialReviewRequests ||
+		data.isBlockedByCodeowners || data.isBlockedByOutdatedBranch || data.isBlockedByChangedProtectedFiles)
+	var skips []string
+	for _, b := range []struct {
+		on  bool
+		key string
+	}{
+		{data.isBlockedByRejection, "repo.pulls.skips_changes_requested"},
+		{data.isBlockedByApprovals, "repo.pulls.skips_approvals"},
+		{data.isBlockedByOfficialReviewRequests, "repo.pulls.skips_review_requests"},
+		{data.isBlockedByCodeowners, "repo.pulls.skips_code_owners"},
+		{data.isBlockedByOutdatedBranch, "repo.pulls.skips_outdated"},
+		{data.isBlockedByChangedProtectedFiles, "repo.pulls.skips_protected_files"},
+		{data.hasStatusCheckBlocker, "repo.pulls.skips_checks"},
+	} {
+		if b.on {
+			skips = append(skips, ctx.Locale.TrString(b.key))
+		}
+	}
 	mergeFormProps := map[string]any{
 		"baseLink":                       prInfo.issue.Link(),
 		"textCancel":                     ctx.Locale.Tr("cancel"),
@@ -95,6 +117,10 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 		"textMergeCommitId":              ctx.Locale.Tr("repo.pulls.merge_commit_id"),
 
 		"canMergeNow":                   prInfo.MergeBoxData.canMergeNow,
+		"autoMergeCanFire":              autoMergeCanFire,
+		"textMergeAnyway":               ctx.Locale.Tr("repo.pulls.merge_anyway"),
+		"textMergeAnywaySkips":          ctx.Locale.Tr("repo.pulls.merge_anyway_skips", strings.Join(skips, ", ")),
+		"textAutoMergeCannotFire":       ctx.Locale.Tr("repo.pulls.auto_merge_cannot_fire"),
 		"allOverridableChecksOk":        allOverridableChecksOk,
 		"emptyCommit":                   pull.IsEmpty(),
 		"pullHeadCommitID":              prInfo.CompareInfo.HeadCommitID,

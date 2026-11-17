@@ -62,6 +62,7 @@
 			{{end}}
 
 				</details>
+				{{if and .Issue.PullRequest.IsFilesConflicted (not .Issue.IsClosed)}}{{template "repo/issue/view_content/pull_conflict_help" $}}{{end}}
 				{{if or $data.MergeFormProps $data.ShowPullCommands $data.ShowUpdatePullInfo}}
 				<div class="item"><details class="forge-other-merge"><summary>{{ctx.Locale.Tr "repo.conversation.other_ways"}}</summary>
 					{{template "repo/issue/view_content/merge_alternatives" dict "Props" $data.MergeFormProps "IsAdmin" $.IsRepoAdmin}}
