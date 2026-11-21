@@ -43,6 +43,14 @@ make lint-md
 
 `make help` lists the rest. A self-contained binary, the kind the live host runs, needs `TAGS=bindata make build`.
 
+## Credits
+
+Branchroom is built on the work of [the Gitea authors](https://github.com/go-gitea/gitea/graphs/contributors) and, before them, [the Gogs authors](https://github.com/gogs/gogs/graphs/contributors). Most of the code here is theirs. If Branchroom is useful to you, [support Gitea](https://opencollective.com/gitea).
+
+Branchroom is not part of the Gitea project and Gitea does not endorse it. Report Branchroom bugs in [this repository's issues](https://github.com/semyonfox/branchroom/issues), not to Gitea. `CONTRIBUTING.md` and `MAINTAINERS` stay as upstream wrote them so merges stay clean. The Gitea maintainers they list do not maintain this fork.
+
+Coding agents write much of the Branchroom-specific code. Each of those commits names the agent and model in an `Assisted-by` trailer. Semyon Fox reviews and owns every change.
+
 ## Licence
 
-Branchroom inherits Gitea code under the MIT License. See [LICENSE](LICENSE).
+MIT, the same as Gitea. See [LICENSE](LICENSE).
