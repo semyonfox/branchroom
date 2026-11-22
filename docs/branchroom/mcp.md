@@ -23,8 +23,9 @@ connection failure. Check whether a write succeeded before retrying it.
 When creating a token in Settings → Applications, open "This token is for an
 agent" and enter its name, model and harness. For example, use "Claude Opus 5.5"
 as the model and "T3 Code" as the harness. You can also add a task URL and the
-username of the responsible person. This person must be an active user and
-defaults to the token owner when omitted.
+username of the responsible person. For personal tokens, this is the token owner.
+Tokens owned by bot accounts must name an active individual user as the responsible
+person. Only site administrators can create bot accounts.
 
 For `POST /api/v1/users/{username}/tokens`, include `agent_identity`:
 

@@ -55,44 +55,48 @@ func PrepareTokenIdentity(ctx context.Context, ownerID int64, identity *api.Agen
 	if err := ValidateAgentIdentity(identity); err != nil || identity == nil {
 		return err
 	}
-	var responsible struct {
+	const (
+		individualUserType = 0
+		botUserType        = 4
+	) // persisted user types, without importing user and creating an auth cycle
+	type account struct {
 		Name          string
 		IsActive      bool
 		ProhibitLogin bool
 		Type          int
 	}
-	query := db.GetEngine(ctx).Table("user")
-	if identity.Sponsor == "" {
-		query = query.Where("id = ?", ownerID)
-	} else {
-		query = query.Where("lower_name = ?", strings.ToLower(identity.Sponsor))
-	}
-	has, err := query.Get(&responsible)
+	var owner account
+	has, err := db.GetEngine(ctx).Table("user").Where("id = ?", ownerID).Get(&owner)
 	if err != nil {
 		return fmt.Errorf("PrepareTokenIdentity: %w", err)
 	}
-	if !has || !responsible.IsActive || responsible.ProhibitLogin || responsible.Type != 0 { // individual users have type 0, without importing user and creating an auth cycle
-		return util.NewInvalidArgumentErrorf("responsible person must be an existing active user")
+	invalidSponsor := util.NewInvalidArgumentErrorf("responsible person must be an existing active user")
+	if !has {
+		return invalidSponsor
 	}
-	identity.Sponsor = responsible.Name
+	if owner.Type == botUserType && identity.Sponsor != "" {
+		owner = account{}
+		has, err = db.GetEngine(ctx).Table("user").Where("lower_name = ?", strings.ToLower(identity.Sponsor)).Get(&owner)
+		if err != nil {
+			return fmt.Errorf("PrepareTokenIdentity: %w", err)
+		}
+		if !has {
+			return invalidSponsor
+		}
+	}
+	if !owner.IsActive || owner.ProhibitLogin || owner.Type != individualUserType {
+		return invalidSponsor
+	}
+	if identity.Sponsor != "" && !strings.EqualFold(identity.Sponsor, owner.Name) {
+		return util.NewInvalidArgumentErrorf("responsible person must be the token owner or be named by a bot account")
+	}
+	identity.Sponsor = owner.Name
 	return nil
 }
 
-func InsertTokenIdentity(ctx context.Context, id int64, identity *api.AgentIdentity) error {
+func InsertTokenIdentity(ctx context.Context, id, ownerID int64, identity *api.AgentIdentity) error {
 	if identity == nil {
 		return nil
-	}
-	var ownerID int64
-	if identity.Sponsor == "" {
-		var token struct{ UID int64 }
-		has, err := db.GetEngine(ctx).Table("access_token").Where("id = ?", id).Get(&token)
-		if err != nil {
-			return fmt.Errorf("InsertTokenIdentity: %w", err)
-		}
-		if !has {
-			return util.NewInvalidArgumentErrorf("token owner does not exist")
-		}
-		ownerID = token.UID
 	}
 	if err := PrepareTokenIdentity(ctx, ownerID, identity); err != nil {
 		return err

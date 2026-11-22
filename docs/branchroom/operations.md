@@ -302,8 +302,9 @@ tokens issued by this server.
 
 When creating a token in account settings or through the API, optionally supply
 an agent name, an HTTP or HTTPS task URL and a sponsor. API clients send
-`agent_identity` with `agent`, `task_url` and `sponsor`. These are declarations by
-the token owner, not verified model or sponsor identities. Token permissions and
+`agent_identity` with `agent`, `task_url` and `sponsor`. For personal tokens, the
+sponsor is the token owner. A site-admin-created bot account must name an active
+individual user as its sponsor. Token permissions and
 repository restrictions still apply.
 
 The server records that identity when the token creates an issue, pull request,

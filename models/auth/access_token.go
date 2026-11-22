@@ -74,7 +74,7 @@ func NewAccessToken(ctx context.Context, t *AccessToken) error {
 		if _, err := db.GetEngine(ctx).Insert(t); err != nil {
 			return err
 		}
-		return branchroom_model.InsertTokenIdentity(ctx, t.ID, t.AgentIdentity)
+		return branchroom_model.InsertTokenIdentity(ctx, t.ID, t.UID, t.AgentIdentity)
 	})
 }
 

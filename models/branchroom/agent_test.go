@@ -22,7 +22,7 @@ func TestAgentIdentity(t *testing.T) {
 	ctx := t.Context()
 	require.NoError(t, db.Insert(ctx, &user_model.User{ID: 2, Name: "user2", LowerName: "user2", IsActive: true}))
 	identity := &api.AgentIdentity{Agent: "Harbour helper", Model: "Claude Opus 5.5", Harness: "T3 Code", TaskURL: "https://example.org/tasks/1", Sponsor: "user2"}
-	require.NoError(t, branchroom_model.InsertTokenIdentity(ctx, 123, identity))
+	require.NoError(t, branchroom_model.InsertTokenIdentity(ctx, 123, 2, identity))
 	require.NoError(t, branchroom_model.RecordAgentAction(ctx, "access-token:123", "comment", 42))
 	require.NoError(t, branchroom_model.RecordAgentAction(ctx, "", "comment", 43))
 	got, err := branchroom_model.GetAgentAction(ctx, "comment", 42)
@@ -41,7 +41,12 @@ func TestAgentIdentity(t *testing.T) {
 	assert.Equal(t, identity.Model, receipts[0].Model)
 	assert.Equal(t, identity.Harness, receipts[0].Harness)
 	unknown := &api.AgentIdentity{Agent: "helper", Sponsor: "not-an-existing-user"}
-	require.ErrorContains(t, branchroom_model.InsertTokenIdentity(ctx, 124, unknown), "responsible person must be an existing active user")
+	require.NoError(t, db.Insert(ctx, &user_model.User{ID: 3, Name: "user3", LowerName: "user3", IsActive: true}))
+	require.NoError(t, db.Insert(ctx, &user_model.User{ID: 4, Name: "bot4", LowerName: "bot4", IsActive: true, Type: user_model.UserTypeBot}))
+	require.ErrorContains(t, branchroom_model.PrepareTokenIdentity(ctx, 2, &api.AgentIdentity{Agent: "helper", Sponsor: "user3"}), "must be the token owner")
+	require.ErrorContains(t, branchroom_model.PrepareTokenIdentity(ctx, 4, unknown), "must be an existing active user")
+	require.ErrorContains(t, branchroom_model.PrepareTokenIdentity(ctx, 4, &api.AgentIdentity{Agent: "helper"}), "must be an existing active user")
+	require.NoError(t, branchroom_model.PrepareTokenIdentity(ctx, 4, &api.AgentIdentity{Agent: "helper", Sponsor: "user3"}))
 	legacy := &branchroom_model.TokenIdentity{TokenID: 125, Agent: "legacy helper", Sponsor: "deleted-user"}
 	require.NoError(t, db.Insert(ctx, legacy))
 	require.NoError(t, branchroom_model.RecordAgentAction(ctx, "access-token:125", "comment", 44))
