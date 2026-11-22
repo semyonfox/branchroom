@@ -5,23 +5,17 @@ package private
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	system_model "gitea.dev/models/system"
-	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/secretscan"
 	"gitea.dev/modules/setting"
+	secret_service "gitea.dev/services/secrets"
 )
 
-const (
-	gitPushOptionAllowSecrets = "secret_scanning.allow"
-	// a push this large is history being imported, not a credential slipping in, so the rest goes unscanned
-	secretScanMaxPatchBytes = 32 * 1024 * 1024
-	secretScanMaxFindings   = 5
-)
+const gitPushOptionAllowSecrets = "secret_scanning.allow"
 
 // assertNoPushedSecrets rejects the push when the commits it adds introduce a recognisable credential
 func assertNoPushedSecrets(ctx *preReceiveContext, newCommitID, branchName string) bool {
@@ -32,24 +26,7 @@ func assertNoPushedSecrets(ctx *preReceiveContext, newCommitID, branchName strin
 	// is recorded
 	bypass := ctx.opts.GitPushOptions.Bool(gitPushOptionAllowSecrets).Value()
 
-	// before the refs move, "--not --all" leaves exactly the commits this push adds
-	cmd := gitcmd.NewCommand("log", "-p", "--no-color", "--no-ext-diff", "--no-textconv", "--format=commit:%H").
-		AddDynamicArguments(newCommitID).AddArguments("--not", "--all")
-	stdout, stdoutClose := cmd.MakeStdoutPipe()
-	defer stdoutClose()
-
-	var findings []secretscan.Finding
-	err := cmd.WithEnv(ctx.env).WithRepo(ctx.Repo.Repository).
-		WithPipelineFunc(func(gitCtx gitcmd.Context) error {
-			var err error
-			findings, err = setting.SecretScanningScanner.Patch(io.LimitReader(stdout, secretScanMaxPatchBytes), secretScanMaxFindings)
-			if err != nil {
-				return gitCtx.CancelPipeline(err)
-			}
-			// stops git early when the scan ended before the log did
-			return gitCtx.CancelPipeline(nil)
-		}).
-		RunWithStderr(ctx)
+	findings, err := secret_service.ScanPush(ctx, ctx.Repo.Repository, ctx.env, newCommitID)
 	if err != nil {
 		log.Error("secret scan of %s in %s: %v", newCommitID, ctx.Repo.Repository.FullName(), err)
 		ctx.PrivateInternalErrorf("Unable to scan the pushed commits for secrets")

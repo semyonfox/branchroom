@@ -13,6 +13,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/private"
+	secret_service "gitea.dev/services/secrets"
 )
 
 const receiveGitVerificationTimeout = 10 * time.Second
@@ -55,6 +56,9 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 	for _, update := range updates {
 		if !receiveObjectIsCommit(verifyCtx, restricted, environ, update.NewOID) ||
 			!receiveAncestor(verifyCtx, restricted, environ, workspace.PublicBaseSHA, update.NewOID) {
+			return false
+		}
+		if findings, err := secret_service.ScanPush(verifyCtx, restricted, environ, update.NewOID); err != nil || len(findings) > 0 {
 			return false
 		}
 

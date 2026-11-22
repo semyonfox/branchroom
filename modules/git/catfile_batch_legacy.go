@@ -19,21 +19,22 @@ import (
 type catFileBatchLegacy struct {
 	ctx          context.Context
 	repo         RepositoryFacade
+	env          []string
 	batchContent *catFileBatchCommunicator
 	batchCheck   *catFileBatchCommunicator
 }
 
 var _ CatFileBatchCloser = (*catFileBatchLegacy)(nil)
 
-func newCatFileBatchLegacy(ctx context.Context, repo RepositoryFacade) *catFileBatchLegacy {
-	return &catFileBatchLegacy{ctx: ctx, repo: repo}
+func newCatFileBatchLegacy(ctx context.Context, repo RepositoryFacade, env []string) *catFileBatchLegacy {
+	return &catFileBatchLegacy{ctx: ctx, repo: repo, env: env}
 }
 
 func (b *catFileBatchLegacy) getBatchContent() *catFileBatchCommunicator {
 	if b.batchContent != nil {
 		return b.batchContent
 	}
-	b.batchContent = newCatFileBatch(b.ctx, b.repo, gitcmd.NewCommand("cat-file", "--batch"))
+	b.batchContent = newCatFileBatch(b.ctx, b.repo, gitcmd.NewCommand("cat-file", "--batch").WithEnv(b.env))
 	return b.batchContent
 }
 
@@ -41,7 +42,7 @@ func (b *catFileBatchLegacy) getBatchCheck() *catFileBatchCommunicator {
 	if b.batchCheck != nil {
 		return b.batchCheck
 	}
-	b.batchCheck = newCatFileBatch(b.ctx, b.repo, gitcmd.NewCommand("cat-file", "--batch-check"))
+	b.batchCheck = newCatFileBatch(b.ctx, b.repo, gitcmd.NewCommand("cat-file", "--batch-check").WithEnv(b.env))
 	return b.batchCheck
 }
 

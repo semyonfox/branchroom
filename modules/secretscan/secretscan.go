@@ -11,7 +11,10 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+
+	"golang.org/x/text/encoding/unicode"
 )
 
 type pattern struct {
@@ -106,6 +109,12 @@ func Patch(r io.Reader, limit int) ([]Finding, error) {
 
 // Patch scans added lines with the scanner's built-in and custom patterns.
 func (s *Scanner) Patch(r io.Reader, limit int) ([]Finding, error) {
+	return s.PatchWithBlobs(r, limit, nil)
+}
+
+// PatchWithBlobs also scans UTF-16 files identified by Git's --raw --no-abbrev output.
+// readBlob returns the bytes of a BOM-marked UTF-16 blob, or nil for other blobs.
+func (s *Scanner) PatchWithBlobs(r io.Reader, limit int, readBlob func(string) ([]byte, error)) ([]Finding, error) {
 	var findings []Finding
 	var commit, path string
 	scanner := bufio.NewScanner(r)
@@ -115,6 +124,15 @@ func (s *Scanner) Patch(r io.Reader, limit int) ([]Finding, error) {
 		switch {
 		case strings.HasPrefix(line, "commit:"):
 			commit = strings.TrimPrefix(line, "commit:")
+		case readBlob != nil && strings.HasPrefix(line, ":"):
+			added, err := s.scanUTF16Change(line, commit, limit-len(findings), readBlob)
+			if err != nil {
+				return nil, err
+			}
+			findings = append(findings, added...)
+			if len(findings) >= limit {
+				return findings, nil
+			}
 		case strings.HasPrefix(line, "+++ "):
 			path = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
 		case strings.HasPrefix(line, "+"):
@@ -127,4 +145,62 @@ func (s *Scanner) Patch(r io.Reader, limit int) ([]Finding, error) {
 		}
 	}
 	return findings, scanner.Err()
+}
+
+func scanBlobUTF16(blob []byte) string {
+	if len(blob) == 0 {
+		return ""
+	}
+	text, err := unicode.UTF16(unicode.LittleEndian, unicode.ExpectBOM).NewDecoder().Bytes(blob)
+	if err != nil {
+		return ""
+	}
+	return string(text)
+}
+
+func (s *Scanner) scanUTF16Change(raw, commit string, limit int, readBlob func(string) ([]byte, error)) ([]Finding, error) {
+	metadata, paths, _ := strings.Cut(raw, "\t")
+	fields := strings.Fields(metadata)
+	if len(fields) != 5 || !strings.HasPrefix(fields[1], "100") || fields[2] == fields[3] {
+		return nil, nil
+	}
+	after, err := readBlob(fields[3])
+	if err != nil || len(after) == 0 {
+		return nil, err
+	}
+	previous := make(map[string]int)
+	if strings.Trim(fields[2], "0") != "" && strings.HasPrefix(fields[0], ":100") {
+		before, err := readBlob(fields[2])
+		if err != nil {
+			return nil, err
+		}
+		for line := range strings.SplitSeq(scanBlobUTF16(before), "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			if _, match := s.Line(line); match != "" {
+				previous[line]++
+			}
+		}
+	}
+
+	path := paths[strings.LastIndexByte(paths, '\t')+1:]
+	if strings.HasPrefix(path, "\"") {
+		if decoded, err := strconv.Unquote(path); err == nil {
+			path = decoded
+		}
+	}
+	var findings []Finding
+	for line := range strings.SplitSeq(scanBlobUTF16(after), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if previous[line] > 0 {
+			previous[line]--
+			continue
+		}
+		if kind, match := s.Line(line); kind != "" {
+			findings = append(findings, Finding{Commit: commit, Path: path, Kind: kind, Redacted: redact(match)})
+			if len(findings) >= limit {
+				break
+			}
+		}
+	}
+	return findings, nil
 }
