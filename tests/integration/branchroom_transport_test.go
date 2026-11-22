@@ -593,9 +593,18 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 				pull_service.StartPullRequestCheckImmediately(t.Context(), pull)
 				require.NoError(t, pull_service.WaitPullRequestCheck(t.Context(), pull, 10*time.Second))
 				assert.Equal(t, issues_model.PullRequestStatusError, pull.Status)
-				refs, _, err := gitcmd.NewCommand("for-each-ref", "--contains").AddDynamicArguments(secondAllowedCommit).WithRepo(repository).RunStdString(t.Context())
-				require.NoError(t, err)
-				assert.Empty(t, refs)
+				assertUnreachable := func() {
+					refs, _, err := gitcmd.NewCommand("for-each-ref", "--contains").AddDynamicArguments(secondAllowedCommit).WithRepo(repository).RunStdString(t.Context())
+					require.NoError(t, err)
+					assert.Empty(t, refs)
+				}
+				assertUnreachable()
+
+				// a closed pull request isn't synced, so an admin reopening it must not publish what was pushed meanwhile
+				MakeRequest(t, NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d", pull.Index), map[string]string{"state": "closed"}).AddBasicAuth("user2"), http.StatusCreated)
+				response = loginUser(t, "user2").MakeRequest(t, NewRequestWithValues(t, "POST", fmt.Sprintf("/user2/repo1/issues/%d/comments", pull.Index), map[string]string{"status": "reopen"}), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				assertUnreachable()
 			})
 		})
 
