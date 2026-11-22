@@ -119,15 +119,9 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 	if err == nil || gitcmd.IsErrorCanceledOrKilled(err) {
 		return
 	}
-	if gitcmd.IsStderr(err,
-		gitcmd.StderrPrefix("fatal: protocol error"),
-		gitcmd.StderrPrefix("fatal: git upload-pack: protocol error"),
-		gitcmd.StderrPrefix("fatal: the remote end hung up unexpectedly"),
-		gitcmd.StderrPrefix("fatal: invalid command"),
-	) {
-		if !ctx.Written() {
-			ctx.PlainText(http.StatusBadRequest, "Invalid upload-pack request\n")
-		}
+	if !ctx.Written() && gitcmd.IsErrorExitCode(err, 128) {
+		log.Debug("Branchroom Git HTTP upload-pack rejected a request")
+		ctx.PlainText(http.StatusBadRequest, "Invalid upload-pack request\n")
 		return
 	}
 	log.Error("Branchroom Git HTTP upload-pack RPC failed")
