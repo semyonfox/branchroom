@@ -520,6 +520,30 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, publicObject.StatusCode)
 		})
 
+		t.Run("ordinary pushes cannot publish restricted commits through other refs or a fork", func(t *testing.T) {
+			fork, err := repository_service.ForkRepository(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.ForkRepoOptions{
+				BaseRepo: repository,
+				Name:     "restricted-publish-fork",
+			})
+			require.NoError(t, err)
+			forkURL := u.JoinPath(ordinaryWriter.Name, fork.Name+".git")
+			forkURL.User = publicURL.User
+			for _, push := range []struct {
+				remote *url.URL
+				ref    string
+			}{
+				{&publicURL, "refs/tags/restricted-tag"},
+				{&publicURL, "refs/for/" + repository.DefaultBranch + "/restricted-review"},
+				{forkURL, "refs/heads/restricted-fork-branch"},
+			} {
+				t.Run(push.ref, func(t *testing.T) {
+					_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(push.remote.String(), "HEAD:"+push.ref).WithDir(cloneDir).RunStdString(t.Context())
+					require.Error(t, err)
+					assert.Contains(t, stderr, "restricted workspace")
+				})
+			}
+		})
+
 		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {
 			defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
 			_, stderr, pushErr := gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:refs/heads/fix-public").WithDir(cloneDir).RunStdString(t.Context())

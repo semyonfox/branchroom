@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	branchroom_model "gitea.dev/models/branchroom"
-	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/git/gitcmd"
@@ -19,13 +18,9 @@ import (
 // FindRestrictedSource reports the scope whose restricted store already holds one of commitIDs.
 // Copying a commit object into the ordinary repository is what publishes restricted work, so the object
 // itself is checked rather than branch names. A rewritten or retyped change has new IDs and is not caught.
-func FindRestrictedSource(ctx context.Context, repo *repo_model.Repository, commitIDs []string) (*branchroom_model.Scope, bool, error) {
+func FindRestrictedSource(ctx context.Context, workspaces []*branchroom_model.Workspace, commitIDs []string) (*branchroom_model.Scope, bool, error) {
 	if len(commitIDs) == 0 {
 		return nil, false, nil
-	}
-	workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, repo.ID)
-	if err != nil {
-		return nil, false, err
 	}
 	stdin := []byte(strings.Join(commitIDs, "\n") + "\n")
 	for _, workspace := range workspaces {
