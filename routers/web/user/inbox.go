@@ -61,7 +61,7 @@ func InboxAction(ctx *context.Context) {
 	ids := ctx.Req.PostForm["items"]
 	if len(ids) == 0 || len(ids) > 100 {
 		ctx.Flash.Error(ctx.Locale.TrString("inbox.select_items"))
-		ctx.Redirect("/inbox")
+		ctx.Redirect(setting.AppSubURL + "/inbox")
 		return
 	}
 	opts := api.InboxStateOptions{Action: ctx.FormString("action"), Reason: ctx.FormString("reason")}
