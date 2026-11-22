@@ -5,9 +5,12 @@ package routing
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"gitea.dev/modules/log"
+	"gitea.dev/modules/setting"
 	"gitea.dev/modules/web/types"
 )
 
@@ -19,6 +22,26 @@ var (
 	completedMessage      = log.NewColoredValue("completed", log.INFO.ColorAttributes()...)
 	unknownHandlerMessage = log.NewColoredValue("completed", log.ERROR.ColorAttributes()...)
 )
+
+func requestURIForLog(requestURI string) string {
+	path, query, hasQuery := strings.Cut(requestURI, "?")
+	path, err := url.PathUnescape(path)
+	if err != nil {
+		return requestURI
+	}
+	prefix := setting.AppSubURL + "/_branchroom/"
+	rest, ok := strings.CutPrefix(path, prefix)
+	if !ok {
+		return requestURI
+	}
+	segments := strings.SplitN(rest, "/", 4)
+	if len(segments) < 3 {
+		return requestURI
+	}
+	segments[2] = "[redacted].git"
+	redacted := url.URL{Path: prefix + strings.Join(segments, "/"), RawQuery: query, ForceQuery: hasQuery}
+	return redacted.RequestURI()
+}
 
 func logPrinter(logger log.Logger) func(trigger Event, record *requestRecord) {
 	const callerName = "HTTPRequest"
@@ -34,7 +57,7 @@ func logPrinter(logger log.Logger) func(trigger Event, record *requestRecord) {
 			}
 			// when a request starts, we have no information about the handler function information, we only have the request path
 			req := record.request
-			logRequest(log.TRACE, "router: %s %v %s for %s", startMessage, log.ColoredMethod(req.Method), req.RequestURI, req.RemoteAddr)
+			logRequest(log.TRACE, "router: %s %v %s for %s", startMessage, log.ColoredMethod(req.Method), requestURIForLog(req.RequestURI), req.RemoteAddr)
 			return
 		}
 
@@ -57,7 +80,7 @@ func logPrinter(logger log.Logger) func(trigger Event, record *requestRecord) {
 			}
 			logRequest(logLevel, "router: %s %v %s for %s, elapsed %v @ %s",
 				message,
-				log.ColoredMethod(req.Method), req.RequestURI, req.RemoteAddr,
+				log.ColoredMethod(req.Method), requestURIForLog(req.RequestURI), req.RemoteAddr,
 				log.ColoredTime(time.Since(record.startTime)),
 				handlerFuncInfo,
 			)
@@ -67,7 +90,7 @@ func logPrinter(logger log.Logger) func(trigger Event, record *requestRecord) {
 		if panicErr != nil {
 			logRequest(log.WARN, "router: %s %v %s for %s, panic in %v @ %s, err=%v",
 				failedMessage,
-				log.ColoredMethod(req.Method), req.RequestURI, req.RemoteAddr,
+				log.ColoredMethod(req.Method), requestURIForLog(req.RequestURI), req.RemoteAddr,
 				log.ColoredTime(time.Since(record.startTime)),
 				handlerFuncInfo,
 				panicErr,
@@ -96,7 +119,7 @@ func logPrinter(logger log.Logger) func(trigger Event, record *requestRecord) {
 
 		logRequest(logLevel, "router: %s %v %s for %s, %v %v in %v @ %s",
 			message,
-			log.ColoredMethod(req.Method), req.RequestURI, req.RemoteAddr,
+			log.ColoredMethod(req.Method), requestURIForLog(req.RequestURI), req.RemoteAddr,
 			log.ColoredStatus(status), log.ColoredStatus(status, http.StatusText(status)), log.ColoredTime(time.Since(record.startTime)),
 			handlerFuncInfo,
 		)
