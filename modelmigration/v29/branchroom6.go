@@ -30,8 +30,7 @@ func (branchroomReceiveSessionOutcomeBackfill) TableName() string {
 }
 
 // branchroomReceiveSessionBackfillOutcome maps a pre-outcome row to its outcome.
-// It reports whether the row already carries the target (completed rows finished after the
-// migration keep denied or failed).
+// Completed rows with a settled outcome keep it on replay.
 func branchroomReceiveSessionBackfillOutcome(state, outcome string) (string, bool) {
 	switch state {
 	case "issued", "claimed":
@@ -41,11 +40,7 @@ func branchroomReceiveSessionBackfillOutcome(state, outcome string) (string, boo
 	case "revoked":
 		return "revoked", outcome == "revoked"
 	case "completed":
-		switch outcome {
-		case "denied", "failed", "legacy":
-			return "", true
-		}
-		return "legacy", false
+		return "legacy", outcome != "" && outcome != "pending"
 	default:
 		return "", true
 	}
