@@ -92,6 +92,7 @@ const (
 	SettingsNoteBranchProtection SettingsNoteKind = "branch_protection"
 	SettingsNoteRuleset          SettingsNoteKind = "ruleset"
 	SettingsNoteUnreadable       SettingsNoteKind = "unreadable"
+	SettingsNotePageLimit        SettingsNoteKind = "page_limit"
 	SettingsNoteNotAdmin         SettingsNoteKind = "not_admin"
 	SettingsNoteUnsupported      SettingsNoteKind = "unsupported"
 )
@@ -101,6 +102,7 @@ var SettingsNoteKinds = []SettingsNoteKind{
 	SettingsNoteUnsupported,
 	SettingsNoteNotAdmin,
 	SettingsNoteUnreadable,
+	SettingsNotePageLimit,
 	SettingsNoteSecret,
 	SettingsNoteOrgSecret,
 	SettingsNoteOrgVariable,

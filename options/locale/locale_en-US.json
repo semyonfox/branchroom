@@ -1454,6 +1454,8 @@
   "repo.migrate.report.unsupported.desc": "This source does not offer its settings, or no access token was given.",
   "repo.migrate.report.not_admin.title": "The token is not an admin of the source repository",
   "repo.migrate.report.not_admin.desc": "The source only shows branch protection, webhooks and teams to admins, so some of them may be missing here.",
+  "repo.migrate.report.page_limit.title": "Import limit reached",
+  "repo.migrate.report.page_limit.desc": "Branchroom imported up to 50 pages from each of these lists. Check the source for any remaining settings.",
   "repo.migrate.report.unreadable.title": "Could not be read",
   "repo.migrate.report.unreadable.desc": "The source refused these or failed to answer. Nothing was copied for them.",
   "repo.migrate.report.secret.title": "Secrets to enter again",
