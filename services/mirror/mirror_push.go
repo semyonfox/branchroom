@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/lfs"
 	"gitea.dev/modules/log"
@@ -34,7 +36,11 @@ var stripExitStatus = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // AddPushMirrorRemote registers the push mirror remote.
-func AddPushMirrorRemote(ctx context.Context, m *repo_model.PushMirror, addr string) (retErr error) {
+func AddPushMirrorRemote(ctx context.Context, m *repo_model.PushMirror, addr string) error {
+	return addPushMirrorRemote(ctx, m, addr, false)
+}
+
+func addPushMirrorRemote(ctx context.Context, m *repo_model.PushMirror, addr string, branchesAndTagsOnly bool) (retErr error) {
 	defer func() {
 		if retErr != nil {
 			if err := repo_model.DeleteRepoPushMirrorByID(ctx, m.RepoID, m.ID); err != nil {
@@ -45,6 +51,11 @@ func AddPushMirrorRemote(ctx context.Context, m *repo_model.PushMirror, addr str
 	addRemoteAndConfig := func(storageRepo git.RepositoryFacade, addr string) error {
 		if err := git.ManagedRemoteAdd(ctx, storageRepo, m.RemoteName, addr, git.RemoteOptionMirrorPush); err != nil {
 			return err
+		}
+		if branchesAndTagsOnly {
+			if err := git.ManagedConfigSet(ctx, storageRepo, "remote."+m.RemoteName+".mirror", "false"); err != nil {
+				return err
+			}
 		}
 		if err := git.ManagedConfigAdd(ctx, storageRepo, "remote."+m.RemoteName+".push", "+refs/heads/*:refs/heads/*"); err != nil {
 			return err
@@ -186,10 +197,17 @@ func runPushSync(ctx context.Context, m *repo_model.PushMirror) error {
 
 		log.Trace("Pushing mirror %d repo %s to remote %s", m.ID, storageRepo.LogString(), m.RemoteName)
 
+		mirrorConfig, _, err := gitcmd.NewCommand("config", "--bool", "--get").
+			AddDynamicArguments("remote." + m.RemoteName + ".mirror").WithRepo(storageRepo).RunStdString(ctx)
+		if err != nil && !gitcmd.IsErrorExitCode(err, 1) {
+			return err
+		}
+		mirrorAllRefs := strings.TrimSpace(mirrorConfig) != "false"
 		if err := git.PushToExternal(ctx, storageRepo, git.PushOptions{
 			Remote:  m.RemoteName,
 			Force:   true,
-			Mirror:  true,
+			Mirror:  mirrorAllRefs,
+			Prune:   !mirrorAllRefs,
 			Timeout: timeout,
 		}); err != nil {
 			return fmt.Errorf("PushToExternal failed: %w", err)
