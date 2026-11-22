@@ -547,6 +547,44 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 				})
 			}
 
+			t.Run("a fork behind the base syncs and opens pull requests", func(t *testing.T) {
+				// prune the fork to a default branch older than branch2, whose public commits the restricted store mirrors
+				refs, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(refname)").WithRepo(fork).RunStdString(t.Context())
+				require.NoError(t, err)
+				for ref := range strings.FieldsSeq(refs) {
+					if ref != "refs/heads/"+repository.DefaultBranch {
+						_, _, err = gitcmd.NewCommand("update-ref", "-d").AddDynamicArguments(ref).WithRepo(fork).RunStdString(t.Context())
+						require.NoError(t, err)
+					}
+				}
+				_, _, err = gitcmd.NewCommand("reflog", "expire", "--expire=now", "--all").WithRepo(fork).RunStdString(t.Context())
+				require.NoError(t, err)
+				_, _, err = gitcmd.NewCommand("gc", "--prune=now").WithRepo(fork).RunStdString(t.Context())
+				require.NoError(t, err)
+				branch2SHA := branchroomObjectID(t, repository.CodeStorageRepo(), "refs/heads/branch2")
+				assertGitObjectsMissing(t, fork, branch2SHA)
+
+				staleDir := t.TempDir()
+				require.NoError(t, git.Clone(t.Context(), forkURL.String(), staleDir, git.CloneRepoOptions{}))
+				commitBranchroomFakeEnvironment(t, staleDir, "STALE=1\n", "stale fork change")
+				_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(forkURL.String(), "HEAD:refs/heads/stale-feature").WithDir(staleDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+
+				t.Run("compare and create", func(t *testing.T) {
+					head := ordinaryWriter.Name + ":stale-feature"
+					loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/compare/branch2..."+head), http.StatusOK)
+					MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1/compare/branch2..."+head).AddBasicAuth(ordinaryWriter.Name), http.StatusOK)
+					MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: head, Base: "branch2", Title: "stale fork"}).AddBasicAuth(ordinaryWriter.Name), http.StatusCreated)
+				})
+				t.Run("sync", func(t *testing.T) {
+					_, stderr, err := gitcmd.NewCommand("fetch").AddDynamicArguments(publicURL.String(), "refs/heads/branch2").WithDir(staleDir).RunStdString(t.Context())
+					require.NoError(t, err, "%s", stderr)
+					_, stderr, err = gitcmd.NewCommand("push").AddDynamicArguments(forkURL.String(), "FETCH_HEAD:refs/heads/branch2").WithDir(staleDir).RunStdString(t.Context())
+					require.NoError(t, err, "%s", stderr)
+					assert.Equal(t, branch2SHA, branchroomObjectID(t, fork, "refs/heads/branch2"))
+				})
+			})
+
 			t.Run("pull request from an unrelated repository", func(t *testing.T) {
 				defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
 				own, err := repository_service.CreateRepositoryDirectly(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.CreateRepoOptions{Name: "restricted-publish-own"}, true)
