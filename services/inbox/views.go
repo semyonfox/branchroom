@@ -200,9 +200,11 @@ func ParseQueueCookie(value string) (view string, skipped []int64) {
 }
 
 func FormatQueueCookie(view string, skipped []int64) string {
-	value := view
+	var value strings.Builder
+	value.WriteString(view)
 	for _, id := range skipped {
-		value += "-" + strconv.FormatInt(id, 10)
+		value.WriteByte('-')
+		value.WriteString(strconv.FormatInt(id, 10))
 	}
-	return value
+	return value.String()
 }
