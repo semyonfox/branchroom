@@ -18,6 +18,7 @@ import (
 	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -34,6 +35,7 @@ import (
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
+	pull_service "gitea.dev/services/pull"
 	repository_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -565,6 +567,35 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "restricted_commit_public_push_refused", events[len(events)-1].ReasonCode)
 				unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryRestrictedRefused, ActorID: ordinaryWriter.ID, ScopeID: repository.ID})
+
+				harmlessDir := t.TempDir()
+				require.NoError(t, git.Clone(t.Context(), publicURL.String(), harmlessDir, git.CloneRepoOptions{}))
+				commitBranchroomFakeEnvironment(t, harmlessDir, "HARMLESS=1\n", "harmless change")
+				_, stderr, err = gitcmd.NewCommand("push").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(harmlessDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+				response = MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: ordinaryWriter.Name + "/" + own.Name + ":harmless", Base: repository.DefaultBranch, Title: "harmless"}).AddBasicAuth(ordinaryWriter.Name), http.StatusCreated)
+				pull := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: DecodeJSON(t, response, &api.PullRequest{}).ID})
+				require.NoError(t, pull_service.WaitPullRequestCheck(t.Context(), pull, 10*time.Second))
+				require.NotEqual(t, issues_model.PullRequestStatusChecking, pull.Status)
+
+				// comparing against the base fetches the other side's commit into it
+				compare := ordinaryWriter.Name + "/" + own.Name + "/compare/restricted-own...user2/repo1:" + repository.DefaultBranch
+				response = loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequest(t, "GET", "/"+compare), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				response = MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/"+compare).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				assertGitObjectsMissing(t, repository.CodeStorageRepo(), secondAllowedCommit)
+
+				// plant it unreferenced anyway, the mergeability check must not make it reachable
+				require.NoError(t, git.FetchRemoteTempCommit(t.Context(), repository, own, secondAllowedCommit))
+				_, stderr, err = gitcmd.NewCommand("push", "--force").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(cloneDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+				pull_service.StartPullRequestCheckImmediately(t.Context(), pull)
+				require.NoError(t, pull_service.WaitPullRequestCheck(t.Context(), pull, 10*time.Second))
+				assert.Equal(t, issues_model.PullRequestStatusError, pull.Status)
+				refs, _, err := gitcmd.NewCommand("for-each-ref", "--contains").AddDynamicArguments(secondAllowedCommit).WithRepo(repository).RunStdString(t.Context())
+				require.NoError(t, err)
+				assert.Empty(t, refs)
 			})
 		})
 

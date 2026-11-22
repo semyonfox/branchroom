@@ -96,13 +96,13 @@ func checkPullRequestMergeableByMergeTree(ctx context.Context, pr *issues_model.
 
 	// 4. fetch head commit id into the current repository
 	if !pr.IsSameRepo() {
-		if !baseGitRepo.IsReferenceExist(ctx, pr.HeadCommitID) {
-			// NewPullRequest checks a new head against its poster, a later one may hold commits PushToBaseRepo refused
-			if pr.ID > 0 {
-				if err := branchroom_service.CheckPullRequestHead(ctx, nil, pr.BaseRepo, pr.HeadRepo, pr.HeadBranch, pr.HeadCommitID); err != nil {
-					return err
-				}
+		// NewPullRequest checked a new head, a later one may carry commits PushToBaseRepo refused even if unreferenced copies exist
+		if pr.ID > 0 {
+			if err := branchroom_service.CheckPullRequestHead(ctx, nil, pr.BaseRepo, pr.HeadRepo, pr.HeadBranch, pr.HeadCommitID); err != nil {
+				return err
 			}
+		}
+		if !baseGitRepo.IsReferenceExist(ctx, pr.HeadCommitID) {
 			if err := git.FetchRemoteTempCommit(ctx, pr.BaseRepo, pr.HeadRepo, pr.HeadCommitID); err != nil {
 				return fmt.Errorf("FetchRemoteTempCommit: %w", err)
 			}
