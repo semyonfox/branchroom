@@ -32,8 +32,10 @@ import (
 	"gitea.dev/modules/structs"
 	webhook_module "gitea.dev/modules/webhook"
 	"gitea.dev/services/auth/source/oauth2"
+	"gitea.dev/services/externalaccount"
 	repo_service "gitea.dev/services/repository"
 
+	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"xorm.io/builder"
@@ -426,7 +428,7 @@ func TestGiteaUploadSettings(t *testing.T) {
 	link := func(user *user_model.User, externalID string, urls *oauth2.CustomURLMapping) {
 		source := &auth_model.Source{Type: auth_model.OAuth2, Name: "github " + externalID, IsActive: true, Cfg: &oauth2.Source{Provider: "github", CustomURLMapping: urls}}
 		require.NoError(t, auth_model.CreateSource(ctx, source))
-		require.NoError(t, user_model.LinkExternalToUser(ctx, user, &user_model.ExternalLoginUser{ExternalID: externalID, UserID: user.ID, LoginSourceID: source.ID, Provider: "github"}))
+		require.NoError(t, externalaccount.LinkAccountToUser(ctx, source.ID, user, goth.User{UserID: externalID, Provider: source.Name}))
 	}
 	link(linked, "7", nil)
 	// the same id on a GitHub Enterprise server is another person

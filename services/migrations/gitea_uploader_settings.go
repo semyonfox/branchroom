@@ -22,6 +22,7 @@ import (
 	webhook_model "gitea.dev/models/webhook"
 	"gitea.dev/modules/container"
 	base "gitea.dev/modules/migration"
+	"gitea.dev/modules/optional"
 	"gitea.dev/modules/structs"
 	"gitea.dev/modules/util"
 	webhook_module "gitea.dev/modules/webhook"
@@ -121,6 +122,9 @@ func (g *GiteaLocalUploader) createCollaborators(ctx context.Context, settings *
 // linkedUserID returns the user who signs in here with that account of the migration source, 0 if nobody does.
 // Only that proves who a login is: the same name can belong to someone else, and so can the same id on another instance of the forge.
 func (g *GiteaLocalUploader) linkedUserID(ctx context.Context, externalID string) (int64, error) {
+	if externalID == "" {
+		return 0, nil
+	}
 	source, err := url.Parse(g.repo.OriginalURL)
 	if err != nil {
 		return 0, err
@@ -129,20 +133,21 @@ func (g *GiteaLocalUploader) linkedUserID(ctx context.Context, externalID string
 	if g.gitServiceType == structs.ForgejoService {
 		provider = structs.GiteaService.Name() // Forgejo has no sign-in provider of its own
 	}
-	links, err := db.Find[user_model.ExternalLoginUser](ctx, user_model.FindExternalUserOptions{Provider: provider, ExternalID: externalID})
+	loginSources, err := db.Find[auth_model.Source](ctx, auth_model.FindSourcesOptions{LoginType: auth_model.OAuth2, IsActive: optional.Some(true)})
 	if err != nil {
 		return 0, err
 	}
-	for _, link := range links {
-		loginSource, err := auth_model.GetSourceByID(ctx, link.LoginSourceID)
-		if auth_model.IsErrSourceNotExist(err) {
+	for _, loginSource := range loginSources {
+		config := auth_model.MustSourceCfg[*oauth2.Source](loginSource)
+		if config.Provider != provider || !strings.EqualFold(loginSourceHost(loginSource), source.Host) {
 			continue
 		}
+		links, err := db.Find[user_model.ExternalLoginUser](ctx, user_model.FindExternalUserOptions{LoginSourceID: loginSource.ID, ExternalID: externalID})
 		if err != nil {
 			return 0, err
 		}
-		if strings.EqualFold(loginSourceHost(loginSource), source.Host) {
-			return link.UserID, nil
+		if len(links) > 0 {
+			return links[0].UserID, nil
 		}
 	}
 	return 0, nil
