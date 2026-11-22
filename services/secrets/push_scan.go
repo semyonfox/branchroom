@@ -35,7 +35,6 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 		if err != nil || info.Type != string(git.ObjectBlob) || info.Size < 2 || info.Size > remaining {
 			return nil, err
 		}
-		remaining -= info.Size
 		_, reader, err := batch.QueryContent(oid)
 		if err != nil {
 			return nil, err
@@ -48,6 +47,7 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 			_, err = reader.Discard(int(info.Size) + 1)
 			return nil, err
 		}
+		remaining -= info.Size
 		data := make([]byte, info.Size)
 		if _, err := io.ReadFull(reader, data); err != nil {
 			return nil, err
@@ -56,7 +56,7 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 		return data, err
 	}
 
-	cmd := gitcmd.NewCommand("log", "--patch", "--raw", "--no-abbrev", "--no-color", "--no-ext-diff", "--no-textconv", "--format=commit:%H").
+	cmd := gitcmd.NewCommand("log", "--patch", "--full-index", "--no-abbrev", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-ext-diff", "--no-textconv", "--format=commit:%H").
 		AddDynamicArguments(newCommitID).AddArguments("--not", "--all")
 	stdout, closeStdout := cmd.MakeStdoutPipe()
 	defer closeStdout()

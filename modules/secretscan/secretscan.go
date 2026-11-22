@@ -112,39 +112,75 @@ func (s *Scanner) Patch(r io.Reader, limit int) ([]Finding, error) {
 	return s.PatchWithBlobs(r, limit, nil)
 }
 
-// PatchWithBlobs also scans UTF-16 files identified by Git's --raw --no-abbrev output.
-// readBlob returns the bytes of a BOM-marked UTF-16 blob, or nil for other blobs.
+// PatchWithBlobs also scans BOM-marked UTF-16 blobs from binary patches with --full-index.
 func (s *Scanner) PatchWithBlobs(r io.Reader, limit int, readBlob func(string) ([]byte, error)) ([]Finding, error) {
 	var findings []Finding
-	var commit, path string
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
+	var commit, path, renameTo, beforeOID, afterOID string
+	reader := bufio.NewReaderSize(r, 64*1024)
+	for {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil && readErr != io.EOF {
+			return nil, readErr
+		}
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		switch {
 		case strings.HasPrefix(line, "commit:"):
 			commit = strings.TrimPrefix(line, "commit:")
-		case readBlob != nil && strings.HasPrefix(line, ":"):
-			added, err := s.scanUTF16Change(line, commit, limit-len(findings), readBlob)
-			if err != nil {
-				return nil, err
-			}
-			findings = append(findings, added...)
-			if len(findings) >= limit {
-				return findings, nil
+		case strings.HasPrefix(line, "diff --git "):
+			renameTo, beforeOID, afterOID = "", "", ""
+		case strings.HasPrefix(line, "rename to "), strings.HasPrefix(line, "copy to "):
+			_, renameTo, _ = strings.Cut(line, " to ")
+		case strings.HasPrefix(line, "index "):
+			oids, _, _ := strings.Cut(strings.TrimPrefix(line, "index "), " ")
+			beforeOID, afterOID, _ = strings.Cut(oids, "..")
+		case readBlob != nil && strings.HasPrefix(line, "Binary files ") && strings.HasSuffix(line, " differ"):
+			path := binaryPatchPath(line, renameTo)
+			if path != "" && afterOID != "" && strings.Trim(afterOID, "0") != "" {
+				added, err := s.scanUTF16Change(path, commit, beforeOID, afterOID, limit-len(findings), readBlob)
+				if err != nil {
+					return nil, err
+				}
+				findings = append(findings, added...)
 			}
 		case strings.HasPrefix(line, "+++ "):
-			path = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
+			path = strings.TrimPrefix(unquotePatchPath(strings.TrimPrefix(line, "+++ ")), "b/")
 		case strings.HasPrefix(line, "+"):
 			if kind, match := s.Line(line[1:]); kind != "" {
 				findings = append(findings, Finding{Commit: commit, Path: path, Kind: kind, Redacted: redact(match)})
-				if len(findings) >= limit {
-					return findings, nil
-				}
 			}
 		}
+		if len(findings) >= limit || readErr == io.EOF {
+			return findings, nil
+		}
 	}
-	return findings, scanner.Err()
+}
+
+func binaryPatchPath(line, renameTo string) string {
+	if renameTo != "" {
+		return unquotePatchPath(renameTo)
+	}
+	paths := strings.TrimSuffix(strings.TrimPrefix(line, "Binary files "), " differ")
+	if path, ok := strings.CutPrefix(paths, "/dev/null and "); ok {
+		return strings.TrimPrefix(unquotePatchPath(path), "b/")
+	}
+	// an in-place change prints the same path twice, even if the name contains " and "
+	separation := (len(paths) - len(" and ")) / 2
+	if separation >= 0 {
+		if path, ok := strings.CutPrefix(paths[separation:], " and "); ok {
+			path, _ = strings.CutPrefix(unquotePatchPath(path), "b/")
+			return path
+		}
+	}
+	return ""
+}
+
+func unquotePatchPath(path string) string {
+	if strings.HasPrefix(path, "\"") {
+		if decoded, err := strconv.Unquote(path); err == nil {
+			return decoded
+		}
+	}
+	return path
 }
 
 func scanBlobUTF16(blob []byte) string {
@@ -158,19 +194,14 @@ func scanBlobUTF16(blob []byte) string {
 	return string(text)
 }
 
-func (s *Scanner) scanUTF16Change(raw, commit string, limit int, readBlob func(string) ([]byte, error)) ([]Finding, error) {
-	metadata, paths, _ := strings.Cut(raw, "\t")
-	fields := strings.Fields(metadata)
-	if len(fields) != 5 || !strings.HasPrefix(fields[1], "100") || fields[2] == fields[3] {
-		return nil, nil
-	}
-	after, err := readBlob(fields[3])
+func (s *Scanner) scanUTF16Change(path, commit, beforeOID, afterOID string, limit int, readBlob func(string) ([]byte, error)) ([]Finding, error) {
+	after, err := readBlob(afterOID)
 	if err != nil || len(after) == 0 {
 		return nil, err
 	}
 	previous := make(map[string]int)
-	if strings.Trim(fields[2], "0") != "" && strings.HasPrefix(fields[0], ":100") {
-		before, err := readBlob(fields[2])
+	if strings.Trim(beforeOID, "0") != "" {
+		before, err := readBlob(beforeOID)
 		if err != nil {
 			return nil, err
 		}
@@ -182,12 +213,6 @@ func (s *Scanner) scanUTF16Change(raw, commit string, limit int, readBlob func(s
 		}
 	}
 
-	path := paths[strings.LastIndexByte(paths, '\t')+1:]
-	if strings.HasPrefix(path, "\"") {
-		if decoded, err := strconv.Unquote(path); err == nil {
-			path = decoded
-		}
-	}
 	var findings []Finding
 	for line := range strings.SplitSeq(scanBlobUTF16(after), "\n") {
 		line = strings.TrimSuffix(line, "\r")
