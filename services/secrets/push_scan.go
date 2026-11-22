@@ -5,24 +5,33 @@ package secrets
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strings"
+	"time"
 
+	system_model "gitea.dev/models/system"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/private"
 	"gitea.dev/modules/secretscan"
 	"gitea.dev/modules/setting"
 )
 
 const (
-	maxPatchBytes = 32 * 1024 * 1024
-	maxFindings   = 5
+	maxPatchBytes   = 32 * 1024 * 1024
+	maxFindings     = 5
+	pushScanTimeout = 30 * time.Second
 )
 
 // ScanPush checks the files added or changed in commits entering the repository.
-func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newCommitID string) ([]secretscan.Finding, error) {
-	if !setting.SecretScanning.PushProtection {
+func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newCommitIDs ...string) ([]secretscan.Finding, error) {
+	if !setting.SecretScanning.PushProtection || len(newCommitIDs) == 0 {
 		return nil, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, pushScanTimeout)
+	defer cancel()
 	batch, err := git.NewBatchWithEnv(ctx, repo, env)
 	if err != nil {
 		return nil, err
@@ -57,7 +66,7 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 	}
 
 	cmd := gitcmd.NewCommand("log", "--patch", "--full-index", "--no-abbrev", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-ext-diff", "--no-textconv", "--format=commit:%H").
-		AddDynamicArguments(newCommitID).AddArguments("--not", "--all")
+		AddDynamicArguments(newCommitIDs...).AddArguments("--not", "--all")
 	stdout, closeStdout := cmd.MakeStdoutPipe()
 	defer closeStdout()
 
@@ -73,4 +82,31 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 		return nil, runErr
 	}
 	return findings, nil
+}
+
+// PushProtectionMessage describes the matches without returning complete credentials.
+func PushProtectionMessage(target string, findings []secretscan.Finding) string {
+	var msg strings.Builder
+	fmt.Fprintf(&msg, "Push to %s rejected: it adds what look like secrets.\n", target)
+	for _, f := range findings {
+		fmt.Fprintf(&msg, "  %s in %s, commit %s: %s\n", f.Kind, f.Path, f.Commit[:min(len(f.Commit), 10)], f.Redacted)
+	}
+	if setting.SecretScanning.AllowBypass {
+		msg.WriteString("Remove them from the commits and revoke any that were real. If none is a secret, push again with -o " + private.GitPushOptionAllowSecrets + "=true. The bypass is recorded for the site admins")
+	} else {
+		msg.WriteString("Remove them from the commits and revoke any that were real. This server does not allow the push protection bypass")
+	}
+	return msg.String()
+}
+
+// RecordPushBypass leaves a site-admin notice containing only redacted matches.
+func RecordPushBypass(ctx context.Context, username, repoName, target string, findings []secretscan.Finding) {
+	var desc strings.Builder
+	fmt.Fprintf(&desc, "%s bypassed secret push protection on %s, %s:", username, repoName, target)
+	for _, f := range findings {
+		fmt.Fprintf(&desc, " %s in %s (%s), commit %.10s;", f.Kind, f.Path, f.Redacted, f.Commit)
+	}
+	if err := system_model.CreateNotice(ctx, system_model.NoticeRepository, strings.TrimSuffix(desc.String(), ";")); err != nil {
+		log.Error("record secret scan bypass for %s: %v", repoName, err)
+	}
 }
