@@ -628,9 +628,10 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 				require.NoError(t, git.FetchRemoteTempCommit(t.Context(), repository, own, secondAllowedCommit))
 				_, stderr, err = gitcmd.NewCommand("push", "--force").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(cloneDir).RunStdString(t.Context())
 				require.NoError(t, err, "%s", stderr)
-				pull_service.StartPullRequestCheckImmediately(t.Context(), pull)
-				require.NoError(t, pull_service.WaitPullRequestCheck(t.Context(), pull, 10*time.Second))
-				assert.Equal(t, issues_model.PullRequestStatusError, pull.Status)
+				// the head sync refuses the new head and rechecks, so the pull request stops being mergeable
+				assert.Eventually(t, func() bool {
+					return unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pull.ID}).Status == issues_model.PullRequestStatusError
+				}, 10*time.Second, 20*time.Millisecond)
 				assertUnreachable := func() {
 					refs, _, err := gitcmd.NewCommand("for-each-ref", "--contains").AddDynamicArguments(secondAllowedCommit).WithRepo(repository).RunStdString(t.Context())
 					require.NoError(t, err)
