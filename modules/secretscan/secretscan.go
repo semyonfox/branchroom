@@ -19,22 +19,31 @@ import (
 
 type pattern struct {
 	name string
-	re   *regexp.Regexp
+	// every match contains one of these, so the regexp only runs on lines that do
+	markers []string
+	re      *regexp.Regexp
+}
+
+func (p pattern) find(line string) string {
+	if len(p.markers) > 0 && !slices.ContainsFunc(p.markers, func(marker string) bool { return strings.Contains(line, marker) }) {
+		return ""
+	}
+	return p.re.FindString(line)
 }
 
 var patterns = []pattern{
-	{"Branchroom access token", regexp.MustCompile(`\bbrpat_[0-9a-f]{40}\b`)},
-	{"AWS access key", regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
-	{"GitHub token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}\b`)},
-	{"GitHub token", regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{60,}\b`)},
-	{"GitLab token", regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}\b`)},
-	{"Slack token", regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}\b`)},
-	{"Stripe live key", regexp.MustCompile(`\b[rs]k_live_[A-Za-z0-9]{20,}\b`)},
-	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`)},
-	{"OpenAI API key", regexp.MustCompile(`\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}`)},
-	{"Anthropic API key", regexp.MustCompile(`\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{20,}`)},
-	{"npm token", regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`)},
-	{"private key", regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----`)},
+	{"Branchroom access token", []string{"brpat_"}, regexp.MustCompile(`\bbrpat_[0-9a-f]{40}\b`)},
+	{"AWS access key", []string{"AKIA", "ASIA"}, regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
+	{"GitHub token", []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_"}, regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}\b`)},
+	{"GitHub token", []string{"github_pat_"}, regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{60,}\b`)},
+	{"GitLab token", []string{"glpat-"}, regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}\b`)},
+	{"Slack token", []string{"xox"}, regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}\b`)},
+	{"Stripe live key", []string{"k_live_"}, regexp.MustCompile(`\b[rs]k_live_[A-Za-z0-9]{20,}\b`)},
+	{"Google API key", []string{"AIza"}, regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`)},
+	{"OpenAI API key", []string{"sk-"}, regexp.MustCompile(`\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}`)},
+	{"Anthropic API key", []string{"sk-ant-"}, regexp.MustCompile(`\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{20,}`)},
+	{"npm token", []string{"npm_"}, regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`)},
+	{"private key", []string{"PRIVATE KEY"}, regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----`)},
 }
 
 // Scanner adds site-defined patterns to the built-in vendor patterns.
@@ -59,7 +68,11 @@ func NewScanner(custom map[string]string) (*Scanner, error) {
 		if re.MatchString("") {
 			return nil, fmt.Errorf("NewScanner: pattern %q matches empty text", name)
 		}
-		scanner.custom = append(scanner.custom, pattern{name: name, re: re})
+		var markers []string
+		if prefix, _ := re.LiteralPrefix(); prefix != "" {
+			markers = []string{prefix}
+		}
+		scanner.custom = append(scanner.custom, pattern{name: name, markers: markers, re: re})
 	}
 	return scanner, nil
 }
@@ -85,7 +98,7 @@ func Line(line string) (kind, match string) {
 func (s *Scanner) Line(line string) (kind, match string) {
 	for _, group := range [][]pattern{patterns, s.custom} {
 		for _, p := range group {
-			if m := p.re.FindString(line); m != "" && !placeholder.MatchString(m) {
+			if m := p.find(line); m != "" && !placeholder.MatchString(m) {
 				return p.name, m
 			}
 		}
@@ -113,6 +126,7 @@ func (s *Scanner) Patch(r io.Reader, limit int) ([]Finding, error) {
 }
 
 // PatchWithBlobs also scans BOM-marked UTF-16 blobs from binary patches with --full-index.
+// On an error it still returns the findings made before it.
 func (s *Scanner) PatchWithBlobs(r io.Reader, limit int, readBlob func(string) ([]byte, error)) ([]Finding, error) {
 	var findings []Finding
 	var commit, path, renameTo, beforeOID, afterOID string
@@ -120,7 +134,7 @@ func (s *Scanner) PatchWithBlobs(r io.Reader, limit int, readBlob func(string) (
 	for {
 		line, readErr := reader.ReadString('\n')
 		if readErr != nil && readErr != io.EOF {
-			return nil, readErr
+			return findings, readErr
 		}
 		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		switch {
@@ -137,10 +151,10 @@ func (s *Scanner) PatchWithBlobs(r io.Reader, limit int, readBlob func(string) (
 			path := binaryPatchPath(line, renameTo)
 			if path != "" && afterOID != "" && strings.Trim(afterOID, "0") != "" {
 				added, err := s.scanUTF16Change(path, commit, beforeOID, afterOID, limit-len(findings), readBlob)
-				if err != nil {
-					return nil, err
-				}
 				findings = append(findings, added...)
+				if err != nil {
+					return findings, err
+				}
 			}
 		case strings.HasPrefix(line, "+++ "):
 			path = strings.TrimPrefix(unquotePatchPath(strings.TrimPrefix(line, "+++ ")), "b/")

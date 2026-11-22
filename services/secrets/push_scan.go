@@ -5,6 +5,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -79,7 +80,11 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 		}).
 		RunWithStderr(ctx)
 	if runErr != nil {
-		return nil, runErr
+		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, runErr
+		}
+		// like the byte cap, the timeout lets the unscanned rest through rather than fail the push
+		log.Warn("ScanPush: stopped after %s, the rest of the push was not scanned", pushScanTimeout)
 	}
 	return findings, nil
 }
