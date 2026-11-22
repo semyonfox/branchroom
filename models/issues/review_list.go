@@ -89,11 +89,12 @@ func (reviews ReviewList) LoadIssues(ctx context.Context) error {
 // FindReviewOptions represent possible filters to find reviews
 type FindReviewOptions struct {
 	db.ListOptions
-	Types        []ReviewType
-	IssueID      int64
-	ReviewerID   int64
-	OfficialOnly bool
-	Dismissed    optional.Option[bool]
+	Types          []ReviewType
+	IssueID        int64
+	ReviewerID     int64
+	OfficialOnly   bool
+	PersonsOwnOnly bool
+	Dismissed      optional.Option[bool]
 }
 
 func (opts *FindReviewOptions) toCond() builder.Cond {
@@ -109,6 +110,9 @@ func (opts *FindReviewOptions) toCond() builder.Cond {
 	}
 	if opts.OfficialOnly {
 		cond = cond.And(builder.Eq{"official": true})
+	}
+	if opts.PersonsOwnOnly {
+		cond = cond.And(personsOwnReviewCond())
 	}
 	if opts.Dismissed.Has() {
 		cond = cond.And(builder.Eq{"dismissed": opts.Dismissed.Value()})

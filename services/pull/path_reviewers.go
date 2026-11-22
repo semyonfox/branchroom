@@ -48,7 +48,7 @@ func HasRequiredPathReviews(ctx context.Context, pb *git_model.ProtectedBranch, 
 	}
 	reviews, err := issues_model.FindLatestReviews(ctx, issues_model.FindReviewOptions{
 		Types:   []issues_model.ReviewType{issues_model.ReviewTypeApprove, issues_model.ReviewTypeReject, issues_model.ReviewTypeRequest},
-		IssueID: pr.IssueID, Dismissed: optional.Some(false),
+		IssueID: pr.IssueID, Dismissed: optional.Some(false), PersonsOwnOnly: true,
 	})
 	if err != nil {
 		return false, err

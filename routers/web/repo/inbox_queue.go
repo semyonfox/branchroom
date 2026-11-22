@@ -253,7 +253,7 @@ func prepareQueueDecision(ctx *context.Context, issue *issues_model.Issue, bar *
 // prepareChangesRequested names who asked for changes. Once the author has pushed since, asking them again is the fix
 func prepareChangesRequested(ctx *context.Context, issue *issues_model.Issue, headSHA string, isAuthor bool, bar *inboxQueueBar) {
 	tr := ctx.Locale.TrString
-	reviews, err := issues_model.FindLatestReviews(ctx, issues_model.FindReviewOptions{IssueID: issue.ID, Types: []issues_model.ReviewType{issues_model.ReviewTypeReject, issues_model.ReviewTypeApprove, issues_model.ReviewTypeComment}})
+	reviews, err := issues_model.FindLatestReviews(ctx, issues_model.FindReviewOptions{IssueID: issue.ID, PersonsOwnOnly: true, Types: []issues_model.ReviewType{issues_model.ReviewTypeReject, issues_model.ReviewTypeApprove, issues_model.ReviewTypeComment}})
 	if err != nil {
 		return
 	}

@@ -602,7 +602,7 @@ func TestPullReviewRangeComment(t *testing.T) {
 
 func TestPathReviewers(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
-		for _, mode := range []string{"team", "codeowners"} {
+		for _, mode := range []string{"team", "codeowners", "codeowner-gate"} {
 			t.Run(mode, func(t *testing.T) {
 				author := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 				org := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 3})
@@ -624,6 +624,7 @@ func TestPathReviewers(t *testing.T) {
 				require.NoError(t, pr.LoadIssue(t.Context()))
 				pr.Issue.Repo = repo
 				pb := &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "main"}
+				pb.BlockOnCodeownerReviews = mode == "codeowner-gate"
 				require.NoError(t, pull_service.CreateOrUpdateProtectedBranch(t.Context(), repo, pb, git_model.WhitelistOptions{}))
 				endpoint := "/api/v1/repos/" + repo.FullName() + "/branch_protections/path_reviewers/main"
 				input := api.PathReviewerRule{Pattern: "README.md", Team: "team1", RequiredApprovals: 1}
@@ -636,36 +637,50 @@ func TestPathReviewers(t *testing.T) {
 				invalid := input
 				invalid.RequiredApprovals = 0
 				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{Rules: []api.PathReviewerRule{invalid}}).AddTokenAuth(token), http.StatusUnprocessableEntity)
+				if mode == "codeowner-gate" {
+					MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{}).AddTokenAuth(token), http.StatusOK)
+				}
+				blocker := pull_service.BlockerPathReviews
+				if mode == "codeowner-gate" {
+					blocker = pull_service.BlockerCodeOwners
+				}
 				check := func(blocked bool) {
 					t.Helper()
 					readiness, err := pull_service.GetReadiness(t.Context(), pr)
 					require.NoError(t, err)
 					if blocked {
-						assert.Contains(t, readiness.Blockers, pull_service.BlockerPathReviews)
+						assert.Contains(t, readiness.Blockers, blocker)
 						require.ErrorIs(t, pull_service.CheckPullBranchProtections(t.Context(), pr, false), pull_service.ErrNotReadyToMerge)
 					} else {
-						assert.NotContains(t, readiness.Blockers, pull_service.BlockerPathReviews)
+						assert.NotContains(t, readiness.Blockers, blocker)
 						require.NoError(t, pull_service.CheckPullBranchProtections(t.Context(), pr, false))
 					}
 				}
-				approve := func(id int64) {
+				approve := func(id int64) int64 {
 					t.Helper()
 					reviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: id})
-					_, _, err := issues_model.SubmitReview(t.Context(), reviewer, pr.Issue, issues_model.ReviewTypeApprove, "approved", changed.Commit.SHA, false, nil)
+					review, _, err := issues_model.SubmitReview(t.Context(), reviewer, pr.Issue, issues_model.ReviewTypeApprove, "approved", changed.Commit.SHA, false, nil)
 					require.NoError(t, err)
+					return review.ID
 				}
 				check(true)
 				approve(8)
 				check(true)
-				approve(4)
+				agentToken := DecodeJSON(t, MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/users/user4/tokens", &api.CreateAccessTokenOption{
+					Name: "path-review-agent-" + mode, Scopes: []string{"all"}, AgentIdentity: &api.AgentIdentity{Agent: "review helper"},
+				}).AddBasicAuth("user4"), http.StatusCreated), api.AccessToken{})
+				MakeRequest(t, NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/pulls/%d/reviews", repo.FullName(), pr.Index), &api.CreatePullReviewOptions{
+					Event: api.ReviewStateApproved, Body: "agent approval",
+				}).AddTokenAuth(agentToken.Token), http.StatusOK)
+				check(true)
+				ownerReviewID := approve(4)
 				if mode == "codeowners" {
 					check(true)
 					approve(5)
 				}
 				check(false)
 				if mode == "team" {
-					review := unittest.AssertExistsAndLoadBean(t, &issues_model.Review{IssueID: pr.IssueID, ReviewerID: 4, Type: issues_model.ReviewTypeApprove})
-					_, err := db.GetEngine(t.Context()).ID(review.ID).Cols("dismissed").Update(&issues_model.Review{Dismissed: true})
+					_, err := db.GetEngine(t.Context()).ID(ownerReviewID).Cols("dismissed").Update(&issues_model.Review{Dismissed: true})
 					require.NoError(t, err)
 					check(true)
 				}

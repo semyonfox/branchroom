@@ -1084,8 +1084,9 @@ func GetPullCommits(ctx context.Context, baseGitRepo *git.Repository, doer *user
 	if doer != nil {
 		// get last review of current user and store information in context (if available)
 		lastreview, err := issues_model.FindLatestReviews(ctx, issues_model.FindReviewOptions{
-			IssueID:    issue.ID,
-			ReviewerID: doer.ID,
+			IssueID:        issue.ID,
+			ReviewerID:     doer.ID,
+			PersonsOwnOnly: true,
 			Types: []issues_model.ReviewType{
 				issues_model.ReviewTypeApprove,
 				issues_model.ReviewTypeComment,
