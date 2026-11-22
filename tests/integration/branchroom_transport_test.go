@@ -316,7 +316,6 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-archive").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "br") }},
-				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", body: strings.Repeat("x", (1<<20)+1)},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects/info/packs").String()},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects", restrictedCommit[:2], restrictedCommit[2:]).String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("info/lfs/objects/batch").String()},
@@ -332,6 +331,13 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, decisionsBefore, decisionsAfter)
 			assert.Equal(t, auditsBefore, auditsAfter)
+		})
+
+		t.Run("oversized upload-pack requests are rejected after authorisation", func(t *testing.T) {
+			url := gatewayURL.JoinPath("git-upload-pack").String()
+			body := strings.Repeat("x", int(setting.Branchroom.GitRequestSizeLimit())+1)
+			response := makeBranchroomGitHTTPRequestWithBody(t, http.MethodPost, url, "user4", userPassword, "application/x-git-upload-pack-request", body)
+			assert.Equal(t, http.StatusRequestEntityTooLarge, response.StatusCode)
 		})
 
 		t.Run("a route key cannot be replayed for another repository", func(t *testing.T) {

@@ -212,15 +212,13 @@ func branchroomGitHTTPInfoRefsService(req *http.Request) (string, bool) {
 func isBranchroomGitHTTPUploadPackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-upload-pack-request" &&
-		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
-		req.ContentLength <= setting.Branchroom.GitRequestSizeLimit()
+		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip")
 }
 
 func isBranchroomGitHTTPReceivePackRequest(req *http.Request) bool {
 	return req.Method == http.MethodPost &&
 		len(req.Header.Values("Content-Type")) == 1 && req.Header.Get("Content-Type") == "application/x-git-receive-pack-request" &&
-		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip") &&
-		req.ContentLength <= setting.Branchroom.GitRequestSizeLimit()
+		(len(req.Header.Values("Content-Encoding")) == 0 || len(req.Header.Values("Content-Encoding")) == 1 && req.Header.Get("Content-Encoding") == "gzip")
 }
 
 // readBranchroomGitHTTPBody consumes an RPC request before a Git child starts so
@@ -243,7 +241,7 @@ func readBranchroomGitHTTPRPCBody(resp http.ResponseWriter, req *http.Request, d
 		}
 		_ = controller.SetReadDeadline(time.Time{})
 	}()
-	if !deadline.After(time.Now()) {
+	if !deadline.After(time.Now()) || req.ContentLength > setting.Branchroom.GitRequestSizeLimit() {
 		return nil, false
 	}
 	var body io.Reader = req.Body
@@ -451,7 +449,8 @@ func branchroomGitHTTPNotFound(ctx *context.Context) {
 // branchroomGitHTTPBodyRejected runs only after authorization, so saying a body was too
 // large tells an authorized client nothing about the workspace it did not already know
 func branchroomGitHTTPBodyRejected(ctx *context.Context, body []byte) {
-	tooLarge := int64(len(body)) > setting.Branchroom.GitRequestSizeLimit()
+	sizeLimit := setting.Branchroom.GitRequestSizeLimit()
+	tooLarge := ctx.Req.ContentLength > sizeLimit || int64(len(body)) > sizeLimit
 	clear(body)
 	if tooLarge {
 		ctx.PlainText(http.StatusRequestEntityTooLarge, "Request exceeds the restricted gateway size limit\n")
