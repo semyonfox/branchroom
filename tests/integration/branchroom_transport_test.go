@@ -31,6 +31,7 @@ import (
 	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
 	repository_service "gitea.dev/services/repository"
@@ -543,6 +544,28 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 					assert.Contains(t, stderr, "restricted workspace")
 				})
 			}
+
+			t.Run("pull request from an unrelated repository", func(t *testing.T) {
+				defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
+				own, err := repository_service.CreateRepositoryDirectly(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.CreateRepoOptions{Name: "restricted-publish-own"}, true)
+				require.NoError(t, err)
+				ownURL := u.JoinPath(ordinaryWriter.Name, own.Name+".git")
+				ownURL.User = publicURL.User
+				_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/restricted-own").WithDir(cloneDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+
+				head := ordinaryWriter.Name + "/" + own.Name + ":restricted-own"
+				response := MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: head, Base: repository.DefaultBranch, Title: "restricted"}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				response = loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequestWithValues(t, "POST", "/user2/repo1/compare/"+repository.DefaultBranch+"..."+head, map[string]string{"title": "restricted"}), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+
+				assertGitObjectsMissing(t, repository.CodeStorageRepo(), secondAllowedCommit)
+				events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+				require.NoError(t, err)
+				assert.Equal(t, "restricted_commit_public_push_refused", events[len(events)-1].ReasonCode)
+				unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryRestrictedRefused, ActorID: ordinaryWriter.ID, ScopeID: repository.ID})
+			})
 		})
 
 		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {

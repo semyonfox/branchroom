@@ -88,7 +88,8 @@ source read and source write in Branchroom. Restricted pushes need ordinary code
 Read because the store is separate and only accepts `refs/heads/branchroom/*`.
 Only repository administrators can publish restricted commits to ordinary refs,
 including branches, tags and refs used to open pull requests. This restriction also
-applies when pushing to a fork of the ordinary repository.
+applies when pushing to a fork of the ordinary repository, and to pull requests opened
+from any other repository, fork or not.
 Team grants still support discovery and source read only.
 
 ## Monitoring

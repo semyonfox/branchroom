@@ -12,6 +12,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/log"
+	branchroom_service "gitea.dev/services/branchroom"
 )
 
 // checkConflictsMergeTree uses git merge-tree to check for conflicts and if none are found checks if the patch is empty
@@ -78,25 +79,30 @@ func checkPullRequestMergeableByMergeTree(ctx context.Context, pr *issues_model.
 	}
 
 	// 3. Get head commit id
-	if pr.Flow == issues_model.PullRequestFlowGithub {
+	switch {
+	case pr.Flow == issues_model.PullRequestFlowGithub && pr.ID > 0:
 		pr.HeadCommitID, err = headGitRepo.GetRefCommitID(ctx, git.BranchPrefix+pr.HeadBranch)
 		if err != nil {
 			return fmt.Errorf("GetBranchCommitID: can't find commit ID for head: %w", err)
 		}
-	} else {
-		if pr.ID > 0 {
-			pr.HeadCommitID, err = baseGitRepo.GetRefCommitID(ctx, pr.GetGitHeadRefName())
-			if err != nil {
-				return fmt.Errorf("GetRefCommitID: can't find commit ID for head: %w", err)
-			}
-		} else if pr.HeadCommitID == "" { // for new pull request with agit, the head commit id must be provided
-			return errors.New("head commit ID is empty for pull request Agit flow")
+	case pr.ID > 0:
+		pr.HeadCommitID, err = baseGitRepo.GetRefCommitID(ctx, pr.GetGitHeadRefName())
+		if err != nil {
+			return fmt.Errorf("GetRefCommitID: can't find commit ID for head: %w", err)
 		}
+	case pr.HeadCommitID == "": // NewPullRequest or agit provides the head it checked
+		return errors.New("head commit ID is empty for a new pull request")
 	}
 
 	// 4. fetch head commit id into the current repository
 	if !pr.IsSameRepo() {
 		if !baseGitRepo.IsReferenceExist(ctx, pr.HeadCommitID) {
+			// NewPullRequest checks a new head against its poster, a later one may hold commits PushToBaseRepo refused
+			if pr.ID > 0 {
+				if err := branchroom_service.CheckPullRequestHead(ctx, nil, pr.BaseRepo, pr.HeadRepo, pr.HeadBranch, pr.HeadCommitID); err != nil {
+					return err
+				}
+			}
 			if err := git.FetchRemoteTempCommit(ctx, pr.BaseRepo, pr.HeadRepo, pr.HeadCommitID); err != nil {
 				return fmt.Errorf("FetchRemoteTempCommit: %w", err)
 			}
