@@ -116,11 +116,23 @@ func BranchroomGitHTTPUploadPack(ctx *context.Context) {
 		WithStdoutCopy(ctx.Resp).
 		WithTimeout(branchroomGitHTTPUploadTimeout).
 		RunWithStderr(ctx)
-	if err != nil && !gitcmd.IsErrorCanceledOrKilled(err) {
-		log.Error("Branchroom Git HTTP upload-pack RPC failed")
+	if err == nil || gitcmd.IsErrorCanceledOrKilled(err) {
+		return
+	}
+	if gitcmd.IsStderr(err,
+		gitcmd.StderrPrefix("fatal: protocol error"),
+		gitcmd.StderrPrefix("fatal: git upload-pack: protocol error"),
+		gitcmd.StderrPrefix("fatal: the remote end hung up unexpectedly"),
+		gitcmd.StderrPrefix("fatal: invalid command"),
+	) {
 		if !ctx.Written() {
-			branchroomGitHTTPServerError(ctx)
+			ctx.PlainText(http.StatusBadRequest, "Invalid upload-pack request\n")
 		}
+		return
+	}
+	log.Error("Branchroom Git HTTP upload-pack RPC failed")
+	if !ctx.Written() {
+		branchroomGitHTTPServerError(ctx)
 	}
 }
 
