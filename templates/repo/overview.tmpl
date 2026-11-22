@@ -24,7 +24,7 @@
 			{{if .LatestCommitStatus}}
 				<li><a class="repo-overview-status status-{{.LatestCommitStatus.State}}" href="{{.RepoLink}}/commit/{{.CommitID}}"><span class="repo-overview-dot" aria-hidden="true"></span>{{.Repository.DefaultBranch}} {{ctx.Locale.Tr (printf "repo.overview.ci.%s" .LatestCommitStatus.State)}}</a></li>
 			{{end}}
-			{{if .OverviewLastPush}}<li>{{svg "octicon-history"}} {{ctx.Locale.Tr "repo.overview.last_push"}}{{if and .OverviewLastPushBranch (ne .OverviewLastPushBranch .Repository.DefaultBranch)}} {{ctx.Locale.Tr "repo.overview.push_to"}} <code>{{.OverviewLastPushBranch}}</code>{{end}} {{DateUtils.TimeSince .OverviewLastPush}}</li>{{end}}
+			{{if .OverviewLastPush}}<li>{{svg "octicon-history"}} <span class="tw-min-w-0 tw-wrap-anywhere">{{ctx.Locale.Tr "repo.overview.last_push"}}{{if and .OverviewLastPushBranch (ne .OverviewLastPushBranch .Repository.DefaultBranch)}} {{ctx.Locale.Tr "repo.overview.push_to"}} <code>{{.OverviewLastPushBranch}}</code>{{end}} {{DateUtils.TimeSince .OverviewLastPush}}</span></li>{{end}}
 			{{if .Repository.Website}}<li><a href="{{.Repository.Website}}">{{svg "octicon-link"}} {{.Repository.Website}}</a></li>{{end}}
 			{{range $group := .LicenseGroups}}<li><a href="{{$.RepoLink}}/src/{{$.RefTypeNameSubURL}}/{{PathEscapeSegments $group.LicensePath}}">{{svg "octicon-law"}} {{StringUtils.Join $group.LicenseNames ", "}}</a></li>{{end}}
 			{{if .CitationFileName}}
