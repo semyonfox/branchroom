@@ -15,7 +15,17 @@ import (
 
 // CloseIssue close an issue.
 func CloseIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model.User, commitID string) error {
-	var comment *issues_model.Comment
+	return closeIssue(ctx, issue, doer, commitID, "")
+}
+
+// CloseIssueWithComment closes an issue and adds a comment in the same transaction.
+func CloseIssueWithComment(ctx context.Context, issue *issues_model.Issue, doer *user_model.User, content string) error {
+	return closeIssue(ctx, issue, doer, "", content)
+}
+
+func closeIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model.User, commitID, content string) error {
+	var comment, reasonComment *issues_model.Comment
+	var mentions []*user_model.User
 	var stopwatchFinished bool
 	if err := db.WithTx(ctx, func(ctx context.Context) error {
 		var err error
@@ -30,6 +40,10 @@ func CloseIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model
 		}
 
 		stopwatchFinished, err = issues_model.FinishIssueStopwatch(ctx, doer, issue)
+		if err != nil || content == "" {
+			return err
+		}
+		reasonComment, mentions, err = createIssueComment(ctx, doer, issue.Repo, issue, content, nil)
 		return err
 	}); err != nil {
 		return err
@@ -41,7 +55,9 @@ func CloseIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model
 	}
 
 	notify_service.IssueChangeStatus(ctx, doer, commitID, issue, comment, true)
-
+	if reasonComment != nil {
+		notify_service.CreateIssueComment(ctx, doer, issue.Repo, issue, reasonComment, mentions)
+	}
 	return nil
 }
 
