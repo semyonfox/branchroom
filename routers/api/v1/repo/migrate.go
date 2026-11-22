@@ -15,6 +15,7 @@ import (
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/egress/policy"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/graceful"
@@ -185,10 +186,12 @@ func Migrate(ctx *context.APIContext) {
 		defer func() {
 			if e := recover(); e != nil {
 				log.Error("MigrateRepository panic: %v\n%s", e, log.Stack(2))
-				if errDelete := repo_service.DeleteRepositoryDirectly(ctx, createdRepo.ID); errDelete != nil {
-					log.Error("Unable to delete repo after MigrateRepository panic: %v", errDelete)
-				}
 				retErr = errors.New("MigrateRepository panic") // no idea why it would happen, just legacy code
+			}
+			if retErr != nil {
+				if errDelete := repo_service.DeleteRepositoryDirectly(gocontext.WithoutCancel(ctx), createdRepo.ID); errDelete != nil {
+					log.Error("Unable to delete repo after failed migration: %v", errDelete)
+				}
 			}
 		}()
 
@@ -235,10 +238,10 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 		ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("The username '%s' contains invalid characters.", errNameCharsNotAllowed.Name))
 	case errors.As(err, &errNamePatternNotAllowed):
 		ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("The pattern '%s' is not allowed in a username.", errNamePatternNotAllowed.Pattern))
-	case git.IsErrInvalidCloneAddr(err):
-		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 	case base.IsErrNotSupported(err):
 		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, util.ErrInvalidArgument), errors.Is(err, policy.ErrDenied):
+		ctx.APIError(http.StatusUnprocessableEntity, util.SanitizeErrorCredentialURLs(err).Error())
 	default:
 		err = util.SanitizeErrorCredentialURLs(err)
 		if migrations.IsAuthenticationError(err) {
@@ -254,7 +257,7 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 func handleRemoteAddrError(ctx *context.APIContext, err error) {
 	if addrErr, ok := err.(*git.ErrInvalidCloneAddr); ok {
 		switch {
-		case addrErr.IsURLError:
+		case addrErr.IsURLError || addrErr.IsProtocolInvalid:
 			ctx.APIError(http.StatusUnprocessableEntity, "The provided URL is invalid.")
 		case addrErr.IsPermissionDenied:
 			if addrErr.LocalPath {
