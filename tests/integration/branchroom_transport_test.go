@@ -486,11 +486,16 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			contents, _, err := gitcmd.NewCommand("show").AddDynamicArguments(restrictedRef + ":.env").WithRepo(restricted).RunStdString(t.Context())
 			require.NoError(t, err)
 			assert.Equal(t, "BRANCHROOM_FAKE_TOKEN=still-not-real\n", contents)
+			restrictedTree := branchroomObjectID(t, restricted, restrictedRef+"^{tree}")
+			restrictedBlob := branchroomObjectID(t, restricted, restrictedRef+":.env")
 
-			_, _, err = gitcmd.NewCommand("show-ref", "--verify", "--quiet").AddDynamicArguments(restrictedRef).WithRepo(repository.CodeStorageRepo()).RunStdString(t.Context())
+			publicRepo := repository.CodeStorageRepo()
+			_, _, err = gitcmd.NewCommand("show-ref", "--verify", "--quiet").AddDynamicArguments(restrictedRef).WithRepo(publicRepo).RunStdString(t.Context())
 			assert.Error(t, err)
+			assertGitObjectsMissing(t, publicRepo, firstCommit, secondAllowedCommit, restrictedTree, restrictedBlob)
 
-			publicInfoRefsURL := u.JoinPath("user2", "repo1.git", "info/refs").String() + "?service=git-upload-pack"
+			publicGitURL := u.JoinPath("user2", "repo1.git")
+			publicInfoRefsURL := publicGitURL.JoinPath("info/refs").String() + "?service=git-upload-pack"
 			publicAdvertisement := makeBranchroomGitHTTPRequest(t, http.MethodGet, publicInfoRefsURL, "", "")
 			assert.Equal(t, http.StatusOK, publicAdvertisement.StatusCode)
 			assert.NotContains(t, publicAdvertisement.Body, firstCommit)
@@ -498,8 +503,15 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 
 			publicClone := t.TempDir()
 			require.NoError(t, git.InitRepositoryLocal(t.Context(), publicClone, false, git.Sha1ObjectFormat.Name(), ""))
-			_, _, err = gitcmd.NewCommand("fetch").AddDynamicArguments(u.JoinPath("user2", "repo1.git").String(), secondAllowedCommit).WithDir(publicClone).RunStdString(t.Context())
-			assert.Error(t, err)
+			_, stderr, err := gitcmd.NewCommand("fetch").AddDynamicArguments(publicGitURL.String(), "refs/heads/"+repository.DefaultBranch).WithDir(publicClone).RunStdString(t.Context())
+			require.NoError(t, err, "%s", stderr)
+			assert.Equal(t, baseSHA, branchroomLocalRevision(t, publicClone, "FETCH_HEAD"))
+			_, _, err = gitcmd.NewCommand("fetch").AddDynamicArguments(publicGitURL.String(), secondAllowedCommit).WithDir(publicClone).RunStdString(t.Context())
+			assert.Error(t, err, "public Git endpoint served restricted commit %s", secondAllowedCommit)
+
+			publicObjectURL := publicGitURL.JoinPath("objects", restrictedBlob[:2], restrictedBlob[2:])
+			publicObject := makeBranchroomGitHTTPRequest(t, http.MethodGet, publicObjectURL.String(), "", "")
+			assert.Equal(t, http.StatusNotFound, publicObject.StatusCode)
 		})
 
 		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {

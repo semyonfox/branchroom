@@ -24,6 +24,16 @@ does not protect restricted source from them. An internet-facing or multi-tenant
 deployment needs an independent security review first, see
 [production readiness](#production-readiness).
 
+## Git object isolation
+
+Keep confidential commits in a restricted workspace. Its Git objects live in a
+separate bare repository. Ordinary Git requests only use the ordinary repository's
+object store, even when the client already knows a restricted commit's object ID.
+
+A client with repository access may still be able to fetch objects by ID even
+when Git omits their refs from advertisements. Keep confidential data out of
+the ordinary object store.
+
 ## Install
 
 1. Create the restricted root as the service account, mode `0700`, outside
