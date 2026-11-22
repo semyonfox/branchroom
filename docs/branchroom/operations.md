@@ -86,7 +86,8 @@ Existing branches with this prefix are kept.
 Give contractors **Read only** on the ordinary repository, then grant discovery,
 source read and source write in Branchroom. Restricted pushes need ordinary code
 Read because the store is separate and only accepts `refs/heads/branchroom/*`.
-Repository Write would also let them push embargoed commits to public branches.
+Only repository administrators can publish restricted commits to ordinary refs,
+including branches, tags and refs used to open pull requests.
 Team grants still support discovery and source read only.
 
 ## Monitoring

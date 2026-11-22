@@ -110,6 +110,10 @@ func HookPreReceive(ctx *gitea_context.PrivateContext) {
 		if ctx.Written() {
 			return
 		}
+		if setting.Branchroom.Enabled && !opts.IsWiki && newCommitID != ctx.Repo.GetObjectFormat().EmptyObjectID().String() &&
+			!preReceiveRestrictedPublish(ourCtx, newCommitID, refFullName) {
+			return
+		}
 	}
 
 	ctx.PlainText(http.StatusOK, "ok")
@@ -135,10 +139,6 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 	defaultBranch := repo.DefaultBranch
 	if ctx.opts.IsWiki && repo.DefaultWikiBranch != "" {
 		defaultBranch = repo.DefaultWikiBranch
-	}
-
-	if setting.Branchroom.Enabled && !ctx.opts.IsWiki && !isDeletingBranch && !preReceiveRestrictedPublish(ctx, newCommitID, refFullName) {
-		return
 	}
 
 	if isDeletingBranch && branchName == defaultBranch {
@@ -320,9 +320,7 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 	}
 }
 
-// preReceiveRestrictedPublish refuses commits that already exist in one of the repository's restricted workspaces.
-// Ordinary Write would otherwise let a contractor copy embargoed work into the public repository under any branch name.
-// Repository admins may publish, and both outcomes are audited.
+// preReceiveRestrictedPublish allows only repository admins to publish restricted commits.
 func preReceiveRestrictedPublish(ctx *preReceiveContext, newCommitID string, refFullName git.RefName) bool {
 	repo := ctx.Repo.Repository
 	workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, repo.ID)
