@@ -897,6 +897,9 @@
   border: 1px solid transparent;
   border-radius: var(--border-radius);
   scroll-margin-top: 44px; /* .diff-detail-box height plus the :target shadow */
+  /* Skip layout for boxes that are off screen. The nodes stay in the document, so find-in-page still reaches them. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
 }
 
 .file.editor .diff-file-box {
@@ -1480,12 +1483,6 @@ tbody.commit-list {
     align-items: stretch;
     gap: 0;
   }
-}
-
-.diff-file-box {
-  /* Skip layout for boxes that are off screen. The nodes stay in the document, so find-in-page still reaches them. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
 }
 
 .diff-file-box[data-folded="true"] .diff-file-body {

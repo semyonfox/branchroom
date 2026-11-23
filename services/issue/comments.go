@@ -64,25 +64,7 @@ func CreateRefComment(ctx context.Context, doer *user_model.User, issue *issues_
 
 // CreateIssueComment creates a plain issue comment.
 func CreateIssueComment(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, issue *issues_model.Issue, content string, attachments []string) (*issues_model.Comment, error) {
-	if user_model.IsUserBlockedBy(ctx, doer, issue.PosterID, repo.OwnerID) {
-		if !access_model.IsUserRepoAdmin(ctx, repo, doer) {
-			return nil, user_model.ErrBlockedUser
-		}
-	}
-
-	comment, err := issues_model.CreateComment(ctx, &issues_model.CreateCommentOptions{
-		Type:        issues_model.CommentTypeComment,
-		Doer:        doer,
-		Repo:        repo,
-		Issue:       issue,
-		Content:     content,
-		Attachments: attachments,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	mentions, err := issues_model.FindAndUpdateIssueMentions(ctx, issue, doer, comment.Content)
+	comment, mentions, err := createIssueComment(ctx, doer, repo, issue, content, attachments)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +76,28 @@ func CreateIssueComment(ctx context.Context, doer *user_model.User, repo *repo_m
 	}
 
 	notify_service.CreateIssueComment(ctx, doer, repo, issue, comment, mentions)
-
 	return comment, nil
+}
+
+func createIssueComment(ctx context.Context, doer *user_model.User, repo *repo_model.Repository, issue *issues_model.Issue, content string, attachments []string) (*issues_model.Comment, []*user_model.User, error) {
+	if user_model.IsUserBlockedBy(ctx, doer, issue.PosterID, repo.OwnerID) && !access_model.IsUserRepoAdmin(ctx, repo, doer) {
+		return nil, nil, user_model.ErrBlockedUser
+	}
+
+	comment, err := issues_model.CreateComment(ctx, &issues_model.CreateCommentOptions{
+		Type:        issues_model.CommentTypeComment,
+		Doer:        doer,
+		Repo:        repo,
+		Issue:       issue,
+		Content:     content,
+		Attachments: attachments,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mentions, err := issues_model.FindAndUpdateIssueMentions(ctx, issue, doer, comment.Content)
+	return comment, mentions, err
 }
 
 // UpdateComment updates information of comment.

@@ -42,7 +42,7 @@ func (f *BitbucketDownloaderFactory) New(_ context.Context, opts base.MigrateOpt
 	}
 	fields := strings.Split(strings.Trim(cloneURL.Path, "/"), "/")
 	if !strings.EqualFold(cloneURL.Hostname(), "bitbucket.org") || len(fields) < 2 { // the token goes to api.bitbucket.org, so no other host's URL is accepted
-		return nil, fmt.Errorf("invalid Bitbucket Cloud URL %q, expected https://bitbucket.org/<workspace>/<repo>", cloneURL.Redacted())
+		return nil, util.NewInvalidArgumentErrorf("invalid Bitbucket Cloud URL, expected https://bitbucket.org/<workspace>/<repo>")
 	}
 	return NewBitbucketDownloader("https://api.bitbucket.org/2.0", fields[0], strings.TrimSuffix(fields[1], ".git"), cmp.Or(opts.AuthToken, opts.AuthPassword)), nil
 }

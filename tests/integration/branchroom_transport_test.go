@@ -18,9 +18,11 @@ import (
 	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	system_model "gitea.dev/models/system"
 	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -30,8 +32,10 @@ import (
 	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
+	pull_service "gitea.dev/services/pull"
 	repository_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -316,7 +320,6 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-archive").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", configure: func(req *http.Request) { req.Header.Set("Content-Encoding", "br") }},
-				{method: http.MethodPost, url: gatewayURL.JoinPath("git-upload-pack").String(), contentType: "application/x-git-upload-pack-request", body: strings.Repeat("x", (1<<20)+1)},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects/info/packs").String()},
 				{method: http.MethodGet, url: gatewayURL.JoinPath("objects", restrictedCommit[:2], restrictedCommit[2:]).String()},
 				{method: http.MethodPost, url: gatewayURL.JoinPath("info/lfs/objects/batch").String()},
@@ -332,6 +335,13 @@ func TestBranchroomSmartHTTPReadGateway(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, decisionsBefore, decisionsAfter)
 			assert.Equal(t, auditsBefore, auditsAfter)
+		})
+
+		t.Run("oversized upload-pack requests are rejected after authorisation", func(t *testing.T) {
+			url := gatewayURL.JoinPath("git-upload-pack").String()
+			body := strings.Repeat("x", int(setting.Branchroom.GitRequestSizeLimit())+1)
+			response := makeBranchroomGitHTTPRequestWithBody(t, http.MethodPost, url, "user4", userPassword, "application/x-git-upload-pack-request", body)
+			assert.Equal(t, http.StatusRequestEntityTooLarge, response.StatusCode)
 		})
 
 		t.Run("a route key cannot be replayed for another repository", func(t *testing.T) {
@@ -514,6 +524,129 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, publicObject.StatusCode)
 		})
 
+		t.Run("ordinary pushes cannot publish restricted commits through other refs or a fork", func(t *testing.T) {
+			fork, err := repository_service.ForkRepository(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.ForkRepoOptions{
+				BaseRepo: repository,
+				Name:     "restricted-publish-fork",
+			})
+			require.NoError(t, err)
+			forkURL := u.JoinPath(ordinaryWriter.Name, fork.Name+".git")
+			forkURL.User = publicURL.User
+			for _, push := range []struct {
+				remote *url.URL
+				ref    string
+			}{
+				{&publicURL, "refs/tags/restricted-tag"},
+				{&publicURL, "refs/for/" + repository.DefaultBranch + "/restricted-review"},
+				{forkURL, "refs/heads/restricted-fork-branch"},
+			} {
+				t.Run(push.ref, func(t *testing.T) {
+					_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(push.remote.String(), "HEAD:"+push.ref).WithDir(cloneDir).RunStdString(t.Context())
+					require.Error(t, err)
+					assert.Contains(t, stderr, "restricted workspace")
+				})
+			}
+
+			t.Run("a fork behind the base syncs and opens pull requests", func(t *testing.T) {
+				// prune the fork to a default branch older than branch2, whose public commits the restricted store mirrors
+				refs, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(refname)").WithRepo(fork).RunStdString(t.Context())
+				require.NoError(t, err)
+				for ref := range strings.FieldsSeq(refs) {
+					if ref != "refs/heads/"+repository.DefaultBranch {
+						_, _, err = gitcmd.NewCommand("update-ref", "-d").AddDynamicArguments(ref).WithRepo(fork).RunStdString(t.Context())
+						require.NoError(t, err)
+					}
+				}
+				_, _, err = gitcmd.NewCommand("reflog", "expire", "--expire=now", "--all").WithRepo(fork).RunStdString(t.Context())
+				require.NoError(t, err)
+				_, _, err = gitcmd.NewCommand("gc", "--prune=now").WithRepo(fork).RunStdString(t.Context())
+				require.NoError(t, err)
+				branch2SHA := branchroomObjectID(t, repository.CodeStorageRepo(), "refs/heads/branch2")
+				assertGitObjectsMissing(t, fork, branch2SHA)
+
+				staleDir := t.TempDir()
+				require.NoError(t, git.Clone(t.Context(), forkURL.String(), staleDir, git.CloneRepoOptions{}))
+				commitBranchroomFakeEnvironment(t, staleDir, "STALE=1\n", "stale fork change")
+				_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(forkURL.String(), "HEAD:refs/heads/stale-feature").WithDir(staleDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+
+				t.Run("compare and create", func(t *testing.T) {
+					head := ordinaryWriter.Name + ":stale-feature"
+					loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/compare/branch2..."+head), http.StatusOK)
+					MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1/compare/branch2..."+head).AddBasicAuth(ordinaryWriter.Name), http.StatusOK)
+					MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: head, Base: "branch2", Title: "stale fork"}).AddBasicAuth(ordinaryWriter.Name), http.StatusCreated)
+				})
+				t.Run("sync", func(t *testing.T) {
+					_, stderr, err := gitcmd.NewCommand("fetch").AddDynamicArguments(publicURL.String(), "refs/heads/branch2").WithDir(staleDir).RunStdString(t.Context())
+					require.NoError(t, err, "%s", stderr)
+					_, stderr, err = gitcmd.NewCommand("push").AddDynamicArguments(forkURL.String(), "FETCH_HEAD:refs/heads/branch2").WithDir(staleDir).RunStdString(t.Context())
+					require.NoError(t, err, "%s", stderr)
+					assert.Equal(t, branch2SHA, branchroomObjectID(t, fork, "refs/heads/branch2"))
+				})
+			})
+
+			t.Run("pull request from an unrelated repository", func(t *testing.T) {
+				defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
+				own, err := repository_service.CreateRepositoryDirectly(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.CreateRepoOptions{Name: "restricted-publish-own"}, true)
+				require.NoError(t, err)
+				ownURL := u.JoinPath(ordinaryWriter.Name, own.Name+".git")
+				ownURL.User = publicURL.User
+				_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/restricted-own").WithDir(cloneDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+
+				head := ordinaryWriter.Name + "/" + own.Name + ":restricted-own"
+				response := MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: head, Base: repository.DefaultBranch, Title: "restricted"}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				response = loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequestWithValues(t, "POST", "/user2/repo1/compare/"+repository.DefaultBranch+"..."+head, map[string]string{"title": "restricted"}), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+
+				assertGitObjectsMissing(t, repository.CodeStorageRepo(), secondAllowedCommit)
+				events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
+				require.NoError(t, err)
+				assert.Equal(t, "restricted_commit_public_push_refused", events[len(events)-1].ReasonCode)
+				unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryRestrictedRefused, ActorID: ordinaryWriter.ID, ScopeID: repository.ID})
+
+				harmlessDir := t.TempDir()
+				require.NoError(t, git.Clone(t.Context(), publicURL.String(), harmlessDir, git.CloneRepoOptions{}))
+				commitBranchroomFakeEnvironment(t, harmlessDir, "HARMLESS=1\n", "harmless change")
+				_, stderr, err = gitcmd.NewCommand("push").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(harmlessDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+				response = MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: ordinaryWriter.Name + "/" + own.Name + ":harmless", Base: repository.DefaultBranch, Title: "harmless"}).AddBasicAuth(ordinaryWriter.Name), http.StatusCreated)
+				pull := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: DecodeJSON(t, response, &api.PullRequest{}).ID})
+				require.NoError(t, pull_service.WaitPullRequestCheck(t.Context(), pull, 10*time.Second))
+				require.NotEqual(t, issues_model.PullRequestStatusChecking, pull.Status)
+
+				// comparing against the base fetches the other side's commit into it
+				compare := ordinaryWriter.Name + "/" + own.Name + "/compare/restricted-own...user2/repo1:" + repository.DefaultBranch
+				response = loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequest(t, "GET", "/"+compare), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				response = MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/"+compare).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				assertGitObjectsMissing(t, repository.CodeStorageRepo(), secondAllowedCommit)
+
+				// plant it unreferenced anyway, the mergeability check must not make it reachable
+				require.NoError(t, git.FetchRemoteTempCommit(t.Context(), repository, own, secondAllowedCommit))
+				_, stderr, err = gitcmd.NewCommand("push", "--force").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(cloneDir).RunStdString(t.Context())
+				require.NoError(t, err, "%s", stderr)
+				// the head sync refuses the new head and rechecks, so the pull request stops being mergeable
+				assert.Eventually(t, func() bool {
+					return unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pull.ID}).Status == issues_model.PullRequestStatusError
+				}, 10*time.Second, 20*time.Millisecond)
+				assertUnreachable := func() {
+					refs, _, err := gitcmd.NewCommand("for-each-ref", "--contains").AddDynamicArguments(secondAllowedCommit).WithRepo(repository).RunStdString(t.Context())
+					require.NoError(t, err)
+					assert.Empty(t, refs)
+				}
+				assertUnreachable()
+
+				// a closed pull request isn't synced, so an admin reopening it must not publish what was pushed meanwhile
+				MakeRequest(t, NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d", pull.Index), map[string]string{"state": "closed"}).AddBasicAuth("user2"), http.StatusCreated)
+				response = loginUser(t, "user2").MakeRequest(t, NewRequestWithValues(t, "POST", fmt.Sprintf("/user2/repo1/issues/%d/comments", pull.Index), map[string]string{"status": "reopen"}), http.StatusForbidden)
+				assert.Contains(t, response.Body.String(), "restricted workspace")
+				assertUnreachable()
+			})
+		})
+
 		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {
 			defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
 			_, stderr, pushErr := gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:refs/heads/fix-public").WithDir(cloneDir).RunStdString(t.Context())
@@ -537,6 +670,38 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.Equal(t, "restricted_commit_published_by_admin", events[len(events)-1].ReasonCode)
 			require.NoError(t, branchroom_model.VerifyScopeAuditChain(t.Context(), scope))
 			unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryGitPush, ActorID: repository.OwnerID, ScopeID: repository.ID})
+		})
+
+		t.Run("restricted push protection explains and records a bypass", func(t *testing.T) {
+			defer test.MockVariableValue(&setting.SecretScanning.PushProtection, true)()
+			defer test.MockVariableValue(&setting.SecretScanning.AllowBypass, true)()
+
+			secretClone := t.TempDir()
+			require.NoError(t, git.Clone(t.Context(), writerURL.String(), secretClone, git.CloneRepoOptions{}))
+			commit := commitBranchroomFakeEnvironment(t, secretClone, "TEST=AKIA"+"P7DRA5GK4GL3TX7D\n", "add a scanner fixture")
+			const firstRef = "refs/heads/branchroom/scan-one"
+			const secondRef = "refs/heads/branchroom/scan-two"
+
+			_, stderr, pushErr := gitcmd.NewCommand("push", "origin").AddDynamicArguments("HEAD:"+firstRef, "HEAD:"+secondRef).WithDir(secretClone).RunStdString(t.Context())
+			require.Error(t, pushErr)
+			assert.Contains(t, stderr, "AWS access key in .env")
+
+			pushErr = gitcmd.NewCommand("push", "-o", "secret_scanning.allow=true", "origin").
+				AddDynamicArguments("HEAD:"+firstRef, "HEAD:"+secondRef).WithDir(secretClone).RunWithStderr(t.Context())
+			require.NoError(t, pushErr)
+			assert.Equal(t, commit, branchroomObjectID(t, restricted, firstRef))
+			assert.Equal(t, commit, branchroomObjectID(t, restricted, secondRef))
+
+			notices, err := system_model.Notices(t.Context(), 1, 50)
+			require.NoError(t, err)
+			var bypassCount int
+			for _, notice := range notices {
+				if strings.Contains(notice.Description, ordinaryWriter.Name+" bypassed secret push protection on "+repository.FullName()) {
+					bypassCount++
+					assert.Contains(t, notice.Description, "AWS access key in .env (AKIAP7DR********)")
+				}
+			}
+			assert.Equal(t, 1, bypassCount)
 		})
 
 		t.Run("an unsafe restricted root hides private refs", func(t *testing.T) {

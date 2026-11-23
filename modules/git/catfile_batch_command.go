@@ -18,20 +18,21 @@ import (
 type catFileBatchCommand struct {
 	ctx   context.Context
 	repo  RepositoryFacade
+	env   []string
 	batch *catFileBatchCommunicator
 }
 
 var _ CatFileBatch = (*catFileBatchCommand)(nil)
 
-func newCatFileBatchCommand(ctx context.Context, repo RepositoryFacade) *catFileBatchCommand {
-	return &catFileBatchCommand{ctx: ctx, repo: repo}
+func newCatFileBatchCommand(ctx context.Context, repo RepositoryFacade, env []string) *catFileBatchCommand {
+	return &catFileBatchCommand{ctx: ctx, repo: repo, env: env}
 }
 
 func (b *catFileBatchCommand) getBatch(callerInfo string) *catFileBatchCommunicator {
 	if b.batch != nil {
 		return b.batch
 	}
-	b.batch = newCatFileBatch(b.ctx, b.repo, gitcmd.NewCommand("cat-file", "--batch-command").WithParentCallerInfo(callerInfo))
+	b.batch = newCatFileBatch(b.ctx, b.repo, gitcmd.NewCommand("cat-file", "--batch-command").WithEnv(b.env).WithParentCallerInfo(callerInfo))
 	return b.batch
 }
 

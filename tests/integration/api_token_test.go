@@ -619,8 +619,8 @@ func TestBranchroomAgentComment(t *testing.T) {
 	assert.Contains(t, page.Body.String(), "Claude Opus 5.5")
 	assert.Contains(t, page.Body.String(), "T3 Code")
 	assert.Contains(t, page.Body.String(), "responsible: user2")
-	identity.Sponsor = "unknown-responsible-person"
-	req = NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", &api.CreateAccessTokenOption{Name: "unknown-responsible", Scopes: []string{"all"}, AgentIdentity: identity}).AddBasicAuth("user2")
+	identity.Sponsor = "user1"
+	req = NewRequestWithJSON(t, "POST", "/api/v1/users/user2/tokens", &api.CreateAccessTokenOption{Name: "different-responsible", Scopes: []string{"all"}, AgentIdentity: identity}).AddBasicAuth("user2")
 	response := MakeRequest(t, req, http.StatusUnprocessableEntity)
-	assert.Contains(t, response.Body.String(), "responsible person must be an existing active user")
+	assert.Contains(t, response.Body.String(), "responsible person must be the token owner")
 }

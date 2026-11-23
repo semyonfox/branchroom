@@ -13,7 +13,7 @@
 	<dialog id="forge-palette" class="forge-palette"
 		aria-label="{{ctx.Locale.Tr "forge.palette.title"}}"
 		data-repo-link="{{.RepoLink}}"
-		data-signed-in="{{.IsSigned}}"
+		{{if .IsSigned}}data-user-id="{{.SignedUser.ID}}"{{end}}
 		{{if .Repository}}data-default-branch="{{.Repository.DefaultBranch}}"{{end}}
 		data-recent="{{ctx.Locale.Tr "forge.palette.recent"}}"
 		data-repositories="{{ctx.Locale.Tr "forge.palette.repositories"}}"

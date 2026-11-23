@@ -274,7 +274,7 @@ export function initRepoDiffView() {
     const box = el.closest<HTMLElement>('.file-content')!;
     const load = box.querySelector<HTMLElement>('[data-global-click="diffLoadFileBody"]');
     if (load && box.getAttribute('data-folded') === 'true') {
-      void diffLoadFileBody(load);
+      diffLoadFileBody(load);
       return;
     }
     invertFileFolding(box, el);

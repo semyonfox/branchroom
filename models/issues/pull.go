@@ -377,9 +377,10 @@ func (pr *PullRequest) getReviewedByLines(ctx context.Context, writer io.Writer)
 
 	// Note: This doesn't page as we only expect a very limited number of reviews
 	reviews, err := FindLatestReviews(ctx, FindReviewOptions{
-		Types:        []ReviewType{ReviewTypeApprove},
-		IssueID:      pr.IssueID,
-		OfficialOnly: setting.Repository.PullRequest.DefaultMergeMessageOfficialApproversOnly,
+		Types:          []ReviewType{ReviewTypeApprove},
+		IssueID:        pr.IssueID,
+		OfficialOnly:   setting.Repository.PullRequest.DefaultMergeMessageOfficialApproversOnly,
+		PersonsOwnOnly: true,
 	})
 	if err != nil {
 		log.Error("Unable to FindReviews for PR ID %d: %v", pr.ID, err)

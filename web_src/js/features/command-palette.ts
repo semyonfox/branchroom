@@ -1,5 +1,5 @@
 import {GET} from '../modules/fetch.ts';
-import {localUserSettings} from '../modules/user-settings.ts';
+import {localUserSettings, paletteRecentKey} from '../modules/user-settings.ts';
 import {pathEscapeSegments} from '../utils/url.ts';
 
 type Section = 'recent' | 'repositories' | 'files' | 'issues' | 'commands';
@@ -45,7 +45,8 @@ function createPalette() {
   document.body.append(dialog);
   const text = (key: string) => dialog.getAttribute(`data-${key}`)!;
   const repoLink = dialog.getAttribute('data-repo-link') || '';
-  const signedIn = dialog.getAttribute('data-signed-in') === 'true';
+  const userID = dialog.getAttribute('data-user-id');
+  const signedIn = Boolean(userID);
   const repoSearchURL = `${window.config.appSubUrl}/${signedIn ? 'repo/search' : 'api/v1/repos/search'}`;
   const issueSearchURL = signedIn ? `${repoLink}/issues/search` : `${window.config.appSubUrl}/api/v1/repos${repoLink.slice(window.config.appSubUrl.length)}/issues`;
   const finder = document.querySelector('[data-tree-list-url]');
@@ -109,8 +110,9 @@ function createPalette() {
   }
 
   function recents(): PaletteResult[] {
+    if (!userID) return [];
     try {
-      const stored: unknown = JSON.parse(localUserSettings.getString('forge-palette-recent', '[]'));
+      const stored: unknown = JSON.parse(localUserSettings.getString(paletteRecentKey(userID), '[]'));
       if (!Array.isArray(stored)) return [];
       return stored.filter(isRecord).filter((item) => typeof item.label === 'string' && typeof item.url === 'string' && item.url.startsWith('/') && !item.url.startsWith('//') && item.url !== location.pathname + location.search)
         .map((item) => ({section: 'recent', label: String(item.label), url: String(item.url)}));

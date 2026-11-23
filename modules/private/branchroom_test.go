@@ -24,6 +24,7 @@ func TestBranchroomPreReceiveRequestJSON(t *testing.T) {
 		SessionKey:                 "session-key",
 		BearerSecret:               []byte("bearer"),
 		Updates:                    []byte("update"),
+		AllowSecrets:               true,
 		ObjectDirectory:            "/store.git/objects/incoming-quarantine",
 		AlternateObjectDirectories: "/store.git/objects",
 		QuarantinePath:             "/store.git/objects/incoming-quarantine",
@@ -34,14 +35,14 @@ func TestBranchroomPreReceiveRequestJSON(t *testing.T) {
 
 	var fields map[string]json.Value
 	require.NoError(t, json.Unmarshal(data, &fields))
-	require.Len(t, fields, 6)
+	require.Len(t, fields, 7)
 	for _, name := range []string{
-		"session_key", "bearer_secret", "updates",
+		"session_key", "bearer_secret", "updates", "allow_secrets",
 		"object_directory", "alternate_object_directories", "quarantine_path",
 	} {
 		assert.Contains(t, fields, name)
 	}
-	for _, camel := range []string{"SessionKey", "BearerSecret", "Updates", "ObjectDirectory", "AlternateObjectDirectories", "QuarantinePath"} {
+	for _, camel := range []string{"SessionKey", "BearerSecret", "Updates", "AllowSecrets", "ObjectDirectory", "AlternateObjectDirectories", "QuarantinePath"} {
 		assert.NotContains(t, fields, camel)
 	}
 
@@ -50,6 +51,7 @@ func TestBranchroomPreReceiveRequestJSON(t *testing.T) {
 	assert.Equal(t, req.SessionKey, got.SessionKey)
 	assert.True(t, bytes.Equal(req.BearerSecret, got.BearerSecret))
 	assert.True(t, bytes.Equal(req.Updates, got.Updates))
+	assert.True(t, got.AllowSecrets)
 	assert.Equal(t, req.ObjectDirectory, got.ObjectDirectory)
 	assert.Equal(t, req.AlternateObjectDirectories, got.AlternateObjectDirectories)
 	assert.Equal(t, req.QuarantinePath, got.QuarantinePath)

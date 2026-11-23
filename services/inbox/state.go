@@ -113,10 +113,7 @@ func applyItem(ctx context.Context, doer *user_model.User, id int64, opts api.In
 		default:
 			return errors.New("choose a close reason")
 		}
-		if _, err := issue_service.CreateIssueComment(ctx, doer, issue.Repo, issue, "Close reason: "+opts.Reason+".", nil); err != nil {
-			return err
-		}
-		return issue_service.CloseIssue(ctx, issue, doer, "")
+		return issue_service.CloseIssueWithComment(ctx, issue, doer, "Close reason: "+opts.Reason+".")
 	default:
 		return errors.New("unknown inbox action")
 	}

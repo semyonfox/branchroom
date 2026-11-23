@@ -100,7 +100,7 @@ func NewComment(ctx *context.Context) {
 						ctx.Flash.Error("The origin branch is delete, cannot reopen.")
 						return
 					}
-					if err := pull_service.PushToBaseRepo(ctx, pull); err != nil {
+					if err := pull_service.PushToBaseRepo(ctx, nil, pull); err != nil { // the head may have moved while closed, so a reopen never publishes restricted work
 						ctx.ServerErrorAuto(err)
 						return
 					}

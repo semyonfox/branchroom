@@ -3,7 +3,7 @@ import '../css/index.css';
 import {initInbox} from './features/inbox.ts';
 import {initInboxQueue} from './features/inbox-queue.ts';
 import {initBranchroom} from './features/branchroom.ts';
-import {localUserSettings} from './modules/user-settings.ts';
+import {localUserSettings, paletteRecentKey} from './modules/user-settings.ts';
 
 import {initDashboardRepoList} from './features/dashboard.ts';
 import {initGlobalCopyToClipboardListener} from './modules/clipboard.ts';
@@ -220,10 +220,34 @@ if (paletteTrigger) {
       openPalette();
     }
   }, {capture: true});
-  if (!/^\/user\/(login|sign_up|forgot_password|recover_account|activate)/.test(location.pathname)) try {
-    const stored: unknown = JSON.parse(localUserSettings.getString('forge-palette-recent', '[]'));
-    // same title means the same page to the reader, like / and /inbox
-    const recent = Array.isArray(stored) ? stored.filter((item) => item && typeof item === 'object' && typeof item.url === 'string' && typeof item.label === 'string' && item.url.startsWith('/') && !item.url.startsWith('//') && item.url !== location.pathname + location.search && item.label !== document.title) : [];
-    localUserSettings.setString('forge-palette-recent', JSON.stringify([{url: location.pathname + location.search, label: document.title}, ...recent].slice(0, 8)));
+  const userID = document.querySelector<HTMLDialogElement>('#forge-palette')!.getAttribute('data-user-id');
+  try {
+    const previousUserKey = `forge-palette-user:${window.config.appSubUrl}`;
+    const previousUserID = localUserSettings.getString(previousUserKey);
+    localUserSettings.remove('forge-palette-recent'); // discard recents that predate account scoping
+    if (previousUserID && previousUserID !== userID) {
+      localUserSettings.remove(paletteRecentKey(previousUserID));
+      localUserSettings.remove(previousUserKey);
+    }
+    if (userID) {
+      const recentKey = paletteRecentKey(userID);
+      localUserSettings.setString(previousUserKey, userID);
+      document.addEventListener('click', (event) => {
+        const {target} = event;
+        if (target instanceof Element && target.closest('a')?.getAttribute('href') === `${window.config.appSubUrl}/user/logout`) {
+          try {
+            localUserSettings.remove(recentKey);
+          } catch { /* storage can be disabled */ }
+        }
+      }, {capture: true});
+      const stored: unknown = JSON.parse(localUserSettings.getString(recentKey, '[]'));
+      const pageURL = location.pathname + location.search;
+      // same title means the same page to the reader, like / and /inbox
+      const recent = Array.isArray(stored) ? stored.filter((item: unknown) =>
+        typeof item === 'object' && item !== null && 'url' in item && typeof item.url === 'string' &&
+        'label' in item && typeof item.label === 'string' && item.url.startsWith('/') &&
+        !item.url.startsWith('//') && item.url !== pageURL && item.label !== document.title) : [];
+      localUserSettings.setString(recentKey, JSON.stringify([{url: pageURL, label: document.title}, ...recent].slice(0, 8)));
+    }
   } catch { /* storage can be disabled */ }
 }

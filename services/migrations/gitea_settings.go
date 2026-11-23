@@ -6,6 +6,7 @@ package migrations
 import (
 	"cmp"
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -84,7 +85,7 @@ func (g *GiteaDownloader) getCollaborators(ctx context.Context) ([]*base.Collabo
 	users, err := giteaListAll(g, func(page gitea_sdk.ListOptions) ([]*gitea_sdk.User, *gitea_sdk.Response, error) {
 		return g.client.Repositories.ListCollaborators(ctx, g.repoOwner, g.repoName, gitea_sdk.ListCollaboratorsOptions{ListOptions: page})
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, errSettingsPageLimit) {
 		return nil, err
 	}
 	collaborators := make([]*base.Collaborator, 0, len(users))
@@ -99,12 +100,12 @@ func (g *GiteaDownloader) getCollaborators(ctx context.Context) ([]*base.Collabo
 			Permission: convertGiteaAccessMode(string(permission.Permission)),
 		})
 	}
-	return collaborators, nil
+	return collaborators, err
 }
 
 func giteaListAll[T any](g *GiteaDownloader, list func(page gitea_sdk.ListOptions) ([]T, *gitea_sdk.Response, error)) ([]T, error) {
 	var all []T
-	for page := 1; ; page++ {
+	for page := 1; page <= maxSettingsPages; page++ {
 		items, resp, err := list(gitea_sdk.ListOptions{Page: page, PageSize: g.maxPerPage})
 		if err != nil {
 			return nil, giteaStatusError(resp, err)
@@ -114,6 +115,7 @@ func giteaListAll[T any](g *GiteaDownloader, list func(page gitea_sdk.ListOption
 			return all, nil
 		}
 	}
+	return all, errSettingsPageLimit
 }
 
 func giteaStatusError(resp *gitea_sdk.Response, err error) error {

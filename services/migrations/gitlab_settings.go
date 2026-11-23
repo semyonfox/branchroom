@@ -88,7 +88,7 @@ func (g *GitlabDownloader) GetSettings(ctx context.Context) (*base.RepoSettings,
 
 func gitlabListAll[T any](g *GitlabDownloader, list func(page gitlab.ListOptions) ([]T, *gitlab.Response, error)) ([]T, error) {
 	var all []T
-	for page := int64(1); ; page++ {
+	for page := int64(1); page <= maxSettingsPages; page++ {
 		items, resp, err := list(gitlab.ListOptions{Page: page, PerPage: int64(g.maxPerPage)})
 		if err != nil {
 			if resp != nil && resp.Response != nil {
@@ -101,6 +101,7 @@ func gitlabListAll[T any](g *GitlabDownloader, list func(page gitlab.ListOptions
 			return all, nil
 		}
 	}
+	return all, errSettingsPageLimit
 }
 
 func gitlabOwnAccess(project *gitlab.Project) gitlab.AccessLevelValue {

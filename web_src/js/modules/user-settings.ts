@@ -49,6 +49,14 @@ export const localUserSettings = {
   setString: (key: string, value: string) => {
     setLocalStorageUserSetting(key, value);
   },
+  remove: (key: string) => {
+    try {
+      localStorage?.removeItem(key);
+      localStorage?.removeItem(`${itemKeyPrefix}${key}`);
+    } catch (e) {
+      handleLocalStorageError(e);
+    }
+  },
   getBoolean: (key: string, def: boolean = false): boolean => {
     return localUserSettings.getString(key, String(def)) === 'true';
   },
@@ -69,5 +77,9 @@ export const localUserSettings = {
     localUserSettings.setString(key, JSON.stringify(value));
   },
 };
+
+export function paletteRecentKey(userID: string): string {
+  return `forge-palette-recent:${window.config.appSubUrl}:${userID}`;
+}
 
 window.localUserSettings = localUserSettings;

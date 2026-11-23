@@ -68,19 +68,20 @@ func TestAddBranchroomReceiveSessionOutcomes(t *testing.T) {
 	sessionsAfterRerun := findRows()
 	assert.Equal(t, sessions, sessionsAfterRerun)
 
-	// a completed row finished normally after the migration keeps its outcome across reruns
-	_, err := x.Table("branchroom_receive_session").ID(rows[4].ID).
-		Cols("outcome").
-		Update(&branchroomReceiveSessionOutcomeBackfill{Outcome: "denied"})
-	require.NoError(t, err)
-	require.NoError(t, AddBranchroomReceiveSessionOutcomes(t.Context(), x))
-	sessions = findRows()
-	require.Len(t, sessions, len(rows))
-	assert.Equal(t, "denied", sessions[4].Outcome)
-	assert.Equal(t, "revoked", sessions[3].Outcome)
+	for _, outcome := range []string{"denied", "admitted", "accepted", "failed"} {
+		_, err := x.Table("branchroom_receive_session").ID(rows[4].ID).
+			Cols("outcome").
+			Update(&branchroomReceiveSessionOutcomeBackfill{Outcome: outcome})
+		require.NoError(t, err)
+		require.NoError(t, AddBranchroomReceiveSessionOutcomes(t.Context(), x))
+		sessions = findRows()
+		require.Len(t, sessions, len(rows))
+		assert.Equal(t, outcome, sessions[4].Outcome)
+		assert.Equal(t, "revoked", sessions[3].Outcome)
+	}
 
 	// new rows fall back to the pending default
-	_, err = x.Insert(&branchroomReceiveSessionMigration{
+	_, err := x.Insert(&branchroomReceiveSessionMigration{
 		SessionKey:       "66666666-6666-6666-6666-666666666666",
 		BearerSecretHash: strings.Repeat("f", 64),
 		ScopeID:          1,

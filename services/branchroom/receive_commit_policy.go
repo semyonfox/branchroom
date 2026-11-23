@@ -32,11 +32,7 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 	if err != nil {
 		return false
 	}
-	environ := append(gitcmd.CommonGitCmdEnvs(),
-		private.GitObjectDirectory+"="+quarantine.ObjectDirectory,
-		private.GitAlternativeObjectDirectories+"="+quarantine.AlternateObjectDirectories,
-		private.GitQuarantinePath+"="+quarantine.QuarantinePath,
-	)
+	environ := receiveQuarantineEnv(quarantine)
 	verifyCtx, cancel := context.WithTimeout(ctx, receiveGitVerificationTimeout)
 	defer cancel()
 	if !receiveRepositoryUsesObjectFormat(verifyCtx, restricted, environ, objectFormat) {
@@ -57,7 +53,6 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 			!receiveAncestor(verifyCtx, restricted, environ, workspace.PublicBaseSHA, update.NewOID) {
 			return false
 		}
-
 		currentOID, exists, ok := receiveCurrentRef(verifyCtx, restricted, environ, update.Ref, objectFormat)
 		if !ok {
 			return false
@@ -74,6 +69,14 @@ func verifyReceiveCommitUpdates(ctx context.Context, workspace *branchroom_model
 		}
 	}
 	return true
+}
+
+func receiveQuarantineEnv(quarantine branchroom_module.ReceiveQuarantineValues) []string {
+	return append(gitcmd.CommonGitCmdEnvs(),
+		private.GitObjectDirectory+"="+quarantine.ObjectDirectory,
+		private.GitAlternativeObjectDirectories+"="+quarantine.AlternateObjectDirectories,
+		private.GitQuarantinePath+"="+quarantine.QuarantinePath,
+	)
 }
 
 func receiveRepositoryUsesObjectFormat(ctx context.Context, restricted git.RepositoryFacade, environ []string, expected git.ObjectFormat) bool {

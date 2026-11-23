@@ -50,12 +50,17 @@ type CatFileBatchCloser interface {
 // NewBatch creates a "batch object provider (CatFileBatch)" for the given repository path to retrieve object info and content efficiently.
 // The CatFileBatch and the readers create by it should only be used in the same goroutine.
 func NewBatch(ctx context.Context, repo RepositoryFacade) (CatFileBatchCloser, error) {
+	return NewBatchWithEnv(ctx, repo, nil)
+}
+
+// NewBatchWithEnv opens a batch that can read objects in a receive quarantine.
+func NewBatchWithEnv(ctx context.Context, repo RepositoryFacade, env []string) (CatFileBatchCloser, error) {
 	repoPath := gitrepo.RepoLocalPath(repo)
 	if _, err := os.Stat(repoPath); err != nil {
 		return nil, util.NewNotExistErrorf("repo %q doesn't exist", repo.LogString())
 	}
 	if DefaultFeatures().SupportCatFileBatchCommand {
-		return newCatFileBatchCommand(ctx, repo), nil
+		return newCatFileBatchCommand(ctx, repo, env), nil
 	}
-	return newCatFileBatchLegacy(ctx, repo), nil
+	return newCatFileBatchLegacy(ctx, repo, env), nil
 }
