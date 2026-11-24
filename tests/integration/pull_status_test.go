@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	auth_model "gitea.dev/models/auth"
 	git_model "gitea.dev/models/git"
@@ -23,6 +24,7 @@ import (
 	"gitea.dev/services/pull"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPullCreate_CommitStatus(t *testing.T) {
@@ -134,6 +136,12 @@ func TestPullCreate_EmptyChangesWithDifferentCommits(t *testing.T) {
 		text := strings.TrimSpace(doc.doc.Find(".merge-section").Text())
 		assert.Contains(t, text, "The changes on this branch are already on the target branch. This will be an empty commit.")
 		assert.Contains(t, text, "This pull request can be merged automatically.")
+		// the merge form is rendered on the server: a dialog per allowed style, unforced and not waiting on checks
+		mergeDialog := doc.doc.Find("#forge-merge-merge")
+		require.Equal(t, 1, mergeDialog.Length())
+		assert.Equal(t, "false", mergeDialog.Find("input[name=force_merge]").AttrOr("value", ""))
+		_, waitsForChecks := mergeDialog.Find("input[name=merge_when_checks_succeed]").Attr("checked")
+		assert.False(t, waitsForChecks)
 	})
 }
 
@@ -170,6 +178,7 @@ func TestPullStatusDelayCheck(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		defer test.MockVariableValue(&setting.Repository.PullRequest.DelayCheckForInactiveDays, 1)()
 		defer test.MockVariableValue(&pull.AddPullRequestToCheckQueue)()
+		defer test.MockVariableValue(&pull.ViewCheckWait, time.Millisecond)() // the mocked queue never runs the check, so don't wait for it
 
 		session := loginUser(t, "user2")
 
@@ -210,7 +219,7 @@ func TestPullStatusDelayCheck(t *testing.T) {
 		})
 		assert.Equal(t, issues.PullRequestStatusChecking, issue3.PullRequest.Status)
 		assert.Zero(t, checkedPrID)
-		assertReloadingInterval(t, "5000") // the PR status is "checking", so try to reload the merge box
+		assertReloadingInterval(t, "1000") // the PR status is "checking", so try to reload the merge box
 
 		// view a PR with status=checking, it starts the real check
 		issue3, checkedPrID = run(t, func(t *testing.T) {

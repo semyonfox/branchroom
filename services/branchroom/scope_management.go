@@ -10,6 +10,7 @@ import (
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	organization_model "gitea.dev/models/organization"
+	perm_model "gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
@@ -31,22 +32,10 @@ func CreateRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 	if !setting.Branchroom.Enabled {
 		return nil, util.NewNotExistErrorf("Branchroom scope does not exist")
 	}
-	return createRepositoryScope(ctx, request, branchroom_model.ScopeKindRepository)
+	return createRepositoryScope(ctx, request)
 }
 
-// createRepositoryEnvironmentScope creates an internal encrypted-environment scope.
-// It intentionally has no web, API, Git, or runner entry point in the development slice.
-func createRepositoryEnvironmentScope(ctx context.Context, request CreateRepositoryScopeRequest) (*branchroom_model.Scope, error) {
-	if !setting.Branchroom.Enabled || !setting.BranchroomEnvironment.Enabled {
-		return nil, util.NewNotExistErrorf("Branchroom environment scope does not exist")
-	}
-	if request.Surface != branchroom_model.SurfaceSystem {
-		return nil, util.NewInvalidArgumentErrorf("Branchroom environment scopes require an internal surface")
-	}
-	return createRepositoryScope(ctx, request, branchroom_model.ScopeKindEnvironment)
-}
-
-func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeRequest, kind branchroom_model.ScopeKind) (*branchroom_model.Scope, error) {
+func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeRequest) (*branchroom_model.Scope, error) {
 	if request.RepoID <= 0 || request.Actor.Type != branchroom_model.ActorTypeUser || request.Actor.ID <= 0 || !branchroom_model.IsSurfaceValid(request.Surface) {
 		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom scope creation request")
 	}
@@ -57,7 +46,7 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 		}
 
 		scope := &branchroom_model.Scope{
-			Kind:        kind,
+			Kind:        branchroom_model.ScopeKindRepository,
 			RepoID:      request.RepoID,
 			Name:        request.Name,
 			State:       branchroom_model.ScopeStateActive,
@@ -68,25 +57,16 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 		if err := branchroom_model.InsertScope(txCtx, scope); err != nil {
 			return nil, err
 		}
-		if err := branchroom_model.InsertGrant(txCtx, &branchroom_model.Grant{
+		grant := &branchroom_model.Grant{
 			ScopeID:     scope.ID,
 			SubjectType: branchroom_model.SubjectTypeUser,
 			SubjectID:   request.Actor.ID,
+			ExpiresUnix: timeutil.TimeStampNow().AddDuration(setting.Branchroom.GrantDuration()),
 			Action:      branchroom_model.ActionDiscover,
 			CreatedByID: request.Actor.ID,
-		}); err != nil {
-			return nil, err
 		}
-		if kind == branchroom_model.ScopeKindEnvironment {
-			if err := branchroom_model.InsertGrant(txCtx, &branchroom_model.Grant{
-				ScopeID:     scope.ID,
-				SubjectType: branchroom_model.SubjectTypeUser,
-				SubjectID:   request.Actor.ID,
-				Action:      branchroom_model.ActionMaterialize,
-				CreatedByID: request.Actor.ID,
-			}); err != nil {
-				return nil, err
-			}
+		if err := branchroom_model.InsertGrant(txCtx, grant); err != nil {
+			return nil, err
 		}
 
 		now := timeutil.TimeStampNow()
@@ -106,6 +86,9 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 			ExpiresUnix:     now,
 			CreatedUnix:     now,
 		}); err != nil {
+			return nil, err
+		}
+		if err := recordRepositoryGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, reasonDiscoveryGrantCreated); err != nil {
 			return nil, err
 		}
 		return scope, nil
@@ -129,9 +112,9 @@ func requireScopeOwnerTx(ctx context.Context, repoID int64, actor Actor, notExis
 	return nil
 }
 
-// requireActiveScopeTx additionally fetches one locked scope and requires it to
-// belong to the repository, carry kind, and stay active.
-func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeID int64, kind branchroom_model.ScopeKind, notExistMessage string) (*branchroom_model.Scope, error) {
+// requireActiveScopeTx additionally fetches one locked scope and requires it to be an
+// active repository scope of the repository.
+func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeID int64, notExistMessage string) (*branchroom_model.Scope, error) {
 	if err := requireScopeOwnerTx(ctx, repoID, actor, notExistMessage); err != nil {
 		return nil, err
 	}
@@ -139,7 +122,7 @@ func requireActiveScopeTx(ctx context.Context, repoID int64, actor Actor, scopeI
 	if err != nil {
 		return nil, err
 	}
-	if scope.RepoID != repoID || scope.Kind != kind || scope.State != branchroom_model.ScopeStateActive {
+	if scope.RepoID != repoID || scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
 		return nil, util.NewNotExistErrorf("%s", notExistMessage)
 	}
 	return scope, nil
@@ -205,7 +188,7 @@ func isActualRepositoryOwner(ctx context.Context, repoID, userID int64) (bool, e
 		return false, err
 	}
 	for _, team := range teams {
-		if team.HasAdminAccess() {
+		if team.AccessMode >= perm_model.AccessModeAdmin { // upstream dropped Team.HasAdminAccess, keep its meaning
 			return true, nil
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -100,7 +101,7 @@ func TestCreateRepositoryWorkspaceImportsPublicBase(t *testing.T) {
 	assert.ErrorIs(t, err, ErrWorkspaceAlreadyExists)
 }
 
-func TestCreateRepositoryWorkspaceFailedImportStaysNonRoutable(t *testing.T) {
+func TestCreateRepositoryWorkspaceUnavailableStoreStaysNonRoutable(t *testing.T) {
 	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
 	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-failed-import")
 
@@ -121,7 +122,7 @@ func TestCreateRepositoryWorkspaceFailedImportStaysNonRoutable(t *testing.T) {
 	stored, err := branchroom_model.GetWorkspaceByScopeID(t.Context(), scope.ID)
 	require.NoError(t, err)
 	assert.Equal(t, branchroom_model.WorkspaceStateFailed, stored.State)
-	assert.Equal(t, "import_failed", stored.FailureCode)
+	assert.Equal(t, "store_unavailable", stored.FailureCode)
 	assert.NotEqual(t, branchroom_model.WorkspaceStateReady, stored.State)
 	_, err = branchroom_model.TransitionWorkspace(t.Context(), stored.ID, branchroom_model.WorkspaceStateFailed, branchroom_model.WorkspaceStateReady, "", 0)
 	assert.ErrorIs(t, err, util.ErrInvalidArgument)
@@ -131,7 +132,9 @@ func TestCreateRepositoryWorkspaceHookInstallFailureStaysNonRoutable(t *testing.
 	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
 	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "workspace-hook-install-failed")
 
-	require.NoError(t, os.Chmod(setting.Branchroom.RestrictedRepoRootPath, 0o770))
+	hooksRoot := filepath.Join(setting.Branchroom.RestrictedRepoRootPath, ".branchroom-hooks")
+	require.NoError(t, os.Mkdir(hooksRoot, 0o700))
+	require.NoError(t, os.Chmod(hooksRoot, 0o770))
 
 	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
 		RepoID:        repository.ID,
@@ -556,11 +559,11 @@ func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *
 	restoreBranchroom := test.MockVariableValue(&setting.Branchroom)
 	t.Cleanup(restoreBranchroom)
 
-	root := t.TempDir()
+	root := newPrivateRestrictedTestRoot(t)
 	publicRoot := filepath.Join(root, "public-repositories")
-	restrictedRoot := filepath.Join(root, "restricted-repositories")
+	restrictedRoot := newPrivateRestrictedTestRoot(t)
 	require.NoError(t, os.MkdirAll(publicRoot, 0o755))
-	require.NoError(t, os.MkdirAll(restrictedRoot, 0o755))
+	require.NoError(t, os.Chmod(restrictedRoot, 0o700))
 	setting.RepoRootPath = publicRoot
 	setting.Branchroom = setting.BranchroomConfig{
 		Enabled:                true,
@@ -570,7 +573,7 @@ func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *
 
 	repository := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
 	public := repository.CodeStorageRepo()
-	require.NoError(t, git.InitRepository(t.Context(), public, repository.ObjectFormatName))
+	require.NoError(t, git.InitRepository(t.Context(), public, repository.ObjectFormatName, ""))
 	require.NoError(t, git.ForceFastImport(t.Context(), public, []git.FastImportCommit{{
 		Ref:     "refs/heads/main",
 		Message: "public main",
@@ -579,6 +582,18 @@ func prepareWorkspaceSourceRepository(t *testing.T) (gitrepo.RepositoryFacade, *
 	baseSHA, _, err := gitcmd.NewCommand("rev-parse", "refs/heads/main").WithRepo(public).RunStdString(t.Context())
 	require.NoError(t, err)
 	return public, repository, strings.TrimSpace(baseSHA)
+}
+
+func newPrivateRestrictedTestRoot(t *testing.T) string {
+	t.Helper()
+	parent, err := os.UserHomeDir()
+	require.NoError(t, err)
+	//nolint:usetesting // t.TempDir does not guarantee the private ancestor this test requires.
+	root, err := os.MkdirTemp(parent, ".gitea-branchroom-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	require.NoError(t, os.Chmod(root, 0o700))
+	return root
 }
 
 func insertWorkspaceScope(t *testing.T, repoID, ownerID int64, name string) *branchroom_model.Scope {
@@ -594,4 +609,63 @@ func insertWorkspaceScope(t *testing.T, repoID, ownerID int64, name string) *bra
 	}
 	require.NoError(t, branchroom_model.InsertScope(t.Context(), scope))
 	return scope
+}
+
+func TestAbandonedWorkspaceProvisioning(t *testing.T) {
+	for _, operation := range []string{"retry", "purge"} {
+		t.Run(operation, func(t *testing.T) {
+			_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+			scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "abandoned-store")
+			_, err := db.GetEngine(t.Context()).ID(workspace.ID).Cols("state", "updated_unix").NoAutoTime().Update(&branchroom_model.Workspace{State: branchroom_model.WorkspaceStateProvisioning, UpdatedUnix: timeutil.TimeStamp(time.Now().Add(-workspaceProvisioningWindow - time.Minute).Unix())})
+			require.NoError(t, err)
+			if operation == "retry" {
+				retried, err := RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
+				require.NoError(t, err)
+				require.Equal(t, branchroom_model.WorkspaceStateReady, retried.State)
+			} else {
+				_, err := PurgeWorkspace(t.Context(), PurgeWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, Surface: branchroom_model.SurfaceSystem})
+				require.NoError(t, err)
+				require.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git"))
+			}
+		})
+	}
+}
+
+func TestLateAbandonedImportCannotTouchRetriedStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "late-import")
+	_, err := db.GetEngine(t.Context()).ID(workspace.ID).Cols("state", "updated_unix").NoAutoTime().Update(&branchroom_model.Workspace{State: branchroom_model.WorkspaceStateProvisioning, UpdatedUnix: timeutil.TimeStamp(time.Now().Add(-workspaceProvisioningWindow - time.Minute).Unix())})
+	require.NoError(t, err)
+	stale, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+
+	actor := Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}
+	retried, err := RetryWorkspaceProvisioning(t.Context(), RetryWorkspaceProvisioningRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: actor, Surface: branchroom_model.SurfaceSystem})
+	require.NoError(t, err)
+	require.NotEqual(t, stale.StoreID, retried.StoreID)
+
+	_, err = importReservedWorkspace(t.Context(), repository, stale, CreateRepositoryWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: actor, PublicBaseSHA: baseSHA, Surface: branchroom_model.SurfaceSystem})
+	require.Error(t, err)
+	stored, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+	assert.Equal(t, branchroom_model.WorkspaceStateReady, stored.State)
+	assert.Equal(t, retried.StoreID, stored.StoreID)
+	assert.DirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, retried.StoreID+".git"))
+	assert.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, stale.StoreID+".git"))
+}
+
+func TestWorkspaceReadyFailureRemovesImportedStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, "ready-failure")
+	request := CreateRepositoryWorkspaceRequest{RepoID: repository.ID, ScopeID: scope.ID, Actor: Actor{Type: branchroom_model.ActorTypeUser, ID: repository.OwnerID}, PublicBaseSHA: baseSHA, Surface: branchroom_model.SurfaceSystem}
+	workspace, err := reserveRepositoryWorkspace(t.Context(), request, repository.ObjectFormatName)
+	require.NoError(t, err)
+	_, err = db.GetEngine(t.Context()).ID(scope.ID).Cols("state").Update(&branchroom_model.Scope{State: branchroom_model.ScopeStateRetired})
+	require.NoError(t, err)
+	_, err = importReservedWorkspace(t.Context(), repository, workspace, request)
+	require.ErrorIs(t, err, ErrWorkspaceStateChanged)
+	require.NoDirExists(t, filepath.Join(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID+".git"))
+	stored, err := branchroom_model.GetWorkspaceByID(t.Context(), workspace.ID)
+	require.NoError(t, err)
+	require.Equal(t, branchroom_model.WorkspaceStateFailed, stored.State)
 }

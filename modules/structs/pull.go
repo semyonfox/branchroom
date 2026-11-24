@@ -5,10 +5,13 @@ package structs
 
 import (
 	"time"
+
+	"gitea.dev/modules/optional"
 )
 
 // PullRequest represents a pull request
 type PullRequest struct {
+	AgentIdentity *AgentIdentity `json:"agent_identity,omitempty"`
 	// The unique identifier of the pull request
 	ID int64 `json:"id"`
 	// The API URL of the pull request
@@ -137,7 +140,7 @@ type CreatePullRequestOption struct {
 	// The list of label IDs to assign to the pull request
 	Labels []int64 `json:"labels"`
 	// swagger:strfmt date-time
-	Deadline *time.Time `json:"due_date"`
+	Deadline optional.Option[*string] `json:"due_date,omitzero"`
 	// The list of reviewer usernames
 	Reviewers []string `json:"reviewers"`
 	// The list of team reviewer names
@@ -164,8 +167,9 @@ type EditPullRequestOption struct {
 	Labels []int64 `json:"labels"`
 	// The new state for the pull request
 	State *string `json:"state"`
+	// Deadline is the updated due date for the pull request, use null or empty string to remove the deadline
 	// swagger:strfmt date-time
-	Deadline *time.Time `json:"due_date"`
+	Deadline optional.Option[*string] `json:"due_date,omitzero"`
 	// Whether to remove the current deadline
 	RemoveDeadline *bool `json:"unset_due_date"`
 	// Whether to allow maintainer edits

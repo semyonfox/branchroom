@@ -27,10 +27,8 @@ type StarredReposOptions struct {
 	Actor *user_model.User
 }
 
-func (opts *StarredReposOptions) ApplyPublicOnly(publicOnly bool) {
-	if publicOnly {
-		opts.IncludePrivate = false
-	}
+func (opts *StarredReposOptions) ToOrders() string {
+	return "`repository`.id"
 }
 
 func (opts *StarredReposOptions) ToConds() builder.Cond {
@@ -49,7 +47,7 @@ func (opts *StarredReposOptions) ToConds() builder.Cond {
 		// a public repo under a limited/private owner is not publicly reachable, so exclude it too
 		cond = cond.And(PublicRepoUnderPublicOwnerCond())
 	}
-	return cond
+	return cond.And(DoerTokenRepoCond(opts.Actor))
 }
 
 func (opts *StarredReposOptions) ToJoins() []db.JoinFunc {
@@ -76,10 +74,8 @@ type WatchedReposOptions struct {
 	Actor *user_model.User
 }
 
-func (opts *WatchedReposOptions) ApplyPublicOnly(publicOnly bool) {
-	if publicOnly {
-		opts.IncludePrivate = false
-	}
+func (opts *WatchedReposOptions) ToOrders() string {
+	return "`repository`.id"
 }
 
 func (opts *WatchedReposOptions) ToConds() builder.Cond {
@@ -98,7 +94,7 @@ func (opts *WatchedReposOptions) ToConds() builder.Cond {
 		// a public repo under a limited/private owner is not publicly reachable, so exclude it too
 		cond = cond.And(PublicRepoUnderPublicOwnerCond())
 	}
-	return cond.And(builder.Neq{
+	return cond.And(DoerTokenRepoCond(opts.Actor)).And(builder.Neq{
 		"watch.mode": WatchModeDont,
 	})
 }

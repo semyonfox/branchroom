@@ -25,6 +25,7 @@ import (
 	issue_service "gitea.dev/services/issue"
 	notify_service "gitea.dev/services/notify"
 	pull_service "gitea.dev/services/pull"
+	release_service "gitea.dev/services/release"
 )
 
 // pushQueue represents a queue to handle update pull request tests
@@ -94,17 +95,23 @@ func pushQueueHandleUpdates(optsList []*repo_module.PushUpdateOptions) error {
 			continue
 		}
 
-		if opts.RefFullName.IsTag() {
-			if pusher == nil || pusher.ID != opts.PusherID {
-				if opts.PusherID == user_model.ActionsUserID {
-					pusher = user_model.NewActionsUser()
-				} else {
-					var err error
-					if pusher, err = user_model.GetUserByID(ctx, opts.PusherID); err != nil {
-						return err
-					}
-				}
+		if opts.UserExtDoerData == "" {
+			_, pusher, err = user_model.GetPossibleUserByID(ctx, opts.PusherID)
+		} else if opts.PusherID > 0 {
+			// the push was authorised before it was queued, so retain its restrictions even after revocation
+			pusher, err = user_model.GetUserByID(ctx, opts.PusherID)
+			if err == nil {
+				pusher.ExtDoerData = user_model.NewTokenExtDoerData("", 0, "")
+				err = pusher.ExtDoerData.DecodeFromString(opts.UserExtDoerData)
 			}
+		} else {
+			pusher, err = user_model.GetDoerPermissionUser(ctx, opts.PusherID, opts.UserExtDoerData)
+		}
+		if err != nil {
+			return err
+		}
+
+		if opts.RefFullName.IsTag() {
 			tagName := opts.RefFullName.TagName()
 			if opts.IsDelRef() {
 				notify_service.PushCommits(
@@ -142,17 +149,6 @@ func pushQueueHandleUpdates(optsList []*repo_module.PushUpdateOptions) error {
 				}
 			}
 		} else if opts.RefFullName.IsBranch() {
-			if pusher == nil || pusher.ID != opts.PusherID {
-				if opts.PusherID == user_model.ActionsUserID {
-					pusher = user_model.NewActionsUser()
-				} else {
-					var err error
-					if pusher, err = user_model.GetUserByID(ctx, opts.PusherID); err != nil {
-						return err
-					}
-				}
-			}
-
 			if !opts.IsDelRef() {
 				branch := opts.RefFullName.BranchName()
 
@@ -263,17 +259,9 @@ func getCompareURL(ctx context.Context, repo *repo_model.Repository, gitRepo *gi
 }
 
 func pushNewBranch(ctx context.Context, repo *repo_model.Repository, gitRepo *git.Repository, pusher *user_model.User, opts *repo_module.PushUpdateOptions, newCommit *git.Commit) ([]*git.Commit, error) {
-	if repo.IsEmpty { // Change default branch and empty status only if pushed ref is non-empty branch.
-		repo.DefaultBranch = opts.RefName()
-		repo.IsEmpty = false
-		if repo.DefaultBranch != setting.Repository.DefaultBranch {
-			if err := git.SetDefaultBranch(ctx, repo, repo.DefaultBranch); err != nil {
-				return nil, err
-			}
-		}
-		// Update the is empty and default_branch columns
-		if err := repo_model.UpdateRepositoryColsWithAutoTime(ctx, repo, "default_branch", "is_empty"); err != nil {
-			return nil, fmt.Errorf("UpdateRepositoryCols: %w", err)
+	if repo.IsEmpty {
+		if err := SyncBranchesToDB(ctx, repo, pusher.ID, gitRepo, []string{opts.RefName()}); err != nil {
+			return nil, fmt.Errorf("pushNewBranch: %w", err)
 		}
 	}
 
@@ -396,6 +384,7 @@ func pushUpdateAddTags(ctx context.Context, repo *repo_model.Repository, gitRepo
 
 			newReleases = append(newReleases, rel)
 		} else {
+			wasLatestCandidate := rel.CanBeLatest()
 			rel.Sha1 = commit.ID.String()
 			rel.CreatedUnix = createdUnix
 			if rel.IsTag {
@@ -411,6 +400,9 @@ func pushUpdateAddTags(ctx context.Context, repo *repo_model.Repository, gitRepo
 			rel.PublisherID = pusher.ID
 			if err = repo_model.UpdateRelease(ctx, rel); err != nil {
 				return fmt.Errorf("Update: %w", err)
+			}
+			if err = release_service.UpdateLatestRelease(ctx, repo, rel, wasLatestCandidate, ""); err != nil {
+				return fmt.Errorf("pushUpdateAddTags: %w", err)
 			}
 		}
 	}

@@ -845,7 +845,7 @@ func TestRepositoryDirectUserGrantsAcceptOptionalTimeWindow(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, windowStart, sourceReadGrant.NotBeforeUnix)
-	assert.Zero(t, sourceReadGrant.ExpiresUnix)
+	assert.InDelta(t, int64(timeutil.TimeStampNow().AddDuration(setting.Branchroom.GrantDuration())), int64(sourceReadGrant.ExpiresUnix), 2)
 
 	sourceWriteGrant, err := CreateRepositorySourceWriteGrant(ctx, CreateRepositorySourceWriteGrantRequest{
 		RepoID:          1,

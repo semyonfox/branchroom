@@ -1,0 +1,33 @@
+{{$repoFullName := .RepoFullName}}
+{{$repoOperationLink := .RepoOperationLink}}
+{{$repoOperationAction := .RepoOperationAction}}
+{{$repoOperationText := .RepoOperationText}}
+<form class="ui form form-fetch-action" action="{{$repoOperationLink}}" method="post">
+	<input type="hidden" name="action" value="{{$repoOperationAction}}">
+	<div class="field">
+		<label>{{ctx.Locale.Tr "repo.settings.enter_repo_name_to_confirm"}} <span class="tw-text-red">{{$repoFullName}}</span></label>
+	</div>
+	<div class="required field">
+		<label>{{ctx.Locale.Tr "repo.repo_name"}}</label>
+		<input name="repo_name" required>
+	</div>
+	{{if eq $repoOperationAction "transfer"}}
+		<div class="required field">
+			<label>{{ctx.Locale.Tr "repo.settings.transfer_owner"}}</label>
+			<input name="new_owner_name" required>
+		</div>
+	{{end}}
+	{{if eq $repoOperationAction "make_primary"}}
+		<div class="field">
+			<label>{{ctx.Locale.Tr "username"}}</label>
+			<input name="push_mirror_username" autocomplete="off">
+		</div>
+		<div class="field">
+			<label>{{ctx.Locale.Tr "password"}}</label>
+			<input name="push_mirror_password" type="password" autocomplete="new-password">
+			<p class="help">{{ctx.Locale.Tr "repo.settings.make_primary_credentials_help"}}</p>
+		</div>
+	{{end}}
+	{{template "base/modal_actions_confirm" (dict "ModalButtonDangerText" $repoOperationText)}}
+</form>
+

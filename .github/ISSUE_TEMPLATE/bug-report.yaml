@@ -5,13 +5,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        - **Security issue?** Email security@gitea.io instead of opening a public issue.
-        - **Need help** with setup or configuration? Ask on [Discord](https://discord.gg/Gitea) or the [forum](https://forum.gitea.com).
-        - Search [existing issues](https://github.com/go-gitea/gitea/issues?q=is%3Aissue) first.
+        - **Security issue?** Report it privately through a [security advisory](https://github.com/semyonfox/branchroom/security/advisories/new) instead.
+        - Search [existing issues](https://github.com/semyonfox/branchroom/issues?q=is%3Aissue) first.
+        - If it also happens on unmodified Gitea, report it to [Gitea](https://github.com/go-gitea/gitea/issues) as well.
   - type: input
-    id: gitea-ver
+    id: version
     attributes:
-      label: Gitea Version
+      label: Branchroom commit
+      description: The output of `gitea --version`, or the commit you built.
     validations:
       required: true
   - type: textarea
@@ -24,5 +25,5 @@ body:
   - type: textarea
     id: environment
     attributes:
-      label: How are you running Gitea?
-      description: Install method (binary, Docker, package), operating system, and database.
+      label: How are you running Branchroom?
+      description: Install method, operating system, and database.

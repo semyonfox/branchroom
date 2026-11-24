@@ -99,7 +99,7 @@ type SearchOptions struct {
 	ProjectIDs    []int64 // project the issues belong to. FIXME: ISSUE-MULTIPLE-PROJECTS-FILTER: no multiple project filter support yet. Search logic is wrong.
 	NoProjectOnly bool    // if the issues have no project, if true, ProjectIDs will be ignored
 
-	PosterID   string // poster of the issues, "(none)" or "(any)" or a user ID
+	PosterID   string // poster of the issues, a user ID
 	AssigneeID string // assignee of the issues, "(none)" or "(any)" or a user ID
 
 	MentionID optional.Option[int64] // mentioned user of the issues
@@ -108,6 +108,9 @@ type SearchOptions struct {
 	ReviewRequestedID optional.Option[int64] // requested reviewer of the issues
 
 	SubscriberID optional.Option[int64] // subscriber of the issues
+
+	PullChecks string // only the db indexer supports it
+	PullReview string // only the db indexer supports it
 
 	UpdatedAfterUnix  optional.Option[int64]
 	UpdatedBeforeUnix optional.Option[int64]

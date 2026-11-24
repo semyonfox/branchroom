@@ -10,6 +10,7 @@ import (
 	activities_model "gitea.dev/models/activities"
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/services/context"
 	"gitea.dev/services/convert"
 	"gitea.dev/services/notifications"
@@ -33,10 +34,8 @@ func GetThread(ctx *context.APIContext) {
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/NotificationThread"
-	//   "403":
-	//     "$ref": "#/responses/forbidden"
-	//   "404":
-	//     "$ref": "#/responses/notFound"
+	//   default:
+	//     "$ref": "#/responses/error"
 
 	n := getThread(ctx)
 	if n == nil {
@@ -47,7 +46,7 @@ func GetThread(ctx *context.APIContext) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, convert.ToNotificationThread(ctx, n))
+	ctx.JSON(http.StatusOK, convert.ToNotifications(ctx, activities_model.NotificationList{n})[0])
 }
 
 // ReadThread mark notification as read by ID
@@ -74,10 +73,8 @@ func ReadThread(ctx *context.APIContext) {
 	// responses:
 	//   "205":
 	//     "$ref": "#/responses/NotificationThread"
-	//   "403":
-	//     "$ref": "#/responses/forbidden"
-	//   "404":
-	//     "$ref": "#/responses/notFound"
+	//   default:
+	//     "$ref": "#/responses/error"
 
 	n := getThread(ctx)
 	if n == nil {
@@ -98,7 +95,36 @@ func ReadThread(ctx *context.APIContext) {
 		ctx.APIErrorInternal(err)
 		return
 	}
-	ctx.JSON(http.StatusResetContent, convert.ToNotificationThread(ctx, notif))
+	ctx.JSON(http.StatusResetContent, convert.ToNotifications(ctx, activities_model.NotificationList{notif})[0])
+}
+
+// DoneThread marks a notification thread done, removing it until the thread has new activity
+func DoneThread(ctx *context.APIContext) {
+	// swagger:operation DELETE /notifications/threads/{id} notification notifyDoneThread
+	// ---
+	// summary: Mark a notification thread as done
+	// description: The thread leaves every list until it has new activity.
+	// parameters:
+	// - name: id
+	//   in: path
+	//   description: id of notification thread
+	//   type: string
+	//   required: true
+	// responses:
+	//   "204":
+	//     "$ref": "#/responses/empty"
+	//   default:
+	//     "$ref": "#/responses/error"
+
+	n := getThread(ctx)
+	if n == nil {
+		return
+	}
+	if err := activities_model.DeleteNotification(ctx, n.UserID, n.ID); err != nil {
+		ctx.APIErrorInternal(err)
+		return
+	}
+	ctx.Status(http.StatusNoContent)
 }
 
 func getThread(ctx *context.APIContext) *activities_model.Notification {
@@ -111,7 +137,11 @@ func getThread(ctx *context.APIContext) *activities_model.Notification {
 		}
 		return nil
 	}
-	if n.UserID != ctx.Doer.ID && !ctx.Doer.IsAdmin {
+	if !user_model.DoerTokenAllowsRepositoryID(ctx.Doer, n.RepoID) {
+		ctx.APIErrorNotFound()
+		return nil
+	}
+	if n.UserID != ctx.Doer.ID && !ctx.IsUserSiteAdmin() {
 		ctx.APIError(http.StatusForbidden, fmt.Sprintf("only user itself and admin are allowed to read/change this thread %d", n.ID))
 		return nil
 	}

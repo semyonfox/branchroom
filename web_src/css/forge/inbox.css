@@ -1,0 +1,210 @@
+.forge-inbox-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 28px;
+  padding-top: 28px;
+  padding-bottom: 28px;
+}
+.forge-inbox-views {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.forge-inbox-views a {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border-radius: var(--border-radius);
+  color: var(--color-text);
+}
+.forge-inbox-views [aria-current="page"] {
+  background: var(--color-box-body);
+  box-shadow: inset 0 0 0 1px var(--color-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+.forge-inbox-main { min-width: 0; }
+.forge-inbox-form {
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  background: var(--color-box-body);
+}
+.forge-inbox-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-box-header);
+}
+.forge-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-secondary);
+}
+.forge-inbox-row:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.forge-inbox-select {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.forge-inbox-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.forge-inbox-title {
+  display: inline-flex;
+  align-items: center;
+  font-weight: var(--font-weight-semibold);
+}
+.forge-inbox-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+  color: var(--color-text-light-2);
+  font-size: 12px;
+}
+.forge-inbox-reason {
+  padding: 8px 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  background: var(--color-input-background);
+  color: var(--color-text);
+  font-size: inherit;
+}
+.forge-inbox-empty { padding: 32px; text-align: center; }
+.forge-inbox .ui.button,
+.forge-inbox select { margin: 0; }
+.forge-inbox select { min-height: 44px; }
+@media (max-width: 767px) {
+  .forge-inbox-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .forge-inbox-views { flex-direction: row; overflow-x: auto; }
+  .forge-inbox-views a { flex: 0 0 auto; }
+  .forge-inbox-row { flex-wrap: wrap; }
+  .forge-inbox-content { flex-basis: calc(100% - 68px); }
+  .forge-inbox-primary { margin-inline-start: 56px !important; } /* align the action with the stacked title */
+}
+
+@media (max-width: 767.98px) {
+  .forge-inbox-select { min-width: 44px; min-height: 44px; }
+  .forge-inbox-title { min-height: 44px; }
+  .forge-inbox-primary { min-height: 44px; }
+}
+
+#navbar .forge-inbox-count {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 5px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+}
+
+/* one fixed set of slots on every pull request, so each button stays where the eye left it */
+.forge-queue-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 136px 176px 136px 216px; /* fixed, so a disabled button never shifts its neighbours */
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 8px;
+  background: var(--color-box-body);
+}
+.forge-queue-where { min-width: 0; }
+.forge-queue-place {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  white-space: nowrap;
+}
+.forge-queue-place > a:first-child { font-weight: var(--font-weight-semibold); }
+.forge-queue-count { color: var(--color-primary); font-variant-numeric: tabular-nums; }
+.forge-queue-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-light);
+  white-space: nowrap;
+}
+.forge-queue-line > span { flex-shrink: 0; }
+.forge-queue-line > .forge-queue-hint { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.forge-queue-line > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.forge-queue-line.is-receipt { color: var(--color-text); animation: forge-queue-receipt 0.4s ease-out; }
+.forge-queue-line[data-did="merged"] svg { color: var(--color-purple); }
+.forge-queue-line[data-did="approve"] svg { color: var(--color-green); }
+.forge-queue-line[data-did="reject"] svg { color: var(--color-red); }
+.forge-queue-bar .ui.button { width: 100%; min-height: 44px; margin: 0; padding-inline: 8px; white-space: nowrap; }
+.forge-queue-bar kbd { margin-left: 4px; opacity: 0.7; }
+.forge-queue-approve svg { color: var(--color-green); }
+.forge-queue-approve:disabled svg { color: inherit; }
+.forge-queue-merge.ui.button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
+.forge-queue-bar .is-busy { cursor: progress; }
+.forge-queue-changes { position: relative; }
+.forge-queue-changes-form {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 4;
+  width: 320px;
+  padding: 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 8px;
+  background: var(--color-box-body);
+  box-shadow: 0 6px 18px var(--color-shadow);
+}
+.forge-queue-changes-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius);
+  color: var(--color-input-text);
+  background: var(--color-input-background);
+  resize: vertical;
+}
+.forge-queue-changes-send {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.forge-queue-changes-send kbd { margin: 0; }
+/* the pull request below the bar slides off like a handled envelope while the next one loads */
+.forge-queue-leaving .forge-queue-bar ~ * {
+  transform: translateX(-48px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.2s ease-in, opacity 0.2s ease-in;
+}
+@keyframes forge-queue-receipt {
+  from { transform: translateY(-4px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .forge-queue-leaving .forge-queue-bar ~ * { transform: none; transition: opacity 0.1s; }
+  .forge-queue-line.is-receipt { animation: none; }
+}
+@media (max-width: 767.98px) {
+  .forge-queue-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .forge-queue-where, .forge-queue-merge.ui.button { grid-column: 1 / -1; }
+  .forge-queue-merge.ui.button { order: 1; }
+  .forge-queue-bar kbd { display: none; }
+  .forge-queue-bar .ui.button { width: 100%; padding-inline: 8px; line-height: 1.2; white-space: normal; }
+  .forge-queue-changes { position: static; }
+  .forge-queue-changes-form { right: 12px; left: 12px; width: auto; }
+}

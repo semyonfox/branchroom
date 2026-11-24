@@ -6,6 +6,7 @@ package branchroom
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
@@ -31,6 +32,15 @@ type authorizeWorkspaceReadRequest struct {
 // AuthorizeWorkspaceGitHTTPReadRequest identifies a smart HTTP read request by
 // its opaque public route key. It carries no caller-asserted storage identity.
 type AuthorizeWorkspaceGitHTTPReadRequest struct {
+	RepoID   int64
+	RouteKey string
+	UserID   int64
+}
+
+// AuthorizeWorkspaceGitHTTPWriteRequest identifies a restricted smart HTTP
+// receive request by its opaque public route key. It carries no caller-asserted
+// storage identity or receive credential.
+type AuthorizeWorkspaceGitHTTPWriteRequest struct {
 	RepoID   int64
 	RouteKey string
 	UserID   int64
@@ -107,6 +117,28 @@ func AuthorizeWorkspaceGitHTTPRead(ctx context.Context, request AuthorizeWorkspa
 	}, branchroom_model.SurfaceGitHTTP)
 }
 
+// AuthorizeWorkspaceGitHTTPWrite resolves one ready isolated store for a user
+// holding source-read and direct source-write access. It is used only for
+// receive-pack advertisement; the RPC still creates a one-use sealed session.
+func AuthorizeWorkspaceGitHTTPWrite(ctx context.Context, request AuthorizeWorkspaceGitHTTPWriteRequest) (gitrepo.RepositoryFacade, error) {
+	if !setting.Branchroom.Enabled || request.RepoID <= 0 || request.UserID <= 0 || !branchroom_model.IsWorkspaceRouteKey(request.RouteKey) || db.InTransaction(ctx) {
+		return nil, workspaceReadNotFound()
+	}
+
+	initial, err := branchroom_model.GetWorkspaceByRouteKeyAndRepoID(ctx, request.RouteKey, request.RepoID)
+	if err != nil {
+		if errors.Is(err, util.ErrInvalidArgument) || errors.Is(err, util.ErrNotExist) {
+			return nil, workspaceReadNotFound()
+		}
+		return nil, err
+	}
+	return authorizeWorkspaceWriteByIdentity(ctx, request.RepoID, request.UserID, workspaceReadIdentity{
+		workspaceID: initial.ID,
+		scopeID:     initial.ScopeID,
+		routeKey:    request.RouteKey,
+	})
+}
+
 func authorizeWorkspaceReadByIdentity(ctx context.Context, repoID, userID int64, identity workspaceReadIdentity, surface branchroom_model.Surface) (gitrepo.RepositoryFacade, error) {
 	authorized, err := db.WithTx2(ctx, func(txCtx context.Context) (authorizedWorkspaceRead, error) {
 		switch surface {
@@ -145,7 +177,7 @@ func authorizeWorkspaceReadByIdentity(ctx context.Context, repoID, userID int64,
 		if err != nil {
 			return authorizedWorkspaceRead{}, err
 		}
-		if scope.RepoID == repoID && scope.Kind == branchroom_model.ScopeKindRepository && scope.State == branchroom_model.ScopeStateActive && workspace.State != branchroom_model.WorkspaceStateReady {
+		if scope.RepoID == repoID && scope.Kind == branchroom_model.ScopeKindRepository && scope.State == branchroom_model.ScopeStateActive && (workspace.State != branchroom_model.WorkspaceStateReady || !WorkspaceStoreAvailable(workspace)) {
 			if err := recordWorkspaceReadUnavailable(txCtx, scope, workspace, actor, ceiling, surface); err != nil {
 				return authorizedWorkspaceRead{}, err
 			}
@@ -186,6 +218,59 @@ func authorizeWorkspaceReadByIdentity(ctx context.Context, repoID, userID int64,
 	return restricted, nil
 }
 
+func authorizeWorkspaceWriteByIdentity(ctx context.Context, repoID, userID int64, identity workspaceReadIdentity) (gitrepo.RepositoryFacade, error) {
+	authorized, err := db.WithTx2(ctx, func(txCtx context.Context) (authorizedWorkspaceRead, error) {
+		if err := lockRepositoryLifecycleForRead(txCtx, repoID); err != nil {
+			return authorizedWorkspaceRead{}, err
+		}
+
+		scope, err := branchroom_model.GetScopeByIDForUpdate(txCtx, identity.scopeID)
+		if err != nil {
+			if errors.Is(err, util.ErrNotExist) {
+				return authorizedWorkspaceRead{}, errWorkspaceReadDenied
+			}
+			return authorizedWorkspaceRead{}, err
+		}
+		workspace, err := branchroom_model.GetWorkspaceByIDForUpdate(txCtx, identity.workspaceID)
+		if err != nil {
+			if errors.Is(err, util.ErrNotExist) {
+				return authorizedWorkspaceRead{}, errWorkspaceReadDenied
+			}
+			return authorizedWorkspaceRead{}, err
+		}
+		if scope.Validate() != nil || workspace.Validate() != nil || !identity.matches(workspace) ||
+			scope.RepoID != repoID || workspace.ScopeID != scope.ID || workspace.RepoID != repoID || workspace.RepoID != scope.RepoID ||
+			scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive || workspace.State != branchroom_model.WorkspaceStateReady ||
+			!WorkspaceStoreAvailable(workspace) {
+			return authorizedWorkspaceRead{denied: true}, nil
+		}
+
+		_, allowed, err := authorizeSealedSourceWriteAdmission(txCtx, scope, workspace, userID)
+		if err != nil {
+			return authorizedWorkspaceRead{}, err
+		}
+		// hook integrity is checked at receive admission and again inside the hook, where it matters
+		if !allowed {
+			return authorizedWorkspaceRead{denied: true}, nil
+		}
+		return authorizedWorkspaceRead{storeID: workspace.StoreID}, nil
+	})
+	if err != nil {
+		if errors.Is(err, errWorkspaceReadDenied) {
+			return nil, workspaceReadNotFound()
+		}
+		return nil, err
+	}
+	if authorized.denied {
+		return nil, workspaceReadNotFound()
+	}
+	restricted, err := branchroom_module.RestrictedRepository(authorized.storeID)
+	if err != nil {
+		return nil, workspaceReadNotFound()
+	}
+	return restricted, nil
+}
+
 func recordWorkspaceReadUnavailable(ctx context.Context, scope *branchroom_model.Scope, workspace *branchroom_model.Workspace, actor Actor, ceiling RepositoryCeiling, surface branchroom_model.Surface) error {
 	now := timeutil.TimeStampNow()
 	_, err := branchroom_model.RecordDecisionAndAudit(ctx, scope, &branchroom_model.Decision{
@@ -204,6 +289,17 @@ func recordWorkspaceReadUnavailable(ctx context.Context, scope *branchroom_model
 		CreatedUnix:     now,
 	})
 	return err
+}
+
+// WorkspaceStoreAvailable reports whether a workspace's store is on disk. A database restored
+// without its stores, or with an interrupted copy, leaves ready rows that must not be routed.
+func WorkspaceStoreAvailable(workspace *branchroom_model.Workspace) bool {
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	if err != nil {
+		return false
+	}
+	exists, err := util.IsExist(filepath.Join(gitrepo.RepoLocalPath(restricted), "HEAD"))
+	return err == nil && exists
 }
 
 func workspaceReadNotFound() error {

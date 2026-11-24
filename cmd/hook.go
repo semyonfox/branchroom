@@ -32,8 +32,8 @@ const (
 	maxBranchroomSessionKeyBytes = 128
 )
 
-// errBranchroomReceiveDenied is the only error this command ever reports, so no session
-// data or remote response text can leak through git's push output.
+// errBranchroomReceiveDenied is the only error this command reports apart from redacted
+// push protection findings, so no session data or other response text can leak through git's push output.
 var errBranchroomReceiveDenied = errors.New("Branchroom receive denied")
 
 func newHookCommand() *cli.Command {
@@ -136,8 +136,8 @@ func runHookBranchroomPreReceive(ctx context.Context, _ *cli.Command) error {
 // branchroomPreReceive exists only as a test seam, never as public configurability
 var branchroomPreReceive = private.BranchroomPreReceive
 
-// hookBranchroomPreReceive is deny-only: it validates the bounded receive payload and
-// forwards it to the internal endpoint, but always reports errBranchroomReceiveDenied.
+// hookBranchroomPreReceive validates the bounded receive payload and forwards it to
+// the internal admission endpoint. A successful response admits this one Git receive.
 func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey string, bearerSecret []byte, quarantine branchroom.ReceiveQuarantineValues) error {
 	defer clear(bearerSecret)
 	updates, err := io.ReadAll(io.LimitReader(stdin, branchroom.MaxReceiveUpdatesBytes+1))
@@ -156,15 +156,21 @@ func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey s
 	if setting.InternalToken == "" {
 		return errBranchroomReceiveDenied
 	}
-	_ = branchroomPreReceive(ctx, private.BranchroomPreReceiveRequest{
+	if err := branchroomPreReceive(ctx, private.BranchroomPreReceiveRequest{
 		SessionKey:                 sessionKey,
 		BearerSecret:               bearerSecret,
 		Updates:                    updates,
+		AllowSecrets:               private.GitPushOptions(pushOptions()).Bool(private.GitPushOptionAllowSecrets).Value(),
 		ObjectDirectory:            quarantine.ObjectDirectory,
 		AlternateObjectDirectories: quarantine.AlternateObjectDirectories,
 		QuarantinePath:             quarantine.QuarantinePath,
-	})
-	return errBranchroomReceiveDenied
+	}); err != nil {
+		if _, ok := errors.AsType[private.BranchroomPushProtectionError](err); ok {
+			return err
+		}
+		return errBranchroomReceiveDenied
+	}
+	return nil
 }
 
 type delayWriter struct {
@@ -235,10 +241,6 @@ func parseGitHookCommitRefLine(line string) (oldCommitID, newCommitID string, re
 }
 
 func runHookPreReceive(ctx context.Context, c *cli.Command) error {
-	if isInternal, _ := strconv.ParseBool(os.Getenv(repo_module.EnvIsInternal)); isInternal {
-		return nil
-	}
-
 	setup(ctx, c.Bool("debug"))
 
 	if len(os.Getenv("SSH_ORIGINAL_COMMAND")) == 0 {
@@ -252,23 +254,24 @@ Gitea or set your environment appropriately.`, "")
 
 	// the environment is set by serv command
 	isWiki, _ := strconv.ParseBool(os.Getenv(repo_module.EnvRepoIsWiki))
-	username := os.Getenv(repo_module.EnvRepoUsername)
-	reponame := os.Getenv(repo_module.EnvRepoName)
+	ownerName := os.Getenv(repo_module.EnvRepoUsername)
+	repoName := os.Getenv(repo_module.EnvRepoName)
 	userID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPusherID), 10, 64)
 	prID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPRID), 10, 64)
-	deployKeyID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvDeployKeyID), 10, 64)
-	actionsTaskID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvActionsTaskID), 10, 64)
 
 	hookOptions := private.HookOptions{
-		UserID:                          userID,
+		IsWiki: isWiki,
+
 		GitAlternativeObjectDirectories: os.Getenv(private.GitAlternativeObjectDirectories),
 		GitObjectDirectory:              os.Getenv(private.GitObjectDirectory),
 		GitQuarantinePath:               os.Getenv(private.GitQuarantinePath),
 		GitPushOptions:                  pushOptions(),
-		PullRequestID:                   prID,
-		DeployKeyID:                     deployKeyID,
-		ActionsTaskID:                   actionsTaskID,
-		IsWiki:                          isWiki,
+
+		PullRequestID: prID,
+
+		UserID:          userID,
+		UserName:        os.Getenv(repo_module.EnvPusherName),
+		UserExtDoerData: os.Getenv(repo_module.EnvPusherExtDoerData),
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -278,7 +281,6 @@ Gitea or set your environment appropriately.`, "")
 	refFullNames := make([]git.RefName, hookBatchSize)
 	count := 0
 	total := 0
-	lastline := 0
 
 	out := io.Discard
 	if setting.Git.VerbosePush {
@@ -290,8 +292,6 @@ Gitea or set your environment appropriately.`, "")
 			out = os.Stdout
 		}
 	}
-
-	supportProcReceive := git.DefaultFeatures().SupportProcReceive
 
 	for scanner.Scan() {
 		// TODO: support news feeds for wiki
@@ -305,37 +305,23 @@ Gitea or set your environment appropriately.`, "")
 		}
 
 		total++
-		lastline++
+		oldCommitIDs[count] = oldCommitID
+		newCommitIDs[count] = newCommitID
+		refFullNames[count] = refFullName
+		count++
+		fmt.Fprintf(out, "*")
 
-		// If the ref is a branch or tag, check if it's protected
-		// if supportProcReceive all ref should be checked because
-		// permission check was delayed
-		if supportProcReceive || refFullName.IsBranch() || refFullName.IsTag() {
-			oldCommitIDs[count] = oldCommitID
-			newCommitIDs[count] = newCommitID
-			refFullNames[count] = refFullName
-			count++
-			fmt.Fprintf(out, "*")
+		if count >= hookBatchSize {
+			fmt.Fprintf(out, " Checking %d references\n", count)
 
-			if count >= hookBatchSize {
-				fmt.Fprintf(out, " Checking %d references\n", count)
-
-				hookOptions.OldCommitIDs = oldCommitIDs
-				hookOptions.NewCommitIDs = newCommitIDs
-				hookOptions.RefFullNames = refFullNames
-				extra := private.HookPreReceive(ctx, username, reponame, hookOptions)
-				if extra.HasError() {
-					return fail(ctx, extra.UserMsg, "HookPreReceive(batch) failed: %v", extra.Error)
-				}
-				count = 0
-				lastline = 0
+			hookOptions.OldCommitIDs = oldCommitIDs
+			hookOptions.NewCommitIDs = newCommitIDs
+			hookOptions.RefFullNames = refFullNames
+			extra := private.HookPreReceive(ctx, ownerName, repoName, hookOptions)
+			if extra.HasError() {
+				return fail(ctx, extra.UserMsg, "HookPreReceive(batch) failed: %v", extra.Error)
 			}
-		} else {
-			fmt.Fprintf(out, ".")
-		}
-		if lastline >= hookBatchSize {
-			fmt.Fprintf(out, "\n")
-			lastline = 0
+			count = 0
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -349,12 +335,10 @@ Gitea or set your environment appropriately.`, "")
 
 		fmt.Fprintf(out, " Checking %d references\n", count)
 
-		extra := private.HookPreReceive(ctx, username, reponame, hookOptions)
+		extra := private.HookPreReceive(ctx, ownerName, repoName, hookOptions)
 		if extra.HasError() {
 			return fail(ctx, extra.UserMsg, "HookPreReceive(last) failed: %v", extra.Error)
 		}
-	} else if lastline > 0 {
-		fmt.Fprintf(out, "\n")
 	}
 
 	fmt.Fprintf(out, "Checked %d references in total\n", total)
@@ -364,10 +348,6 @@ Gitea or set your environment appropriately.`, "")
 // runHookUpdate avoid to do heavy operations on update hook because it will be
 // invoked for every ref update which does not like pre-receive and post-receive
 func runHookUpdate(_ context.Context, c *cli.Command) error {
-	if isInternal, _ := strconv.ParseBool(os.Getenv(repo_module.EnvIsInternal)); isInternal {
-		return nil
-	}
-
 	// Update is empty and is kept only for backwards compatibility
 	if len(os.Args) < 3 {
 		return nil
@@ -386,11 +366,6 @@ func runHookPostReceive(ctx context.Context, c *cli.Command) error {
 	// First of all run update-server-info no matter what
 	if err := gitcmd.NewCommand("update-server-info").RunWithStderr(ctx); err != nil {
 		return fmt.Errorf("failed to call 'git update-server-info': %w", err)
-	}
-
-	// Now if we're an internal don't do anything else
-	if isInternal, _ := strconv.ParseBool(os.Getenv(repo_module.EnvIsInternal)); isInternal {
-		return nil
 	}
 
 	if len(os.Getenv("SSH_ORIGINAL_COMMAND")) == 0 {
@@ -419,18 +394,20 @@ Gitea or set your environment appropriately.`, "")
 	repoName := os.Getenv(repo_module.EnvRepoName)
 	pusherID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPusherID), 10, 64)
 	prID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPRID), 10, 64)
-	pusherName := os.Getenv(repo_module.EnvPusherName)
 
 	hookOptions := private.HookOptions{
-		UserName:                        pusherName,
-		UserID:                          pusherID,
+		IsWiki: isWiki,
+
 		GitAlternativeObjectDirectories: os.Getenv(private.GitAlternativeObjectDirectories),
 		GitObjectDirectory:              os.Getenv(private.GitObjectDirectory),
 		GitQuarantinePath:               os.Getenv(private.GitQuarantinePath),
 		GitPushOptions:                  pushOptions(),
-		PullRequestID:                   prID,
-		PushTrigger:                     repo_module.PushTrigger(os.Getenv(repo_module.EnvPushTrigger)),
-		IsWiki:                          isWiki,
+
+		PullRequestID: prID,
+
+		UserID:          pusherID,
+		UserName:        os.Getenv(repo_module.EnvPusherName),
+		UserExtDoerData: os.Getenv(repo_module.EnvPusherExtDoerData),
 	}
 
 	oldCommitIDs := make([]string, 0, hookBatchSize)
@@ -538,16 +515,11 @@ Gitea or set your environment appropriately.`, "")
 		return nil
 	}
 
-	if !git.DefaultFeatures().SupportProcReceive {
-		return fail(ctx, "No proc-receive support", "current git version doesn't support proc-receive.")
-	}
-
 	reader := bufio.NewReader(os.Stdin)
 	repoUser := os.Getenv(repo_module.EnvRepoUsername)
 	isWiki, _ := strconv.ParseBool(os.Getenv(repo_module.EnvRepoIsWiki))
 	repoName := os.Getenv(repo_module.EnvRepoName)
 	pusherID, _ := strconv.ParseInt(os.Getenv(repo_module.EnvPusherID), 10, 64)
-	pusherName := os.Getenv(repo_module.EnvPusherName)
 
 	// 1. Version and features negotiation.
 	// S: PKT-LINE(version=1\0push-options atomic...) / PKT-LINE(version=1\n)
@@ -619,10 +591,13 @@ Gitea or set your environment appropriately.`, "")
 	// S: ... ...
 	// S: flush-pkt
 	hookOptions := private.HookOptions{
-		UserName:       pusherName,
-		UserID:         pusherID,
+		IsWiki: isWiki,
+
 		GitPushOptions: make(map[string]string),
-		IsWiki:         isWiki,
+
+		UserID:          pusherID,
+		UserName:        os.Getenv(repo_module.EnvPusherName),
+		UserExtDoerData: os.Getenv(repo_module.EnvPusherExtDoerData),
 	}
 	hookOptions.OldCommitIDs = make([]string, 0, hookBatchSize)
 	hookOptions.NewCommitIDs = make([]string, 0, hookBatchSize)
@@ -818,7 +793,7 @@ func writeFlushPktLine(ctx context.Context, out io.Writer) error {
 func writeDataPktLine(ctx context.Context, out io.Writer, data []byte) error {
 	hexchar := []byte("0123456789abcdef")
 	hex := func(n uint64) byte {
-		return hexchar[(n)&15]
+		return hexchar[n&15]
 	}
 
 	length := uint64(len(data) + 4)

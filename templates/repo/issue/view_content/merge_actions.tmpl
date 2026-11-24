@@ -1,0 +1,54 @@
+{{$props := .Props}}
+{{$admin := .IsAdmin}}
+<div class="item forge-merge-actions">
+	{{if $props.hasPendingPullRequestMerge}}
+		<div class="ui info message">{{$props.hasPendingPullRequestMergeTip}}</div>
+	{{end}}
+	<div class="flex-text-block tw-flex-wrap">
+		{{range $props.mergeStyles}}
+			{{if and .allowed (or (ne .name "manually-merged") $admin)}}
+				{{$bypass := and $props.canMergeNow (not $props.allOverridableChecksOk)}}
+				{{if eq .name $props.defaultMergeStyle}}
+					{{if and (not $props.canMergeNow) (not $props.autoMergeCanFire)}}
+						<button type="button" class="ui basic button" disabled title="{{$props.textAutoMergeCannotFire}}">{{.textDoMerge}}</button>
+					{{else}}
+					<button type="button" class="ui {{if $bypass}}basic red{{else if and $props.canMergeNow $.Ready}}primary{{else}}basic{{end}} button show-modal" data-modal="#forge-merge-{{.name}}" {{if and $.Ready $props.canMergeNow}}data-palette-action="{{ctx.Locale.Tr "repo.conversation.open_merge_dialog" .textDoMerge}}"{{end}}>
+						{{if $bypass}}{{$props.textMergeAnyway}}{{else if and $props.hasPendingPullRequestMerge $props.canMergeNow}}{{$props.textMergeWithoutWaiting}}{{else}}{{.textDoMerge}}{{if and (not $props.canMergeNow) (not .hideAutoMerge)}} {{$props.textAutoMergeButtonWhenSucceed}}{{end}}{{end}}
+					</button>
+					{{end}}
+				{{end}}
+				<dialog class="modal-dialog" id="forge-merge-{{.name}}">
+					<div class="header">{{if $bypass}}{{$props.textMergeAnyway}}: {{.textDoMerge}}{{else}}{{.textDoMerge}}{{end}}</div>
+					<div class="content">
+						{{if $bypass}}<p class="tw-text-red">{{$props.textMergeAnywaySkips}}</p>{{end}}
+						<form class="ui form form-fetch-action" action="{{$props.baseLink}}/merge" method="post">
+							<input type="hidden" name="head_commit_id" value="{{$props.pullHeadCommitID}}">
+							<input type="hidden" name="force_merge" value="{{and $props.canMergeNow (not $props.allOverridableChecksOk)}}">
+							{{if not .hideMergeMessageTexts}}
+								<div class="field"><input aria-label="{{ctx.Locale.Tr "repo.editor.commit_message_desc"}}" name="merge_title_field" value="{{.mergeTitleFieldText}}"></div>
+								<div class="field"><textarea name="merge_message_field" rows="4" aria-label="{{$props.mergeMessageFieldPlaceHolder}}">{{.mergeMessageFieldText}}</textarea></div>
+							{{end}}
+							{{if eq .name "manually-merged"}}
+								<div class="field"><input required name="merge_commit_id" placeholder="{{$props.textMergeCommitId}}" aria-label="{{$props.textMergeCommitId}}"></div>
+							{{else if $props.autoMergeCanFire}}
+								<div class="field"><label><input type="checkbox" name="merge_when_checks_succeed" value="true" {{if not $props.canMergeNow}}checked{{end}}> {{$props.textAutoMergeWhenSucceed}}</label></div>
+							{{end}}
+							{{if $props.isPullBranchDeletable}}
+								<div class="field"><label><input type="checkbox" name="delete_branch_after_merge" value="true" {{if $props.defaultDeleteBranchAfterMerge}}checked{{end}}> {{$props.textDeleteBranch}}</label></div>
+							{{end}}
+							<div class="actions">
+								<button type="button" class="ui cancel button">{{$props.textCancel}}</button>
+								<button type="submit" class="ui primary button" name="do" value="{{.name}}">{{.textDoMerge}}</button>
+							</div>
+						</form>
+					</div>
+				</dialog>
+			{{end}}
+		{{end}}
+		{{if $props.hasPendingPullRequestMerge}}
+			<form action="{{$props.baseLink}}/cancel_auto_merge" method="post">
+				<button class="ui button" type="submit">{{$props.textAutoMergeCancelSchedule}}</button>
+			</form>
+		{{end}}
+	</div>
+</div>

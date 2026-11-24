@@ -3,10 +3,15 @@ import {hideElem, queryElemChildren, showElem} from '../utils/dom.ts';
 import {POST} from '../modules/fetch.ts';
 import {showErrorToast, type Toast} from '../modules/toast.ts';
 import {fomanticQuery} from '../modules/fomantic/base.ts';
+import type {FomanticApiResponse, JQueryElem} from '../types.ts';
 
 const {appSubUrl} = window.config;
 
+type TopicSearchResponse = {topics: Array<{topic_name: string}>};
+type TopicSearchResult = {description: string, 'data-value': string};
+
 export function initRepoTopicBar() {
+  initRepoHomeLayout();
   const mgrBtn = document.querySelector<HTMLButtonElement>('#manage_topic');
   if (!mgrBtn) return;
 
@@ -46,9 +51,9 @@ export function initRepoTopicBar() {
           topicArray.sort();
           for (const topic of topicArray) {
             // TODO: sort items in topicDropdown, or items in edit div will have different order to the items in view div
-            // !!!! it SHOULD and MUST match the code in "home_sidebar_top.tmpl" !!!!
+            // !!!! it SHOULD and MUST match the code in "repo/overview.tmpl" !!!!
             const link = document.createElement('a');
-            link.classList.add('repo-topic', 'ui', 'large', 'label', 'gt-ellipsis');
+            link.classList.add('repo-topic');
             link.href = `${appSubUrl}/explore/repos?q=${encodeURIComponent(topic)}&topic=1`;
             link.textContent = topic;
             viewDiv.append(link);
@@ -87,10 +92,10 @@ export function initRepoTopicBar() {
     apiSettings: {
       url: `${appSubUrl}/explore/topics/search?q={query}`,
       throttle: 500,
-      onResponse(this: any, res: any) {
-        const formattedResponse = {
+      onResponse(this: {urlData: {query: string}}, res: TopicSearchResponse) {
+        const formattedResponse: FomanticApiResponse<TopicSearchResult> = {
           success: false,
-          results: [] as Array<Record<string, any>>,
+          results: [],
         };
         const query = stripTags(this.urlData.query.trim());
         let found_query = false;
@@ -134,10 +139,49 @@ export function initRepoTopicBar() {
       this.attr('data-value', value).contents().first().replaceWith(value);
       return fomanticQuery(this);
     },
-    onAdd(addedValue: string, _addedText: any, $addedChoice: any) {
+    onAdd(addedValue: string, _addedText: any, $addedChoice: JQueryElem) {
       addedValue = addedValue.toLowerCase().trim();
       $addedChoice[0].setAttribute('data-value', addedValue);
       $addedChoice[0].setAttribute('data-text', addedValue);
     },
   });
+}
+
+function initRepoHomeLayout() {
+  const tabs = document.querySelector<HTMLElement>('.forge-repo-tabs');
+  if (tabs) {
+    const items = tabs.querySelectorAll<HTMLElement>(':scope > .item');
+    const first = items[0];
+    const last = items[items.length - 1];
+    const edges = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === first) tabs.parentElement!.classList.toggle('forge-tabs-start-clipped', entry.intersectionRatio < 1);
+        if (entry.target === last) tabs.parentElement!.classList.toggle('forge-tabs-end-clipped', entry.intersectionRatio < 1);
+      }
+    }, {root: tabs, threshold: 1});
+    if (first) edges.observe(first);
+    if (last) edges.observe(last);
+    const revealActive = () => {
+      const active = tabs.querySelector<HTMLElement>(':scope > .active');
+      if (active && tabs.scrollWidth > tabs.clientWidth) {
+        tabs.scrollLeft = active.offsetLeft - tabs.offsetLeft - (tabs.clientWidth - active.offsetWidth) / 2;
+      }
+    };
+    new ResizeObserver(revealActive).observe(tabs);
+    revealActive();
+  }
+
+  const readme = document.querySelector<HTMLElement>('.repo-overview-readme');
+  if (!readme) return;
+  const body = readme.querySelector<HTMLElement>('.repo-overview-readme-body')!;
+  const content = body.querySelector<HTMLElement>('.markup')!;
+  const toggle = readme.querySelector<HTMLInputElement>('.repo-overview-readme-toggle')!;
+  const measure = () => {
+    const clipped = content.scrollHeight > 720;
+    readme.classList.toggle('repo-overview-readme-clipped', clipped);
+    toggle.disabled = !clipped;
+    if (!clipped) toggle.checked = false;
+  };
+  new ResizeObserver(measure).observe(content);
+  measure();
 }

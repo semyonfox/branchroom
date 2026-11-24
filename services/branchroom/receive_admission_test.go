@@ -14,6 +14,7 @@ import (
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	"gitea.dev/models/unittest"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 
@@ -24,7 +25,7 @@ import (
 
 func TestIssueReceiveAdmissionIssuesClaimedSession(t *testing.T) {
 	scope, workspace := prepareReceiveAdmissionFixture(t, "receive-admission-success")
-	insertWorkspaceActionGrant(t, scope.ID, scope.OwnerID, branchroom_model.ActionWriteSource, 0, 0)
+	writeGrant := grantReceiveSourceAccess(t, scope.ID, scope.OwnerID)
 
 	credential, err := IssueReceiveAdmission(t.Context(), IssueReceiveAdmissionRequest{
 		RepoID:   scope.RepoID,
@@ -37,7 +38,10 @@ func TestIssueReceiveAdmissionIssuesClaimedSession(t *testing.T) {
 	parsed, err := uuid.Parse(credential.SessionKey)
 	require.NoError(t, err)
 	assert.Equal(t, credential.SessionKey, parsed.String())
-	assert.Len(t, credential.BearerSecret, receiveAdmissionBearerLen)
+	assert.Len(t, credential.BearerSecret, hex.EncodedLen(receiveAdmissionBearerEntropyLen))
+	assert.NotContains(t, string(credential.BearerSecret), "\x00")
+	_, err = hex.DecodeString(string(credential.BearerSecret))
+	assert.NoError(t, err)
 
 	stored, err := branchroom_model.GetReceiveSessionByKey(t.Context(), credential.SessionKey)
 	require.NoError(t, err)
@@ -53,8 +57,15 @@ func TestIssueReceiveAdmissionIssuesClaimedSession(t *testing.T) {
 	assert.NotZero(t, stored.ClaimedUnix)
 
 	decisions, audits := receiveVerifierPolicyCounts(t, scope.ID)
-	assert.Zero(t, decisions)
-	assert.Zero(t, audits)
+	assert.Equal(t, int64(1), decisions)
+	assert.Equal(t, int64(1), audits)
+	decision := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Decision{
+		ScopeID: scope.ID,
+		Action:  branchroom_model.ActionWriteSource,
+		GrantID: writeGrant.ID,
+		Result:  branchroom_model.DecisionResultAllow,
+	})
+	assert.Equal(t, ReasonGrantMatched, decision.ReasonCode)
 }
 
 func TestIssueReceiveAdmissionDenials(t *testing.T) {
@@ -91,9 +102,17 @@ func TestIssueReceiveAdmissionDenials(t *testing.T) {
 			withGrant: false,
 		},
 		{
+			name:      "missing source read grant",
+			withGrant: false,
+			mutate: func(t *testing.T, scope *branchroom_model.Scope, _ *branchroom_model.Workspace, _ *IssueReceiveAdmissionRequest) {
+				insertWorkspaceActionGrant(t, scope.ID, scope.OwnerID, branchroom_model.ActionWriteSource, 0, 0)
+			},
+		},
+		{
 			name:      "revoked grant",
 			withGrant: false,
 			mutate: func(t *testing.T, scope *branchroom_model.Scope, _ *branchroom_model.Workspace, _ *IssueReceiveAdmissionRequest) {
+				grantReceiveSourceReadAccess(t, scope.ID, scope.OwnerID)
 				grant := insertWorkspaceActionGrant(t, scope.ID, scope.OwnerID, branchroom_model.ActionWriteSource, 0, 0)
 				require.NoError(t, branchroom_model.RevokeGrant(t.Context(), grant.ID, scope.OwnerID, timeutil.TimeStampNow()))
 			},
@@ -151,7 +170,7 @@ func TestIssueReceiveAdmissionDenials(t *testing.T) {
 			scopeName := strings.ReplaceAll(testCase.name, " ", "-")
 			scope, workspace := prepareReceiveAdmissionFixture(t, "receive-admission-"+scopeName)
 			if testCase.withGrant {
-				insertWorkspaceActionGrant(t, scope.ID, scope.OwnerID, branchroom_model.ActionWriteSource, 0, 0)
+				grantReceiveSourceAccess(t, scope.ID, scope.OwnerID)
 			}
 			request := IssueReceiveAdmissionRequest{
 				RepoID:   scope.RepoID,
@@ -169,7 +188,7 @@ func TestIssueReceiveAdmissionDenials(t *testing.T) {
 
 func TestIssueReceiveAdmissionRejectsAmbientTransaction(t *testing.T) {
 	scope, workspace := prepareReceiveAdmissionFixture(t, "receive-admission-transaction")
-	insertWorkspaceActionGrant(t, scope.ID, scope.OwnerID, branchroom_model.ActionWriteSource, 0, 0)
+	grantReceiveSourceAccess(t, scope.ID, scope.OwnerID)
 
 	require.NoError(t, db.WithTx(t.Context(), func(txCtx context.Context) error {
 		credential, err := IssueReceiveAdmission(txCtx, IssueReceiveAdmissionRequest{
@@ -191,7 +210,7 @@ func prepareReceiveAdmissionFixture(t *testing.T, name string) (*branchroom_mode
 	t.Helper()
 	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
 	// git init and mkdir honour the umask, so pin the modes the integrity check requires
-	require.NoError(t, os.Chmod(setting.Branchroom.RestrictedRepoRootPath, 0o755))
+	require.NoError(t, os.Chmod(setting.Branchroom.RestrictedRepoRootPath, 0o700))
 	ensureTestRepositoryCodeUnit(t.Context(), t)
 	scope := insertWorkspaceScope(t, repository.ID, repository.OwnerID, name)
 	workspace, err := CreateRepositoryWorkspace(t.Context(), CreateRepositoryWorkspaceRequest{
@@ -217,4 +236,15 @@ func assertReceiveAdmissionDenied(t *testing.T, request IssueReceiveAdmissionReq
 	sessions, err := branchroom_model.FindReceiveSessionsByRepoID(t.Context(), repoID)
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
+}
+
+func grantReceiveSourceReadAccess(t *testing.T, scopeID, userID int64) {
+	t.Helper()
+	insertWorkspaceActionGrant(t, scopeID, userID, branchroom_model.ActionReadSource, 0, 0)
+}
+
+func grantReceiveSourceAccess(t *testing.T, scopeID, userID int64) *branchroom_model.Grant {
+	t.Helper()
+	grantReceiveSourceReadAccess(t, scopeID, userID)
+	return insertWorkspaceActionGrant(t, scopeID, userID, branchroom_model.ActionWriteSource, 0, 0)
 }

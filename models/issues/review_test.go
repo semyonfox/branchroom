@@ -6,9 +6,12 @@ package issues_test
 import (
 	"testing"
 
+	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -130,6 +133,20 @@ func TestCreateReview(t *testing.T) {
 	unittest.AssertExistsAndLoadBean(t, &issues_model.Review{Content: "New Review"})
 }
 
+func TestAgentReviewIDs(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	bot := &user_model.User{Name: "review-bot", LowerName: "review-bot", Email: "review-bot@example.com", Type: user_model.UserTypeBot}
+	assert.NoError(t, db.Insert(ctx, bot))
+	botReview := &issues_model.Review{Type: issues_model.ReviewTypeApprove, ReviewerID: bot.ID, IssueID: 2}
+	assert.NoError(t, db.Insert(ctx, botReview))
+	assert.NoError(t, db.Insert(ctx, &branchroom_model.AgentAction{Kind: "review", TargetID: 1, Agent: "helper"}, &branchroom_model.AgentAction{Kind: "review", TargetID: botReview.ID, Agent: "helper"}))
+
+	ids, err := issues_model.AgentReviewIDs(ctx, []int64{1, 5, botReview.ID})
+	assert.NoError(t, err)
+	assert.Equal(t, []int64{1}, ids.Values(), "a bot account's review is its own, and review 5 has no agent")
+}
+
 func TestGetReviewersByIssueID(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
 
@@ -194,6 +211,19 @@ func TestGetReviewersByIssueID(t *testing.T) {
 			assert.Equal(t, expectedReviews[i].UpdatedUnix, review.UpdatedUnix)
 		}
 	}
+
+	for _, review := range []*issues_model.Review{
+		{OriginalAuthor: "octocat", OriginalAuthorID: user_model.GhostUserID},
+		{OriginalAuthor: "hubot", OriginalAuthorID: user_model.GhostUserID},
+		{OriginalAuthor: "octocat", OriginalAuthorID: 583231},
+		{OriginalAuthor: "renamed-octocat", OriginalAuthorID: 583231},
+	} {
+		review.IssueID, review.Type = issue.ID, issues_model.ReviewTypeApprove
+		assert.NoError(t, db.Insert(t.Context(), review))
+	}
+	_, migratedReviews, err = issues_model.GetReviewsByIssueID(t.Context(), issue.ID)
+	assert.NoError(t, err)
+	assert.Len(t, migratedReviews, 3)
 }
 
 func TestDismissReview(t *testing.T) {
@@ -212,33 +242,14 @@ func TestDismissReview(t *testing.T) {
 	assert.True(t, rejectReviewExample.Dismissed)
 	assert.False(t, requestReviewExample.Dismissed)
 
-	assert.NoError(t, issues_model.DismissReview(t.Context(), requestReviewExample, true))
-	rejectReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 9})
-	requestReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 11})
-	assert.True(t, rejectReviewExample.Dismissed)
-	assert.False(t, requestReviewExample.Dismissed)
-	assert.False(t, approveReviewExample.Dismissed)
-
-	assert.NoError(t, issues_model.DismissReview(t.Context(), requestReviewExample, true))
-	rejectReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 9})
-	requestReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 11})
-	assert.True(t, rejectReviewExample.Dismissed)
-	assert.False(t, requestReviewExample.Dismissed)
-	assert.False(t, approveReviewExample.Dismissed)
-
-	assert.NoError(t, issues_model.DismissReview(t.Context(), requestReviewExample, false))
-	rejectReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 9})
-	requestReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 11})
-	assert.True(t, rejectReviewExample.Dismissed)
-	assert.False(t, requestReviewExample.Dismissed)
-	assert.False(t, approveReviewExample.Dismissed)
-
-	assert.NoError(t, issues_model.DismissReview(t.Context(), requestReviewExample, false))
-	rejectReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 9})
-	requestReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 11})
-	assert.True(t, rejectReviewExample.Dismissed)
-	assert.False(t, requestReviewExample.Dismissed)
-	assert.False(t, approveReviewExample.Dismissed)
+	for _, dismissed := range []bool{true, true, false, false} {
+		assert.NoError(t, issues_model.DismissReview(t.Context(), requestReviewExample, dismissed))
+		rejectReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 9})
+		requestReviewExample = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: 11})
+		assert.True(t, rejectReviewExample.Dismissed)
+		assert.False(t, requestReviewExample.Dismissed)
+		assert.False(t, approveReviewExample.Dismissed)
+	}
 
 	assert.NoError(t, issues_model.DismissReview(t.Context(), rejectReviewExample, false))
 	assert.False(t, rejectReviewExample.Dismissed)
@@ -355,6 +366,43 @@ func TestSubmitReviewClearsStaleReviewRequest(t *testing.T) {
 	assert.NotNil(t, comment)
 }
 
+func TestAgentReviewAsOwner(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+	ctx := t.Context()
+	issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 3})
+	assert.NoError(t, issue.LoadRepo(ctx))
+	assert.NoError(t, issue.Repo.LoadOwner(ctx))
+
+	approve := func(tokenID int64, approvesAsOwner bool) (request, review *issues_model.Review) {
+		reviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+		request, err := issues_model.CreateReview(ctx, issues_model.CreateReviewOptions{Type: issues_model.ReviewTypeRequest, Issue: issue, Reviewer: reviewer})
+		assert.NoError(t, err)
+		assert.NoError(t, db.Insert(ctx, &branchroom_model.TokenIdentity{TokenID: tokenID, Agent: "helper", ApprovesAsOwner: approvesAsOwner}))
+		reviewer.ExtDoerData = user_model.NewAccessTokenExtDoerData(&auth_model.AccessToken{ID: tokenID, UID: reviewer.ID, Scope: auth_model.AccessTokenScopeAll})
+		review, _, err = issues_model.SubmitReview(ctx, reviewer, issue, issues_model.ReviewTypeApprove, "", "", false, nil)
+		assert.NoError(t, err)
+		return request, review
+	}
+
+	request, own := approve(9001, false)
+	unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: request.ID})
+	assert.False(t, own.Official, "the agent's own approval never counts as the person's")
+
+	request, asOwner := approve(9002, true)
+	unittest.AssertNotExistsBean(t, &issues_model.Review{ID: request.ID})
+	assert.True(t, asOwner.Official, "an approval the person let their agent make counts as theirs")
+	identity, err := asOwner.AgentIdentity(ctx)
+	assert.NoError(t, err)
+	assert.True(t, identity.ApprovesAsOwner)
+
+	agentReviews, err := issues_model.AgentReviewIDs(ctx, []int64{own.ID, asOwner.ID})
+	assert.NoError(t, err)
+	assert.Equal(t, []int64{own.ID}, agentReviews.Values())
+	latest, err := issues_model.GetReviewByIssueIDAndUserID(ctx, issue.ID, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, asOwner.ID, latest.ID)
+}
+
 func TestAddReviewRequest(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
 
@@ -433,10 +481,24 @@ func TestRecalculateReviewsOfficial(t *testing.T) {
 
 	// Once the reviewer is whitelisted, re-evaluating restores the official flag.
 	rule.ApprovalsWhitelistUserIDs = []int64{2, reviewer.ID}
-	_, err = db.GetEngine(t.Context()).ID(rule.ID).Cols("approvals_whitelist_user_i_ds").Update(rule)
+	_, err = db.GetEngine(t.Context()).ID(rule.ID).Cols("config").Update(rule)
 	assert.NoError(t, err)
 
 	assert.NoError(t, issues_model.RecalculateReviewsOfficial(t.Context(), issue))
 	review = unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: review.ID})
 	assert.True(t, review.Official)
+}
+
+func TestTeamReviewRequestOfficial(t *testing.T) {
+	assert.NoError(t, unittest.PrepareTestDatabase())
+
+	issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 12})
+	assert.NoError(t, issue.LoadRepo(t.Context()))
+	comment, err := issues_model.AddTeamReviewRequest(t.Context(), issue, unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 2}), &user_model.User{ID: 2}, false)
+	assert.NoError(t, err)
+	assert.True(t, unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: comment.ReviewID}).Official)
+
+	assert.NoError(t, db.Insert(t.Context(), &git_model.ProtectedBranch{RepoID: issue.RepoID, RuleName: "master", EnableApprovalsWhitelist: true}))
+	assert.NoError(t, issues_model.RecalculateReviewsOfficial(t.Context(), issue))
+	assert.False(t, unittest.AssertExistsAndLoadBean(t, &issues_model.Review{ID: comment.ReviewID}).Official)
 }

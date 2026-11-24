@@ -11,34 +11,101 @@ import (
 	"testing"
 	"time"
 
+	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/migration"
 	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
-	"gitea.dev/services/migrations"
 	mirror_service "gitea.dev/services/mirror"
 	repo_service "gitea.dev/services/repository"
 	wiki_service "gitea.dev/services/wiki"
-	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMirrorPush(t *testing.T) {
-	onGiteaRun(t, testMirrorPush)
+	onGiteaRun(t, func(t *testing.T, serverURL *url.URL) {
+		t.Run("SettingsUpdate", func(t *testing.T) {
+			session := loginUser(t, "user2")
+			repo2 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
+			testCreatePushMirror(t, session, "user2", "repo2", "https://127.0.0.1/user1/repo1.git", "", "", "24h")
+
+			pushMirrors, cnt, err := repo_model.GetPushMirrorsByRepoID(t.Context(), repo2.ID, db.ListOptions{})
+			assert.NoError(t, err)
+			assert.EqualValues(t, 1, cnt)
+			assert.Equal(t, 24*time.Hour, pushMirrors[0].Interval)
+			repo2PushMirrorID := pushMirrors[0].ID
+
+			// update repo2 push mirror
+			assert.True(t, doUpdatePushMirror(t, session, "user2", "repo2", repo2PushMirrorID, "10m0s"))
+			pushMirror := unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
+			assert.Equal(t, 10*time.Minute, pushMirror.Interval)
+
+			// avoid updating repo2 push mirror from repo1
+			assert.False(t, doUpdatePushMirror(t, session, "user2", "repo1", repo2PushMirrorID, "20m0s"))
+			pushMirror = unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
+			assert.Equal(t, 10*time.Minute, pushMirror.Interval) // not changed
+
+			// avoid deleting repo2 push mirror from repo1
+			assert.False(t, doRemovePushMirror(t, session, "user2", "repo1", repo2PushMirrorID))
+			unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
+
+			// delete repo2 push mirror
+			assert.True(t, doRemovePushMirror(t, session, "user2", "repo2", repo2PushMirrorID))
+			unittest.AssertNotExistsBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
+		})
+		t.Run("APIDelete", func(t *testing.T) {
+			testMirrorPushAPIDelete(t, serverURL)
+		})
+		t.Run("Push", func(t *testing.T) {
+			testMirrorPush(t, serverURL)
+		})
+		t.Run("WikiDefaultBranchMismatch", func(t *testing.T) {
+			testMirrorPushWikiDefaultBranchMismatch(t, serverURL)
+		})
+		t.Run("MakePrimary", func(t *testing.T) {
+			testMirrorMakePrimary(t, serverURL)
+		})
+	})
 }
 
-func TestMirrorPushWikiDefaultBranchMismatch(t *testing.T) {
-	onGiteaRun(t, testMirrorPushWikiDefaultBranchMismatch)
+func testMirrorPushAPIDelete(t *testing.T, u *url.URL) {
+	repo1 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	token := getUserToken(t, "user2", auth_model.AccessTokenScopeWriteRepository)
+	createPushMirror := func() string {
+		req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/push_mirrors", &api.CreatePushMirrorOption{
+			RemoteAddress:  u.String() + "user2/repo1.git",
+			RemoteUsername: "user2",
+			RemotePassword: userPassword,
+			Interval:       "0",
+		}).AddTokenAuth(token)
+		return DecodeJSON(t, MakeRequest(t, req, http.StatusOK), &api.PushMirror{}).RemoteName
+	}
+
+	remoteName := createPushMirror()
+	MakeRequest(t, NewRequest(t, "DELETE", "/api/v1/repos/user2/repo1/push_mirrors/"+remoteName).AddTokenAuth(token), http.StatusNoContent)
+	_, err := git.GetRemoteAddress(t.Context(), repo1, remoteName)
+	assert.True(t, git.IsRemoteNotExistError(err))
+	MakeRequest(t, NewRequest(t, "DELETE", "/api/v1/repos/user2/repo1/push_mirrors/"+remoteName).AddTokenAuth(token), http.StatusNotFound)
+
+	remoteName = createPushMirror()
+	_, err = git.GetRemoteAddress(t.Context(), repo1.WikiStorageRepo(), remoteName)
+	require.NoError(t, err)
+	require.NoError(t, git.ManagedRemoteRemove(t.Context(), repo1, remoteName))
+	MakeRequest(t, NewRequest(t, "DELETE", "/api/v1/repos/user2/repo1/push_mirrors/"+remoteName).AddTokenAuth(token), http.StatusNoContent)
+	_, err = git.GetRemoteAddress(t.Context(), repo1.WikiStorageRepo(), remoteName)
+	assert.True(t, git.IsRemoteNotExistError(err))
 }
 
 func testMirrorPush(t *testing.T, u *url.URL) {
-	defer test.MockVariableValue(&setting.Migrations.AllowLocalNetworks, true)()
-	assert.NoError(t, migrations.Init())
-
 	_ = db.TruncateBeans(t.Context(), &repo_model.PushMirror{})
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	srcRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
@@ -59,6 +126,7 @@ func testMirrorPush(t *testing.T, u *url.URL) {
 
 	ok := mirror_service.SyncPushMirror(t.Context(), mirrors[0].ID)
 	assert.True(t, ok)
+	assert.NotZero(t, unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: mirrors[0].ID}).LastUpdateUnix)
 
 	srcGitRepo, err := git.OpenRepository(t.Context(), srcRepo)
 	assert.NoError(t, err)
@@ -76,6 +144,10 @@ func testMirrorPush(t *testing.T, u *url.URL) {
 
 	assert.Equal(t, srcCommit.ID, mirrorCommit.ID)
 
+	defer test.MockVariableValue(&setting.Migrations.AllowedHostList, "")()
+	assert.False(t, mirror_service.SyncPushMirror(t.Context(), mirrors[0].ID))
+	assert.NotEmpty(t, unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: mirrors[0].ID}).LastError)
+
 	// Cleanup
 	assert.True(t, doRemovePushMirror(t, session, user.Name, srcRepo.Name, mirrors[0].ID))
 	mirrors, _, err = repo_model.GetPushMirrorsByRepoID(t.Context(), srcRepo.ID, db.ListOptions{})
@@ -84,9 +156,6 @@ func testMirrorPush(t *testing.T, u *url.URL) {
 }
 
 func testMirrorPushWikiDefaultBranchMismatch(t *testing.T, u *url.URL) {
-	defer test.MockVariableValue(&setting.Migrations.AllowLocalNetworks, true)()
-	assert.NoError(t, migrations.Init())
-
 	_ = db.TruncateBeans(t.Context(), &repo_model.PushMirror{})
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 	srcRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
@@ -153,36 +222,62 @@ func doUpdatePushMirror(t *testing.T, session *TestSession, owner, repo string, 
 	return resp.Code == http.StatusSeeOther
 }
 
-func TestRepoSettingPushMirrorUpdate(t *testing.T) {
-	defer tests.PrepareTestEnv(t)()
-	defer test.MockVariableValue(&setting.Migrations.AllowLocalNetworks, true)()
-	assert.NoError(t, migrations.Init())
+func testMirrorMakePrimary(t *testing.T, u *url.URL) {
+	ctx := t.Context()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+	sourceRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	sourceURL := u.String() + "user2/repo1.git"
+	sourceGit, err := git.OpenRepository(ctx, sourceRepo)
+	require.NoError(t, err)
+	defer sourceGit.Close()
+	pullHead, err := sourceGit.GetRefCommitID(ctx, "refs/pull/2/head")
+	require.NoError(t, err)
+	cloneAddr, err := git.ParseRemoteAddr(sourceURL, user.LowerName, userPassword)
+	require.NoError(t, err)
 
-	session := loginUser(t, "user2")
-	repo2 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 2})
-	testCreatePushMirror(t, session, "user2", "repo2", "https://127.0.0.1/user1/repo1.git", "", "", "24h")
+	mirrorRepo, err := repo_service.CreateRepositoryDirectly(ctx, user, user, repo_service.CreateRepoOptions{Name: "test-make-primary", IsMirror: true}, false)
+	require.NoError(t, err)
+	mirrorRepo, err = repo_service.MigrateRepositoryGitData(ctx, user, mirrorRepo, migration.MigrateOptions{RepoName: mirrorRepo.Name, Mirror: true, CloneAddr: cloneAddr}, nil)
+	require.NoError(t, err)
 
-	pushMirrors, cnt, err := repo_model.GetPushMirrorsByRepoID(t.Context(), repo2.ID, db.ListOptions{})
-	assert.NoError(t, err)
-	assert.EqualValues(t, 1, cnt)
-	assert.Equal(t, 24*time.Hour, pushMirrors[0].Interval)
-	repo2PushMirrorID := pushMirrors[0].ID
+	masterCommit := func(repo *repo_model.Repository) string {
+		commitID, err := git.GetBranchCommitID(ctx, repo, "master")
+		require.NoError(t, err)
+		return commitID
+	}
+	_, err = createFile(user, sourceRepo, "pushed-after-the-last-sync.txt")
+	require.NoError(t, err)
+	require.NotEqual(t, masterCommit(sourceRepo), masterCommit(mirrorRepo))
 
-	// update repo2 push mirror
-	assert.True(t, doUpdatePushMirror(t, session, "user2", "repo2", repo2PushMirrorID, "10m0s"))
-	pushMirror := unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
-	assert.Equal(t, 10*time.Minute, pushMirror.Interval)
+	session := loginUser(t, user.Name)
+	session.MakeRequest(t, NewRequestWithValues(t, "POST", "/user2/test-make-primary/settings", map[string]string{
+		"action":    "make_primary",
+		"repo_name": "user2/test-make-primary",
+	}), http.StatusOK)
 
-	// avoid updating repo2 push mirror from repo1
-	assert.False(t, doUpdatePushMirror(t, session, "user2", "repo1", repo2PushMirrorID, "20m0s"))
-	pushMirror = unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
-	assert.Equal(t, 10*time.Minute, pushMirror.Interval) // not changed
+	mirrorRepo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: mirrorRepo.ID})
+	assert.False(t, mirrorRepo.IsMirror)
+	assert.True(t, mirrorRepo.UnitEnabled(ctx, unit.TypePullRequests), "a mirror has no pull requests, a primary repository needs them")
+	unittest.AssertNotExistsBean(t, &repo_model.Mirror{RepoID: mirrorRepo.ID})
+	assert.Equal(t, masterCommit(sourceRepo), masterCommit(mirrorRepo), "the switch pulls once more before it starts pushing")
+	pushMirror := unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{RepoID: mirrorRepo.ID})
+	assert.Equal(t, sourceURL, pushMirror.RemoteAddress)
+	assert.True(t, pushMirror.SyncOnCommit)
 
-	// avoid deleting repo2 push mirror from repo1
-	assert.False(t, doRemovePushMirror(t, session, "user2", "repo1", repo2PushMirrorID))
-	unittest.AssertExistsAndLoadBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
-
-	// delete repo2 push mirror
-	assert.True(t, doRemovePushMirror(t, session, "user2", "repo2", repo2PushMirrorID))
-	unittest.AssertNotExistsBean(t, &repo_model.PushMirror{ID: repo2PushMirrorID})
+	// a pull request opened here after the cutover, which the old repository must not receive
+	_, _, err = gitcmd.NewCommand("update-ref", "refs/pull/99/head", "master").WithRepo(mirrorRepo).RunStdString(ctx)
+	require.NoError(t, err)
+	_, err = createFile(user, mirrorRepo, "written-here.txt")
+	require.NoError(t, err)
+	// the commit queues a sync on its own, a second push would race it for the ref lock
+	want := masterCommit(mirrorRepo)
+	assert.Eventually(t, func() bool {
+		pushed, err := git.GetBranchCommitID(ctx, sourceRepo, "master")
+		return err == nil && pushed == want
+	}, 10*time.Second, 50*time.Millisecond)
+	afterPullHead, err := sourceGit.GetRefCommitID(ctx, "refs/pull/2/head")
+	require.NoError(t, err)
+	assert.Equal(t, pullHead, afterPullHead)
+	_, err = sourceGit.GetRefCommitID(ctx, "refs/pull/99/head")
+	assert.Error(t, err)
 }

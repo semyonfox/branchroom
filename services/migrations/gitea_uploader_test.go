@@ -5,23 +5,40 @@
 package migrations
 
 import (
+	"errors"
+	"io"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	actions_model "gitea.dev/models/actions"
+	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
+	"gitea.dev/models/perm"
 	repo_model "gitea.dev/models/repo"
+	secret_model "gitea.dev/models/secret"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
+	webhook_model "gitea.dev/models/webhook"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/graceful"
 	base "gitea.dev/modules/migration"
 	"gitea.dev/modules/optional"
 	"gitea.dev/modules/structs"
+	webhook_module "gitea.dev/modules/webhook"
+	"gitea.dev/services/auth/source/oauth2"
+	"gitea.dev/services/externalaccount"
 	repo_service "gitea.dev/services/repository"
 
+	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"xorm.io/builder"
 )
 
 func TestGiteaUploadRepo(t *testing.T) {
@@ -121,6 +138,42 @@ func TestGiteaUploadRepo(t *testing.T) {
 	assert.Len(t, pulls[0].Issue.Comments, 2)
 }
 
+func TestCreateReleases(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	sourceRelease := &base.Release{Name: "assets", Latest: true, Assets: []*base.ReleaseAsset{
+		{Name: "gone", Size: new(0), DownloadCount: new(0), DownloadFunc: func() (io.ReadCloser, error) { return nil, errors.New("gone") }},
+		{Name: "kept", Size: new(0), DownloadCount: new(0), DownloadFunc: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("data")), nil }},
+	}}
+
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	uploader := NewGiteaLocalUploader(t.Context(), doer, doer.Name, "repo1")
+	uploader.repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	gitRepo, err := git.OpenRepository(t.Context(), uploader.repo)
+	require.NoError(t, err)
+	defer gitRepo.Close()
+	uploader.gitRepo = gitRepo
+	_, err = db.GetEngine(t.Context()).Delete(&repo_model.Release{RepoID: 1, TagName: "v1.1"})
+	require.NoError(t, err)
+	require.NoError(t, uploader.CreateReleases(t.Context(), sourceRelease, &base.Release{TagName: "v1.1", Created: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}))
+	require.NoError(t, uploader.SyncTags(t.Context()))
+	commit, err := gitRepo.GetTagCommit(t.Context(), "v1.1")
+	require.NoError(t, err)
+	assert.Equal(t, commit.Committer.When.Unix(), int64(unittest.AssertExistsAndLoadBean(t, &repo_model.Release{RepoID: 1, TagName: "v1.1"}).CreatedUnix))
+	assert.Zero(t, unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1}).LatestReleaseID)
+	require.NoError(t, uploader.CreateReleases(t.Context(), &base.Release{TagName: "newer", Created: time.Now().Add(time.Hour)}))
+	require.NoError(t, uploader.SyncTags(t.Context()))
+	release := unittest.AssertExistsAndLoadBean(t, &repo_model.Release{RepoID: 1, Title: "assets"})
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1, LatestReleaseID: release.ID})
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Attachment{ReleaseID: release.ID, Name: "kept", Size: 4})
+	unittest.AssertNotExistsBean(t, &repo_model.Attachment{ReleaseID: release.ID, Name: "gone"})
+
+	dumper := &RepositoryDumper{baseDir: t.TempDir(), opts: base.MigrateOptions{ReleaseAssets: true}}
+	defer dumper.Close()
+	require.NoError(t, dumper.CreateReleases(t.Context(), sourceRelease))
+	require.Len(t, sourceRelease.Assets, 1)
+	assert.Equal(t, "kept", sourceRelease.Assets[0].Name)
+}
+
 func TestGiteaUploadRemapLocalUser(t *testing.T) {
 	unittest.PrepareTestEnv(t)
 	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
@@ -132,44 +185,63 @@ func TestGiteaUploadRemapLocalUser(t *testing.T) {
 	// call remapLocalUser
 	uploader.sameApp = true
 
-	externalID := int64(1234567)
-	externalName := "username"
-	source := base.Release{
-		PublisherID:   externalID,
-		PublisherName: externalName,
+	for _, tc := range []struct {
+		source         base.Release
+		expectedUserID int64
+	}{
+		//
+		// The externalID does not match any existing user, everything
+		// belongs to the doer
+		//
+		{base.Release{PublisherID: 1234567, PublisherName: "username"}, doer.ID},
+		//
+		// The externalID matches a known user but the name does not match,
+		// everything belongs to the doer
+		//
+		{base.Release{PublisherID: user.ID, PublisherName: "username"}, doer.ID},
+		//
+		// The externalID and externalName match an existing user, everything
+		// belongs to the existing user
+		//
+		{base.Release{PublisherID: user.ID, PublisherName: user.Name}, user.ID},
+	} {
+		target := repo_model.Release{}
+		uploader.userMap = make(map[int64]int64)
+		err := uploader.remapUser(ctx, &tc.source, &target)
+		assert.NoError(t, err)
+		assert.Equal(t, tc.expectedUserID, target.GetUserID())
 	}
 
-	//
-	// The externalID does not match any existing user, everything
-	// belongs to the doer
-	//
-	target := repo_model.Release{}
-	uploader.userMap = make(map[int64]int64)
-	err := uploader.remapUser(ctx, &source, &target)
-	assert.NoError(t, err)
-	assert.Equal(t, doer.ID, target.GetUserID())
+	t.Run("TimelineLabelAndMilestoneComments", func(t *testing.T) {
+		issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: 1})
+		label := unittest.AssertExistsAndLoadBean(t, &issues_model.Label{ID: 1})
+		milestone := unittest.AssertExistsAndLoadBean(t, &issues_model.Milestone{ID: 1})
 
-	//
-	// The externalID matches a known user but the name does not match,
-	// everything belongs to the doer
-	//
-	source.PublisherID = user.ID
-	target = repo_model.Release{}
-	uploader.userMap = make(map[int64]int64)
-	err = uploader.remapUser(ctx, &source, &target)
-	assert.NoError(t, err)
-	assert.Equal(t, doer.ID, target.GetUserID())
+		uploader := NewGiteaLocalUploader(ctx, doer, doer.Name, "migrated")
+		uploader.issues[issue.Index] = issue
+		uploader.labels[label.Name] = label
+		uploader.milestones[milestone.Name] = milestone.ID
 
-	//
-	// The externalID and externalName match an existing user, everything
-	// belongs to the existing user
-	//
-	source.PublisherName = user.Name
-	target = repo_model.Release{}
-	uploader.userMap = make(map[int64]int64)
-	err = uploader.remapUser(ctx, &source, &target)
-	assert.NoError(t, err)
-	assert.Equal(t, user.ID, target.GetUserID())
+		require.NoError(t, uploader.CreateComments(ctx,
+			&base.Comment{IssueIndex: issue.Index, CommentType: "label", Content: "1", Meta: map[string]any{"LabelName": label.Name}},
+			&base.Comment{IssueIndex: issue.Index, CommentType: "label", Meta: map[string]any{"LabelName": "deleted-upstream"}},
+			&base.Comment{IssueIndex: issue.Index, CommentType: "milestone", Meta: map[string]any{"MilestoneTitle": milestone.Name}},
+			&base.Comment{IssueIndex: issue.Index, CommentType: "milestone", Meta: map[string]any{"MilestoneTitle": milestone.Name, "Removed": true}},
+			&base.Comment{IssueIndex: issue.Index, CommentType: "delete_branch", Content: "feature"},
+			&base.Comment{IssueIndex: issue.Index, CommentType: "delete_branch", Content: strings.Repeat("a", 256)},
+		))
+
+		unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: issue.ID, Type: issues_model.CommentTypeLabel, LabelID: label.ID, Content: "1"})
+		unittest.AssertCountByCond(t, "comment", builder.Eq{
+			"issue_id": issue.ID,
+			"type":     issues_model.CommentTypeLabel,
+			"label_id": 0,
+		}, 0)
+		unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: issue.ID, Type: issues_model.CommentTypeMilestone, MilestoneID: milestone.ID})
+		unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: issue.ID, Type: issues_model.CommentTypeMilestone, OldMilestoneID: milestone.ID})
+		assert.Empty(t, unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: issue.ID, Type: issues_model.CommentTypeDeleteBranch, OldRef: "feature"}).Content)
+		assert.Empty(t, unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: issue.ID, Type: issues_model.CommentTypeDeleteBranch, OldRef: strings.Repeat("a", 255)}).Content)
+	})
 }
 
 func TestGiteaUploadRemapExternalUser(t *testing.T) {
@@ -221,4 +293,234 @@ func TestGiteaUploadRemapExternalUser(t *testing.T) {
 	err = uploader.remapUser(ctx, &source, &target)
 	assert.NoError(t, err)
 	assert.Equal(t, linkedUser.ID, target.GetUserID())
+}
+
+func TestGiteaUploadReviewCommentResolved(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	pull := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: 1})
+	require.NoError(t, pull.LoadIssue(ctx))
+
+	uploader := NewGiteaLocalUploader(ctx, doer, repo.OwnerName, repo.Name)
+	var err error
+	uploader.repo = repo
+	uploader.gitRepo, err = git.OpenRepository(ctx, repo)
+	require.NoError(t, err)
+	defer uploader.Close()
+	uploader.issues[pull.Issue.Index] = pull.Issue
+
+	headCommitID, err := uploader.gitRepo.GetBranchCommitID(ctx, repo.DefaultBranch)
+	require.NoError(t, err)
+	require.NoError(t, git.UpdateRef(ctx, repo, pull.GetGitHeadRefName(), headCommitID))
+
+	require.NoError(t, uploader.CreateReviews(ctx, &base.Review{
+		IssueIndex: pull.Issue.Index,
+		ReviewerID: doer.ID,
+		State:      base.ReviewStateCommented,
+		Comments: []*base.ReviewComment{
+			{Content: "resolved thread", TreePath: "README.md", Line: 1, Resolved: true},
+			{Content: "open thread", TreePath: "README.md", Line: 1},
+		},
+	}))
+
+	comments, err := issues_model.FindComments(ctx, &issues_model.FindCommentsOptions{IssueID: pull.Issue.ID, Type: issues_model.CommentTypeCode})
+	require.NoError(t, err)
+	resolved := map[string]bool{}
+	for _, c := range comments {
+		if c.Content == "resolved thread" || c.Content == "open thread" {
+			resolved[c.Content] = c.ResolveDoerID == doer.ID
+		}
+	}
+	assert.Equal(t, map[string]bool{"resolved thread": true, "open thread": false}, resolved)
+}
+
+func TestGiteaUploadForkPullRequestHeadInRepository(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+
+	uploader := NewGiteaLocalUploader(ctx, doer, repo.OwnerName, repo.Name)
+	var err error
+	uploader.repo = repo
+	uploader.gitRepo, err = git.OpenRepository(ctx, repo)
+	require.NoError(t, err)
+	defer uploader.Close()
+
+	headCommitID, err := uploader.gitRepo.GetBranchCommitID(ctx, repo.DefaultBranch)
+	require.NoError(t, err)
+
+	// the fork cannot be reached, but its head commit is already in the repository
+	pr := &base.PullRequest{
+		Number: 99,
+		State:  "open",
+		Head:   base.PullRequestBranch{OwnerName: "fork-owner", RepoName: "repo", Ref: "feature", SHA: headCommitID, CloneURL: "https://fork.invalid/fork-owner/repo.git"},
+		Base:   base.PullRequestBranch{OwnerName: repo.OwnerName, RepoName: repo.Name, Ref: repo.DefaultBranch},
+	}
+	pr.PatchURL = "file:///nonexistent.patch"
+	pr.EnsuredSafe = true
+	require.True(t, pr.IsForkPullRequest())
+
+	head, err := uploader.updateGitForPullRequest(ctx, pr)
+	require.NoError(t, err)
+	assert.Equal(t, "fork-owner/feature", head)
+	assert.True(t, uploader.gitRepo.IsBranchExist(ctx, "fork-owner/feature"))
+	branchCommitID, err := uploader.gitRepo.GetBranchCommitID(ctx, "fork-owner/feature")
+	require.NoError(t, err)
+	assert.Equal(t, headCommitID, branchCommitID)
+	refCommitID, err := uploader.gitRepo.GetRefCommitID(ctx, pr.GetGitHeadRefName())
+	require.NoError(t, err)
+	assert.Equal(t, headCommitID, refCommitID)
+	remotes, _, err := gitcmd.NewCommand("remote").WithRepo(repo).RunStdString(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, strings.TrimSpace(remotes), "no remote is added for a local head")
+}
+
+func TestGiteaUploadReviewCommentsWithoutHead(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	pull := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: 1})
+	require.NoError(t, pull.LoadIssue(ctx))
+
+	uploader := NewGiteaLocalUploader(ctx, doer, repo.OwnerName, repo.Name)
+	var err error
+	uploader.repo = repo
+	uploader.gitRepo, err = git.OpenRepository(ctx, repo)
+	require.NoError(t, err)
+	defer uploader.Close()
+	uploader.issues[pull.Issue.Index] = pull.Issue
+	require.NoError(t, git.RemoveRef(ctx, repo, pull.GetGitHeadRefName()))
+
+	opts := issues_model.FindReviewOptions{IssueID: pull.Issue.ID}
+	reviewsBefore, err := issues_model.CountReviews(ctx, opts)
+	require.NoError(t, err)
+
+	require.NoError(t, uploader.CreateReviews(ctx, &base.Review{
+		IssueIndex: pull.Issue.Index,
+		ReviewerID: doer.ID,
+		State:      base.ReviewStateCommented,
+		Comments:   []*base.ReviewComment{{Content: "lost anchor", TreePath: "README.md", Line: -3}},
+	}))
+
+	comments, err := issues_model.FindComments(ctx, &issues_model.FindCommentsOptions{IssueID: pull.Issue.ID, Type: issues_model.CommentTypeComment})
+	require.NoError(t, err)
+	var contents []string
+	for _, c := range comments {
+		contents = append(contents, c.Content)
+	}
+	assert.Contains(t, contents, "Comment on `README.md` line 3:\n\nlost anchor")
+	reviewsAfter, err := issues_model.CountReviews(ctx, opts)
+	require.NoError(t, err)
+	assert.Equal(t, reviewsBefore, reviewsAfter) // no empty review is left behind
+}
+
+func TestGiteaUploadSettings(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2}) // owner of org3
+	repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 5})
+	repo.OriginalURL = "https://github.com/harbour-club/tides"
+	linked := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	link := func(user *user_model.User, externalID string, urls *oauth2.CustomURLMapping) {
+		source := &auth_model.Source{Type: auth_model.OAuth2, Name: "github " + externalID, IsActive: true, Cfg: &oauth2.Source{Provider: "github", CustomURLMapping: urls}}
+		require.NoError(t, auth_model.CreateSource(ctx, source))
+		require.NoError(t, externalaccount.LinkAccountToUser(ctx, source.ID, user, goth.User{UserID: externalID, Provider: source.Name}))
+	}
+	link(linked, "7", nil)
+	// the same id on a GitHub Enterprise server is another person
+	link(unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 5}), "8", &oauth2.CustomURLMapping{AuthURL: "https://github.example.com/login/oauth/authorize"})
+
+	uploader := NewGiteaLocalUploader(ctx, doer, "org3", repo.Name)
+	uploader.gitServiceType = structs.GithubService
+	uploader.repo = repo
+	require.NoError(t, uploader.CreateSettings(ctx, &base.RepoSettings{
+		BranchProtections: []*base.BranchProtection{{Pattern: "release/*", BlockPush: true, AllowDeletion: true, RequiredApprovals: 2, Unsupported: []string{"require linear history"}}},
+		Collaborators: []*base.Collaborator{
+			{ExternalID: "7", Login: "niamh", Permission: "write"},
+			{ExternalID: "8", Login: "user5", Permission: "admin"}, // neither the matching name nor the matching id proves it is the local user5
+		},
+		Teams: []*base.Team{
+			{Name: "Team 1", Slug: "team1", Permission: "write"},
+			{Name: "test_team", Slug: "test_team", Permission: "read"}, // the local team writes
+			{Name: "Ghosts", Slug: "ghosts", Permission: "admin"},
+		},
+		Webhooks: []*base.Webhook{
+			{URL: "https://hooks.example.com/services/T0/secret-token", ContentType: "json", Events: []string{"push"}, UnsupportedEvents: []string{"deployment"}},
+			{URL: "https://deploy.example.com/hook", UnsupportedEvents: []string{"deployment"}},
+		},
+		Variables: []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}, {Name: "GITHUB_SHADOW", Value: "x"}, {Name: "node_version", Value: "22"}},
+		Secrets:   []*base.ActionsSecret{{Name: "DEPLOY_KEY", Value: "s3cr3t"}},
+		Notes:     []base.SettingsNote{{Kind: base.SettingsNoteSecret, Name: "SIGNING_KEY"}},
+	}))
+
+	rule := unittest.AssertExistsAndLoadBean(t, &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "release/*"})
+	assert.False(t, rule.CanPush)
+	assert.False(t, rule.CanDelete)
+	assert.EqualValues(t, 2, rule.RequiredApprovals)
+
+	unittest.AssertExistsAndLoadBean(t, &repo_model.Collaboration{RepoID: repo.ID, UserID: linked.ID, Mode: perm.AccessModeWrite})
+	unittest.AssertNotExistsBean(t, &repo_model.Collaboration{RepoID: repo.ID, UserID: 5})
+	assert.True(t, organization.HasTeamRepo(ctx, repo.OwnerID, 2, repo.ID))
+	assert.False(t, organization.HasTeamRepo(ctx, repo.OwnerID, 7, repo.ID))
+
+	webhook := unittest.AssertExistsAndLoadBean(t, &webhook_model.Webhook{RepoID: repo.ID})
+	assert.False(t, webhook.IsActive)
+	assert.True(t, webhook.HasEvent(webhook_module.HookEventPush))
+	unittest.AssertExistsAndLoadBean(t, &actions_model.ActionVariable{RepoID: repo.ID, Name: "NODE_VERSION", Data: "24"})
+	unittest.AssertExistsAndLoadBean(t, &secret_model.Secret{RepoID: repo.ID, Name: "DEPLOY_KEY"})
+
+	report, err := repo_model.GetMigrationReport(ctx, repo.ID)
+	require.NoError(t, err)
+	assert.Equal(t, &base.SettingsReport{
+		BranchProtections: 1, Collaborators: 1, Teams: 1, Webhooks: 1, Variables: 1, Secrets: 1,
+		Notes: []base.SettingsNote{
+			{Kind: base.SettingsNoteSecret, Name: "SIGNING_KEY"},
+			{Kind: base.SettingsNoteBranchProtection, Name: "release/*", Detail: "require linear history"},
+			{Kind: base.SettingsNoteCollaborator, Name: "user5", Detail: "admin"},
+			{Kind: base.SettingsNoteTeamAccess, Name: "test_team", Detail: "read"},
+			{Kind: base.SettingsNoteTeam, Name: "Ghosts", Detail: "admin"},
+			{Kind: base.SettingsNoteWebhook, Name: "hooks.example.com", Detail: "deployment"},
+			{Kind: base.SettingsNoteWebhookSkipped, Name: "deploy.example.com", Detail: "deployment"},
+			{Kind: base.SettingsNoteVariable, Name: "GITHUB_SHADOW"},
+			{Kind: base.SettingsNoteVariable, Name: "node_version"},
+		},
+	}, report.Report)
+}
+
+func TestGiteaUploadLinkedUserByHost(t *testing.T) {
+	unittest.PrepareTestEnv(t)
+	ctx := t.Context()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	for i, tc := range []struct {
+		service        structs.GitServiceType
+		source         string
+		provider, auth string
+		linked         bool
+	}{
+		{structs.ForgejoService, "https://codeberg.org/o/r", "gitea", "https://codeberg.org/login/oauth/authorize", true},
+		{structs.GiteaService, "https://gitea.example.com/o/r", "gitea", "https://codeberg.org/login/oauth/authorize", false},
+		{structs.GitlabService, "https://gitlab.com/o/r", "gitlab", "", true},
+		{structs.GitlabService, "https://gitlab.example.com/o/r", "gitlab", "", false},
+		{structs.BitbucketService, "https://bitbucket.org/w/r", "bitbucket", "", true},
+	} {
+		externalID := strconv.Itoa(100 + i)
+		config := &oauth2.Source{Provider: tc.provider}
+		if tc.auth != "" {
+			config.CustomURLMapping = &oauth2.CustomURLMapping{AuthURL: tc.auth}
+		}
+		source := &auth_model.Source{Type: auth_model.OAuth2, Name: "source " + externalID, IsActive: true, Cfg: config}
+		require.NoError(t, auth_model.CreateSource(ctx, source))
+		require.NoError(t, user_model.LinkExternalToUser(ctx, user, &user_model.ExternalLoginUser{ExternalID: externalID, UserID: user.ID, LoginSourceID: source.ID, Provider: tc.provider}))
+
+		uploader := NewGiteaLocalUploader(ctx, user, "org3", "repo5")
+		uploader.gitServiceType = tc.service
+		uploader.repo = &repo_model.Repository{OriginalURL: tc.source}
+		userID, err := uploader.linkedUserID(ctx, externalID)
+		require.NoError(t, err)
+		assert.Equal(t, tc.linked, userID == user.ID, "%s account from %s", tc.provider, tc.source)
+	}
 }

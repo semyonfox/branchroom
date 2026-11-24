@@ -11,6 +11,7 @@ import (
 	actions_model "gitea.dev/models/actions"
 	activities_model "gitea.dev/models/activities"
 	admin_model "gitea.dev/models/admin"
+	audit_model "gitea.dev/models/audit"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
@@ -31,6 +32,7 @@ import (
 	"gitea.dev/modules/storage"
 	actions_service "gitea.dev/services/actions"
 	asymkey_service "gitea.dev/services/asymkey"
+	"gitea.dev/services/audit"
 	branchroom_service "gitea.dev/services/branchroom"
 	issue_service "gitea.dev/services/issue"
 
@@ -105,8 +107,8 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 	if err := branchroom_service.ReleaseRepositoryWorkspaceRetention(ctx, repoID); err != nil {
 		return fmt.Errorf("release Branchroom workspace retention: %w", err)
 	}
-	if err := branchroom_service.PurgeRepositoryPolicy(ctx, repoID); err != nil {
-		return fmt.Errorf("purge Branchroom policy: %w", err)
+	if err := branchroom_service.RetainRepositoryPolicyForDeletion(ctx, repoID); err != nil {
+		return fmt.Errorf("retain Branchroom policy: %w", err)
 	}
 	if err := deleteDBRepository(ctx, repoID); err != nil {
 		return err
@@ -146,6 +148,11 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 		return err
 	}
 
+	if _, err := db.GetEngine(ctx).In("release_id", builder.Select("id").From("`release`").Where(builder.Eq{"repo_id": repoID})).
+		Delete(&issues_model.Reaction{}); err != nil {
+		return err
+	}
+
 	// CleanupEphemeralRunnersByPickedTaskOfRepo deletes ephemeral global/org/user that have started any task of this repo
 	// The cannot pick a second task hardening for ephemeral runners expect that task objects remain available until runner deletion
 	// This method will delete affected ephemeral global/org/user runners
@@ -167,10 +174,12 @@ func DeleteRepositoryDirectly(ctx context.Context, repoID int64, ignoreOrgTeams 
 		&git_model.LFSLock{RepoID: repoID},
 		&repo_model.LanguageStat{RepoID: repoID},
 		&repo_model.RepoLicense{RepoID: repoID},
+		&repo_model.RepoMigrationReport{RepoID: repoID},
 		&issues_model.Milestone{RepoID: repoID},
 		&repo_model.Mirror{RepoID: repoID},
 		&activities_model.Notification{RepoID: repoID},
 		&git_model.ProtectedBranch{RepoID: repoID},
+		&git_model.BranchroomPathReviewer{RepoID: repoID},
 		&git_model.ProtectedTag{RepoID: repoID},
 		&repo_model.PushMirror{RepoID: repoID},
 		&repo_model.Release{RepoID: repoID},
@@ -405,7 +414,6 @@ func DeleteOwnerRepositoriesDirectly(ctx context.Context, owner *user_model.User
 			},
 			Private: true,
 			OwnerID: owner.ID,
-			Actor:   owner,
 		})
 		if err != nil {
 			return fmt.Errorf("GetUserRepositories: %w", err)
@@ -417,6 +425,7 @@ func DeleteOwnerRepositoriesDirectly(ctx context.Context, owner *user_model.User
 			if err := DeleteRepositoryDirectly(ctx, repo.ID); err != nil {
 				return fmt.Errorf("unable to delete repository %s for %s[%d]. Error: %w", repo.Name, owner.Name, owner.ID, err)
 			}
+			audit.Record(ctx, audit_model.RepositoryDelete, repo)
 		}
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	"gitea.dev/models/organization"
 	access_model "gitea.dev/models/perm/access"
@@ -386,6 +387,9 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 	if _, err := e.Insert(opts.Issue); err != nil {
 		return err
 	}
+	if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(doer), "issue", opts.Issue.ID); err != nil {
+		return err
+	}
 
 	if opts.Issue.MilestoneID > 0 {
 		if err := UpdateMilestoneCounters(ctx, opts.Issue.MilestoneID); err != nil {
@@ -529,7 +533,7 @@ func UpdateIssueMentions(ctx context.Context, issueID int64, mentions []*user_mo
 
 // UpdateIssueDeadline updates an issue deadline and adds comments. Setting a deadline to 0 means deleting it.
 func UpdateIssueDeadline(ctx context.Context, issue *Issue, deadlineUnix timeutil.TimeStamp, doer *user_model.User) (err error) {
-	// if the deadline hasn't changed do nothing
+	// if the deadline hasn't changed, do nothing
 	if issue.DeadlineUnix == deadlineUnix {
 		return nil
 	}
@@ -539,11 +543,11 @@ func UpdateIssueDeadline(ctx context.Context, issue *Issue, deadlineUnix timeuti
 		if err = UpdateIssueCols(ctx, &Issue{ID: issue.ID, DeadlineUnix: deadlineUnix}, "deadline_unix"); err != nil {
 			return err
 		}
-
 		// Make the comment
 		if _, err = createDeadlineComment(ctx, doer, issue, deadlineUnix); err != nil {
-			return fmt.Errorf("createRemovedDueDateComment: %w", err)
+			return fmt.Errorf("createDeadlineComment: %w", err)
 		}
+		issue.DeadlineUnix = deadlineUnix
 		return nil
 	})
 }

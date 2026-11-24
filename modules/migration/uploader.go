@@ -20,6 +20,7 @@ type Uploader interface {
 	CreateComments(ctx context.Context, comments ...*Comment) error
 	CreatePullRequests(ctx context.Context, prs ...*PullRequest) error
 	CreateReviews(ctx context.Context, reviews ...*Review) error
+	CreateSettings(ctx context.Context, settings *RepoSettings) error
 	Rollback() error
 	Finish(ctx context.Context) error
 	Close()

@@ -12,6 +12,8 @@ import (
 	"path"
 	"path/filepath"
 
+	"gitea.dev/modules/setting"
+
 	"github.com/google/uuid"
 )
 
@@ -25,7 +27,7 @@ const (
 var (
 	// ErrInvalidRestrictedRoot rejects a supplied restricted root without echoing it.
 	ErrInvalidRestrictedRoot = errors.New("invalid Branchroom restricted repository root")
-	// ErrUnsafeRestrictedRoot rejects a symlinked, non-directory or group/world writable root without echoing it.
+	// ErrUnsafeRestrictedRoot rejects a symlinked, non-directory or non-private root without echoing it.
 	ErrUnsafeRestrictedRoot = errors.New("unsafe Branchroom restricted repository root")
 	// ErrRestrictedRootUnavailable collapses root lookup and open failures so no supplied path is echoed.
 	ErrRestrictedRootUnavailable = errors.New("Branchroom restricted repository root unavailable")
@@ -42,6 +44,16 @@ var (
 // It writes no Git config and no push path; it returns the exact absolute hook directory so a
 // later trusted step can point core.hooksPath at it.
 func InstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) {
+	return installRestrictedStoreHook(restrictedRoot, storeID, false)
+}
+
+// ReinstallRestrictedStoreHook rewrites the hook for the current executable and config paths.
+// Install refuses a differing hook as possible tampering, so only an operator repair may replace one.
+func ReinstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) {
+	return installRestrictedStoreHook(restrictedRoot, storeID, true)
+}
+
+func installRestrictedStoreHook(restrictedRoot, storeID string, replace bool) (string, error) {
 	if !filepath.IsAbs(restrictedRoot) || filepath.Clean(restrictedRoot) != restrictedRoot {
 		return "", ErrInvalidRestrictedRoot
 	}
@@ -61,7 +73,7 @@ func InstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) 
 
 	// OpenRoot must have landed on the exact directory that was validated, not a swapped-in lookalike
 	enteredInfo, lstatErr := root.Lstat(".")
-	if lstatErr != nil || !os.SameFile(initialRootInfo, enteredInfo) {
+	if lstatErr != nil || !os.SameFile(initialRootInfo, enteredInfo) || !isPrivateRestrictedRoot(enteredInfo) {
 		return "", ErrUnsafeRestrictedRoot
 	}
 
@@ -80,7 +92,7 @@ func InstallRestrictedStoreHook(restrictedRoot, storeID string) (string, error) 
 		return "", collapseUnexpectedHookError(err)
 	}
 	target := path.Join(storeHooksDir, preReceiveHookFileName)
-	if err := installPreReceiveHookFile(root, target); err != nil {
+	if err := installPreReceiveHookFile(root, target, replace); err != nil {
 		return "", collapseUnexpectedHookError(err)
 	}
 	// fsync the store directory so the renamed hook entry survives a crash
@@ -104,15 +116,19 @@ func isCanonicalUUID(value string) bool {
 }
 
 // ensureIntegritySafeRoot verifies the supplied root before os.OpenRoot enters it: a real,
-// non-symlink directory at the exact given path, not writable by group or others. It returns the
-// initial FileInfo so the caller can confirm with os.SameFile that OpenRoot entered the same file.
+// non-symlink, service-controlled directory at the exact given path with no group or other
+// access. It returns the initial FileInfo so the caller can confirm with os.SameFile that
+// OpenRoot entered the same file.
 func ensureIntegritySafeRoot(restrictedRoot string) (fs.FileInfo, error) {
+	if !restrictedStoreIntegritySupported() {
+		return nil, ErrUnsafeRestrictedRoot
+	}
 	info, err := os.Lstat(restrictedRoot)
 	if err != nil {
 		return nil, ErrRestrictedRootUnavailable
 	}
 	// Lstat sees the link itself, so a symlinked root is rejected here rather than followed by OpenRoot.
-	if !isSafeDirectory(info) {
+	if !isPrivateRestrictedRoot(info) || !isTrustedBranchroomPathOwner(info) {
 		return nil, ErrUnsafeRestrictedRoot
 	}
 	// Lstat cannot see symlinked ancestors below the final component, so require full canonical resolution.
@@ -121,6 +137,20 @@ func ensureIntegritySafeRoot(restrictedRoot string) (fs.FileInfo, error) {
 		return nil, ErrRestrictedRootUnavailable
 	}
 	if resolved != restrictedRoot {
+		return nil, ErrUnsafeRestrictedRoot
+	}
+	if !hasSafeRestrictedRootAncestors(restrictedRoot, info) {
+		return nil, ErrUnsafeRestrictedRoot
+	}
+	return info, nil
+}
+
+func ensurePrivateRestrictedRoot(restrictedRoot string) (fs.FileInfo, error) {
+	info, err := ensureIntegritySafeRoot(restrictedRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := setting.ValidateBranchroomRestrictedRoot(restrictedRoot); err != nil {
 		return nil, ErrUnsafeRestrictedRoot
 	}
 	return info, nil
@@ -149,6 +179,31 @@ func isSafeDirectory(info fs.FileInfo) bool {
 	return info.Mode()&fs.ModeSymlink == 0 && info.IsDir() && info.Mode().Perm()&0o022 == 0
 }
 
+func isPrivateRestrictedRoot(info fs.FileInfo) bool {
+	return isSafeDirectory(info) && info.Mode().Perm()&0o077 == 0
+}
+
+func hasSafeRestrictedRootAncestors(restrictedRoot string, childInfo fs.FileInfo) bool {
+	for parent := filepath.Dir(restrictedRoot); ; parent = filepath.Dir(parent) {
+		info, err := os.Lstat(parent)
+		if err != nil || info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() {
+			return false
+		}
+		// An account that owns an ancestor can relax its mode after this check, so
+		// every ancestor must be controlled by the service account or root.
+		if !isTrustedBranchroomPathOwner(info) {
+			return false
+		}
+		if info.Mode().Perm()&0o022 != 0 && (info.Mode()&fs.ModeSticky == 0 || !isOwnedByGiteaProcess(childInfo)) {
+			return false
+		}
+		if parent == filepath.Dir(parent) {
+			return true
+		}
+		childInfo = info
+	}
+}
+
 // syncHookDirectoryEntry fsyncs a directory below root so its entries survive a crash; var only so tests can inject sync failures.
 var syncHookDirectoryEntry = func(root *os.Root, name string) error {
 	dir, err := root.Open(name)
@@ -162,10 +217,13 @@ var syncHookDirectoryEntry = func(root *os.Root, name string) error {
 	return dir.Close()
 }
 
-func installPreReceiveHookFile(root *os.Root, target string) (err error) {
+func installPreReceiveHookFile(root *os.Root, target string, replace bool) (err error) {
 	content := ReceivePreReceiveHookTemplate()
 	if info, lstatErr := root.Lstat(target); lstatErr == nil {
-		return validateHookTarget(root, target, info, content)
+		// a replacement still refuses a symlink or non-file at the target, the rename only swaps a file
+		if !replace || info.Mode()&fs.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return validateHookTarget(root, target, info, content)
+		}
 	} else if !errors.Is(lstatErr, fs.ErrNotExist) {
 		return lstatErr
 	}

@@ -37,12 +37,13 @@ func IsReceiveSessionStateValid(state ReceiveSessionState) bool {
 type ReceiveSessionOutcome string
 
 const (
-	ReceiveSessionOutcomePending ReceiveSessionOutcome = "pending"
-	ReceiveSessionOutcomeDenied  ReceiveSessionOutcome = "denied"
-	ReceiveSessionOutcomeFailed  ReceiveSessionOutcome = "failed"
-	ReceiveSessionOutcomeExpired ReceiveSessionOutcome = "expired"
-	ReceiveSessionOutcomeRevoked ReceiveSessionOutcome = "revoked"
-	ReceiveSessionOutcomeLegacy  ReceiveSessionOutcome = "legacy"
+	ReceiveSessionOutcomeAccepted ReceiveSessionOutcome = "accepted"
+	ReceiveSessionOutcomePending  ReceiveSessionOutcome = "pending"
+	ReceiveSessionOutcomeDenied   ReceiveSessionOutcome = "denied"
+	ReceiveSessionOutcomeFailed   ReceiveSessionOutcome = "failed"
+	ReceiveSessionOutcomeExpired  ReceiveSessionOutcome = "expired"
+	ReceiveSessionOutcomeRevoked  ReceiveSessionOutcome = "revoked"
+	ReceiveSessionOutcomeLegacy   ReceiveSessionOutcome = "legacy"
 
 	// ReceiveSessionOutcomeAdmitted means a pre-receive admission gate accepted an update;
 	// it does not mean Git committed refs.
@@ -52,7 +53,7 @@ const (
 // IsReceiveSessionOutcomeValid reports whether outcome is persisted by the current schema.
 func IsReceiveSessionOutcomeValid(outcome ReceiveSessionOutcome) bool {
 	switch outcome {
-	case ReceiveSessionOutcomePending, ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeExpired, ReceiveSessionOutcomeRevoked, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
+	case ReceiveSessionOutcomeAccepted, ReceiveSessionOutcomePending, ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeExpired, ReceiveSessionOutcomeRevoked, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
 		return true
 	default:
 		return false
@@ -61,8 +62,10 @@ func IsReceiveSessionOutcomeValid(outcome ReceiveSessionOutcome) bool {
 
 // ReceiveSession binds one direct user to one repository workspace for a single source-write push.
 // SessionKey is an opaque public locator and BearerSecretHash is a SHA-256 hash only; raw bearer
-// secrets, store IDs, route keys, clone locators, refs, object IDs, and paths must never be persisted here.
+// secrets, store IDs, route keys, clone locators, and paths must never be persisted here.
+// Updates contains only parsed ref names and object IDs for outcome evidence.
 type ReceiveSession struct {
+	Updates          string                `xorm:"TEXT"`
 	ID               int64                 `xorm:"pk autoincr"`
 	SessionKey       string                `xorm:"CHAR(36) UNIQUE NOT NULL"`
 	BearerSecretHash string                `xorm:"CHAR(64) UNIQUE NOT NULL"`
@@ -111,7 +114,7 @@ func (session *ReceiveSession) Validate() error {
 		outcomeValid = session.Outcome == ReceiveSessionOutcomePending
 	case ReceiveSessionStateCompleted:
 		switch session.Outcome {
-		case ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
+		case ReceiveSessionOutcomeAccepted, ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
 			outcomeValid = true
 		}
 	case ReceiveSessionStateExpired:
@@ -181,46 +184,6 @@ func GetReceiveSessionByKey(ctx context.Context, sessionKey string) (*ReceiveSes
 	return session, nil
 }
 
-// GetReceiveSessionByBearerSecretHash returns a receive session from a canonical SHA-256 hash.
-// Callers must hash the opaque bearer secret before this model boundary.
-func GetReceiveSessionByBearerSecretHash(ctx context.Context, bearerSecretHash string) (*ReceiveSession, error) {
-	if !isSHA256Hex(bearerSecretHash) {
-		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom receive session bearer hash")
-	}
-	session := new(ReceiveSession)
-	has, err := db.GetEngine(ctx).Where("bearer_secret_hash = ?", bearerSecretHash).Get(session)
-	if err != nil {
-		return nil, err
-	}
-	if !has {
-		return nil, util.NewNotExistErrorf("Branchroom receive session does not exist")
-	}
-	return session, nil
-}
-
-// FindReceiveSessionsByScopeID returns a scope's sessions in deterministic creation order.
-func FindReceiveSessionsByScopeID(ctx context.Context, scopeID int64) ([]*ReceiveSession, error) {
-	return findReceiveSessionsByScopeID(ctx, scopeID, false)
-}
-
-// FindReceiveSessionsByScopeIDForUpdate returns a scope's sessions with row locks on supported databases.
-func FindReceiveSessionsByScopeIDForUpdate(ctx context.Context, scopeID int64) ([]*ReceiveSession, error) {
-	return findReceiveSessionsByScopeID(ctx, scopeID, true)
-}
-
-func findReceiveSessionsByScopeID(ctx context.Context, scopeID int64, forUpdate bool) ([]*ReceiveSession, error) {
-	if scopeID <= 0 {
-		return nil, util.NewInvalidArgumentErrorf("invalid Branchroom scope ID")
-	}
-	sessions := make([]*ReceiveSession, 0)
-	engine := db.GetEngine(ctx).Where("scope_id = ?", scopeID).Asc("id")
-	if forUpdate && branchroomSupportsForUpdate() {
-		engine = engine.ForUpdate()
-	}
-	err := engine.Find(&sessions)
-	return sessions, err
-}
-
 // FindReceiveSessionsByRepoID returns a repository's sessions in deterministic creation order.
 func FindReceiveSessionsByRepoID(ctx context.Context, repoID int64) ([]*ReceiveSession, error) {
 	return findReceiveSessionsByRepoID(ctx, repoID, false)
@@ -272,29 +235,17 @@ func CompleteReceiveSession(ctx context.Context, sessionID int64, outcome Receiv
 	return affected == 1, err
 }
 
-// ExpireReceiveSession atomically records that an unclaimed issued session can no longer be used.
-func ExpireReceiveSession(ctx context.Context, sessionID int64, now timeutil.TimeStamp) (bool, error) {
-	if sessionID <= 0 || now <= 0 {
-		return false, util.NewInvalidArgumentErrorf("invalid Branchroom receive session expiry")
+// FailStaleClaimedReceiveSessions closes claimed sessions whose receive process did
+// not finish before staleBefore. The predicate makes this safe to race with normal
+// completion: a completed session can never be overwritten.
+func FailStaleClaimedReceiveSessions(ctx context.Context, staleBefore timeutil.TimeStamp) (int64, error) {
+	if staleBefore <= 0 {
+		return 0, util.NewInvalidArgumentErrorf("invalid Branchroom receive session stale cutoff")
 	}
-	affected, err := db.GetEngine(ctx).ID(sessionID).
-		Where("state = ? AND outcome = ? AND claimed_unix = 0 AND expires_unix <= ?", ReceiveSessionStateIssued, ReceiveSessionOutcomePending, now).
+	return db.GetEngine(ctx).
+		Where("state = ? AND outcome = ? AND claimed_unix > 0 AND claimed_unix <= ?", ReceiveSessionStateClaimed, ReceiveSessionOutcomePending, staleBefore).
 		Cols("state", "outcome").
-		Update(&ReceiveSession{State: ReceiveSessionStateExpired, Outcome: ReceiveSessionOutcomeExpired})
-	return affected == 1, err
-}
-
-// RevokeReceiveSession atomically revokes an unclaimed issued session.
-// A claimed session is retained for its caller to complete, preserving the one-use claim audit trail.
-func RevokeReceiveSession(ctx context.Context, sessionID int64) (bool, error) {
-	if sessionID <= 0 {
-		return false, util.NewInvalidArgumentErrorf("invalid Branchroom receive session revocation")
-	}
-	affected, err := db.GetEngine(ctx).ID(sessionID).
-		Where("state = ? AND outcome = ? AND claimed_unix = 0", ReceiveSessionStateIssued, ReceiveSessionOutcomePending).
-		Cols("state", "outcome").
-		Update(&ReceiveSession{State: ReceiveSessionStateRevoked, Outcome: ReceiveSessionOutcomeRevoked})
-	return affected == 1, err
+		Update(&ReceiveSession{State: ReceiveSessionStateCompleted, Outcome: ReceiveSessionOutcomeFailed})
 }
 
 func init() {

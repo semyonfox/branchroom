@@ -5,6 +5,7 @@ package branchroom
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	branchroom_model "gitea.dev/models/branchroom"
@@ -144,6 +145,36 @@ func TestAuthorizeWorkspaceGitHTTPReadUsesRouteKeyWithoutChangingRepositoryMetad
 	require.Len(t, grants, 1)
 	require.NoError(t, branchroom_model.RevokeGrant(t.Context(), grants[0].ID, repository.OwnerID, timeutil.TimeStampNow()))
 	assertWorkspaceGitHTTPReadDenied(t.Context(), t, request)
+}
+
+func TestAuthorizeWorkspaceGitHTTPFailsClosedWithoutStore(t *testing.T) {
+	_, repository, baseSHA := prepareWorkspaceSourceRepository(t)
+	ensureTestRepositoryCodeUnit(t.Context(), t)
+	scope, workspace := createSourceHandoffWorkspace(t, repository, baseSHA, "missing-store")
+	insertWorkspaceActionGrant(t, scope.ID, repository.OwnerID, branchroom_model.ActionDiscover, 0, 0)
+	insertWorkspaceActionGrant(t, scope.ID, repository.OwnerID, branchroom_model.ActionReadSource, 0, 0)
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	require.NoError(t, err)
+	readRequest := AuthorizeWorkspaceGitHTTPReadRequest{RepoID: repository.ID, RouteKey: workspace.RouteKey, UserID: repository.OwnerID}
+	handoffRequest := ListRepositorySourceHandoffsRequest{RepoID: repository.ID, UserID: repository.OwnerID}
+
+	assertUnavailable := func() {
+		assert.False(t, WorkspaceStoreAvailable(workspace))
+		assertWorkspaceGitHTTPReadDenied(t.Context(), t, readRequest)
+		assertSourceHandoffDenied(t.Context(), t, handoffRequest)
+	}
+	// a restore without the stores leaves nothing, an interrupted one an empty directory
+	require.NoError(t, os.RemoveAll(gitrepo.RepoLocalPath(restricted)))
+	assertUnavailable()
+	require.NoError(t, os.Mkdir(gitrepo.RepoLocalPath(restricted), 0o755))
+	assertUnavailable()
+	unittest.AssertExistsAndLoadBean(t, &branchroom_model.Decision{
+		ScopeID:    scope.ID,
+		Action:     branchroom_model.ActionReadSource,
+		Surface:    branchroom_model.SurfaceGitHTTP,
+		Result:     branchroom_model.DecisionResultDeny,
+		ReasonCode: ReasonWorkspaceUnavailable,
+	})
 }
 
 func TestAuthorizeWorkspaceGitHTTPReadFailsClosedAfterTransfer(t *testing.T) {

@@ -102,3 +102,7 @@ func WrapResponseWriter(resp http.ResponseWriter) *Response {
 	}
 	return &Response{ResponseWriter: resp}
 }
+
+func (r *Response) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}

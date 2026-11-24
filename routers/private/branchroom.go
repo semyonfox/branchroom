@@ -17,13 +17,16 @@ import (
 
 const maxBranchroomPreReceiveRequestBytes = 384 << 10
 
+// verifyBranchroomReceiveSessionPush is a test seam for the internal admission service.
+var verifyBranchroomReceiveSessionPush = branchroom_service.VerifyReceiveSessionPush
+
 func branchroomReceiveDenied(ctx *context.PrivateContext) {
 	ctx.PrivateUserErrorf(http.StatusForbidden, "Branchroom receive denied")
 }
 
-// BranchroomPreReceive verifies a claimed Branchroom receive session push.
-// It is deny-only: every outcome answers with the same static forbidden response,
-// so this endpoint can never allow a Git write and never echoes request content.
+// BranchroomPreReceive verifies a claimed Branchroom receive session push. It
+// returns a bodyless success only after the dedicated admission service accepts
+// the quarantined update. Only push protection denials carry details.
 func BranchroomPreReceive(ctx *context.PrivateContext) {
 	var request private.BranchroomPreReceiveRequest
 	defer func() {
@@ -33,16 +36,15 @@ func BranchroomPreReceive(ctx *context.PrivateContext) {
 		request.Updates = nil
 	}()
 
-	ctx.Req.Body = http.MaxBytesReader(ctx.Resp, ctx.Req.Body, maxBranchroomPreReceiveRequestBytes)
-	decoder := json.NewDecoder(ctx.Req.Body)
-	if err := decoder.Decode(&request); err != nil {
+	bodyReader := http.MaxBytesReader(ctx.Resp, ctx.Req.Body, maxBranchroomPreReceiveRequestBytes)
+	defer bodyReader.Close()
+	body, err := io.ReadAll(bodyReader)
+	if err != nil || json.Unmarshal(body, &request) != nil {
+		clear(body)
 		branchroomReceiveDenied(ctx)
 		return
 	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		branchroomReceiveDenied(ctx)
-		return
-	}
+	defer clear(body)
 
 	if request.SessionKey == "" ||
 		len(request.BearerSecret) == 0 ||
@@ -59,17 +61,26 @@ func BranchroomPreReceive(ctx *context.PrivateContext) {
 		}
 	}
 
-	// the verification result never changes the response; raw values are mapped verbatim,
-	// with no parsing, splitting or cleaning left to this endpoint
-	_ = branchroom_service.VerifyReceiveSessionPush(ctx, branchroom_service.VerifyReceiveSessionPushRequest{
+	// Raw values are mapped verbatim, with no parsing, splitting or cleaning left to
+	// this endpoint. The verifier owns every authorization and object decision.
+	err = verifyBranchroomReceiveSessionPush(ctx, branchroom_service.VerifyReceiveSessionPushRequest{
 		SessionKey:   request.SessionKey,
 		BearerSecret: request.BearerSecret,
 		Updates:      request.Updates,
+		AllowSecrets: request.AllowSecrets,
 		Quarantine: branchroom_module.ReceiveQuarantineValues{
 			ObjectDirectory:            request.ObjectDirectory,
 			AlternateObjectDirectories: request.AlternateObjectDirectories,
 			QuarantinePath:             request.QuarantinePath,
 		},
 	})
-	branchroomReceiveDenied(ctx)
+	if err != nil {
+		if rejection, ok := errors.AsType[private.BranchroomPushProtectionError](err); ok {
+			ctx.PrivateUserErrorf(http.StatusUnprocessableEntity, "%s", rejection)
+			return
+		}
+		branchroomReceiveDenied(ctx)
+		return
+	}
+	ctx.Status(http.StatusNoContent)
 }

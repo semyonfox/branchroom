@@ -5,6 +5,7 @@ package private
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -14,9 +15,12 @@ import (
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
+	"gitea.dev/modules/test"
+	branchroom_service "gitea.dev/services/branchroom"
 	"gitea.dev/services/contexttest"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBranchroomPreReceive(t *testing.T) {
@@ -88,4 +92,49 @@ func TestBranchroomPreReceive(t *testing.T) {
 			assert.NotContains(t, respText, oversizeQuarantine)
 		})
 	}
+}
+
+func TestBranchroomPreReceiveAdmitsVerifiedPush(t *testing.T) {
+	const (
+		testSessionKey    = "branchroom-test-session-key-0123456789abcdef"
+		testBearerSecret  = "branchroom-test-bearer-secret-0123456789abcdef"
+		testUpdatesMarker = "branchroom-test-updates-marker-payload"
+		testObjectDir     = "/branchroom-test-store.git/objects/incoming-quarantine"
+		testAlternates    = "/branchroom-test-store.git/objects"
+	)
+
+	var got branchroom_service.VerifyReceiveSessionPushRequest
+	reset := test.MockVariableValue(&verifyBranchroomReceiveSessionPush, func(_ context.Context, request branchroom_service.VerifyReceiveSessionPushRequest) error {
+		got = branchroom_service.VerifyReceiveSessionPushRequest{
+			SessionKey:   request.SessionKey,
+			BearerSecret: bytes.Clone(request.BearerSecret),
+			Updates:      bytes.Clone(request.Updates),
+			Quarantine:   request.Quarantine,
+		}
+		return nil
+	})
+	defer reset()
+
+	body, err := json.Marshal(private.BranchroomPreReceiveRequest{
+		SessionKey:                 testSessionKey,
+		BearerSecret:               []byte(testBearerSecret),
+		Updates:                    []byte(testUpdatesMarker),
+		ObjectDirectory:            testObjectDir,
+		AlternateObjectDirectories: testAlternates,
+		QuarantinePath:             testObjectDir,
+	})
+	require.NoError(t, err)
+	ctx, resp := contexttest.MockPrivateContext(t, "POST /branchroom/pre-receive")
+	ctx.Req.Body = io.NopCloser(bytes.NewReader(body))
+
+	BranchroomPreReceive(ctx)
+
+	assert.Equal(t, http.StatusNoContent, resp.Code)
+	assert.Empty(t, resp.Body.String())
+	assert.Equal(t, testSessionKey, got.SessionKey)
+	assert.Equal(t, []byte(testBearerSecret), got.BearerSecret)
+	assert.Equal(t, []byte(testUpdatesMarker), got.Updates)
+	assert.Equal(t, testObjectDir, got.Quarantine.ObjectDirectory)
+	assert.Equal(t, testAlternates, got.Quarantine.AlternateObjectDirectories)
+	assert.Equal(t, testObjectDir, got.Quarantine.QuarantinePath)
 }

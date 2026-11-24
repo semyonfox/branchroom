@@ -1,0 +1,262 @@
+.repository.view.issue .issue-title-header {
+  margin-bottom: 24px;
+}
+
+.forge-status-card {
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  padding: 18px 20px;
+  margin-top: 16px;
+  background: var(--color-box-body);
+}
+
+.forge-status-card .issue-title-meta {
+  margin: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.forge-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.forge-state-dot,
+.forge-label-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.forge-status-summary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-secondary);
+  gap: 8px 24px;
+  color: var(--color-text-light);
+}
+
+.forge-status-summary a {
+  color: inherit;
+}
+
+.forge-next-step {
+  border: 1px solid var(--color-secondary);
+  border-left: 4px solid var(--color-text-light);
+  border-radius: var(--border-radius);
+  padding: 14px 18px;
+  margin-top: 12px;
+  min-height: 64px;
+  background: var(--color-box-body);
+}
+
+.forge-turn-yours {
+  border-left-color: var(--color-primary);
+}
+
+.forge-turn-waiting {
+  border-left-color: var(--color-yellow);
+}
+
+.forge-turn-ready {
+  border-left-color: var(--color-green);
+}
+
+.forge-turn-quiet {
+  color: var(--color-text-light);
+}
+
+.repository.view.issue .issue-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 32px;
+}
+
+.repository.view.issue .issue-content-left,
+.repository.view.issue .issue-content-right {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.forge-side-lists {
+  padding: 0 0 0 20px;
+  border-left: 1px solid var(--color-secondary);
+}
+
+.forge-side-lists .issue-sidebar-combo,
+.forge-side-lists > section {
+  margin-bottom: 24px;
+}
+
+.forge-side-lists .fixed-text {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.forge-picker-edit {
+  font-size: 12px;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-light);
+}
+
+.forge-side-lists .ui.list.labels-list .item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: var(--color-text);
+}
+
+.forge-agent-label {
+  display: inline;
+  font-size: 12px;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-light);
+}
+
+.forge-agent-tag {
+  display: inline-block;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius);
+  padding: 0 4px;
+}
+
+.forge-title-actions .menu button.item {
+  width: 100%;
+  text-align: left;
+}
+
+.forge-other-merge > summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--color-text-light);
+}
+
+.forge-other-merge > summary::-webkit-details-marker {
+  display: none;
+}
+
+.forge-subscribe {
+  border-top: 1px solid var(--color-secondary);
+  margin-top: 20px;
+}
+
+@media (max-width: 767px) {
+  .repository.view.issue .issue-content {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .forge-side-lists {
+    border-left: 0;
+    border-top: 1px solid var(--color-secondary);
+    padding: 20px 0;
+  }
+
+  .forge-status-card {
+    padding: 14px;
+  }
+
+  .forge-next-step {
+    gap: 12px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .forge-side-lists .fixed-text,
+  .forge-side-lists button,
+  .forge-side-lists a.ui.icon,
+  .repository.view.issue .ui.button,
+  .forge-title-actions button,
+  .issue-title-buttons > .button,
+  .forge-next-step .button {
+    min-height: 44px;
+  }
+}
+
+.forge-side-lists .ui.relaxed.list > .item {
+  flex-wrap: wrap;
+}
+
+.forge-review-agent:empty {
+  display: none;
+}
+
+.forge-side-lists .ui.list.labels-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.forge-title-actions > .ui.icon.button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+@media (max-width: 767px) {
+  .repository.view.issue .issue-title-buttons {
+    justify-content: flex-end;
+  }
+}
+
+.forge-side-more > summary {
+  padding: 8px 0;
+  color: var(--color-text-light);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.forge-side-more > summary:hover {
+  color: var(--color-primary);
+}
+
+.forge-side-more[open] > summary {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.forge-pull-facts {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
+.forge-chip {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-label-bg);
+  color: var(--color-text-light);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.forge-chip-new {
+  background: var(--color-yellow-badge-bg);
+  color: var(--color-yellow-badge);
+}
+
+.forge-conflict-help p { margin: 6px 0; }
+.forge-conflict-steps {
+  margin: 8px 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: var(--border-radius);
+  background: var(--color-code-bg);
+  font-family: var(--fonts-monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}

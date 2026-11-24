@@ -1,5 +1,9 @@
 import '../fomantic/build/fomantic.js';
 import '../css/index.css';
+import {initInbox} from './features/inbox.ts';
+import {initInboxQueue} from './features/inbox-queue.ts';
+import {initBranchroom} from './features/branchroom.ts';
+import {localUserSettings, paletteRecentKey} from './modules/user-settings.ts';
 
 import {initDashboardRepoList} from './features/dashboard.ts';
 import {initGlobalCopyToClipboardListener} from './modules/clipboard.ts';
@@ -36,8 +40,8 @@ import {initRepoEditor} from './features/repo-editor.ts';
 import {initCompSearchUserBox} from './features/comp/SearchUserBox.ts';
 import {initInstall} from './features/install.ts';
 import {initCompWebHookEditor} from './features/comp/WebHookEditor.ts';
+import {initCompLabelEdit} from './features/comp/LabelEdit.ts';
 import {initRepoBranchButton} from './features/repo-branch.ts';
-import {initCommonOrganization} from './features/common-organization.ts';
 import {initRepoWiki} from './features/repo-wiki.ts';
 import {initRepository, initBranchSelectorTabs} from './features/repo-legacy.ts';
 import {initCaptcha} from './features/captcha.ts';
@@ -58,20 +62,28 @@ import {initOAuth2SettingsDisableCheckbox} from './features/oauth2-settings.ts';
 import {initGlobalFetchAction} from './modules/fetch-action.ts';
 import {initCommmPageComponents, initGlobalComponent, initGlobalDropdown, initGlobalInput} from './features/common-page.ts';
 import {initGlobalButtonClickOnEnter, initGlobalButtons} from './features/common-button.ts';
-import {initGlobalComboMarkdownEditor, initGlobalEnterQuickSubmit, initGlobalFormDirtyLeaveConfirm} from './features/common-form.ts';
+import {initGlobalComboMarkdownEditor, initGlobalEnterQuickSubmit} from './features/common-form.ts';
+import {initGlobalFormDirtyLeaveConfirm} from './modules/are-you-sure.ts';
 import {callInitFunctions} from './modules/init.ts';
 import {initRepoViewFileTree} from './features/repo-view-file-tree.ts';
 import {initActionsPermissionsForm} from './features/common-actions-permissions.ts';
 import {initRefIssueContextPopup} from './features/ref-issue.ts';
 import {initGlobalShortcut} from './modules/shortcut.ts';
+import {initProjectWorkflow} from './features/project-workflow.ts';
 import {initDevtest} from './modules/devtest.ts';
 import {initRepoWatch} from './features/repo-watch.ts';
 import {initPackagesView} from './features/packages.ts';
+import {initAsyncHashChangeListeners} from './modules/hashchange.ts';
+import {initGlobalModal} from './modules/modal.ts';
 
 const initStartTime = performance.now();
 const initPerformanceTracer = callInitFunctions([
+  initInbox,
+  initInboxQueue,
+  initBranchroom,
   initGiteaFomantic,
 
+  initGlobalModal,
   initGlobalComponent,
   initGlobalDropdown,
   initGlobalFetchAction,
@@ -85,11 +97,11 @@ const initPerformanceTracer = callInitFunctions([
   initGlobalInput,
   initGlobalShortcut,
 
-  initCommonOrganization,
   initCommonIssueListQuickGoto,
 
   initCompSearchUserBox,
   initCompWebHookEditor,
+  initCompLabelEdit,
 
   initInstall,
 
@@ -162,6 +174,7 @@ const initPerformanceTracer = callInitFunctions([
 
   initRepoFileView,
   initActionsPermissionsForm,
+  initProjectWorkflow,
 
   initDevtest,
 ]);
@@ -176,3 +189,65 @@ if (initDur > 500) {
 }
 
 window.config.frontendInited = true;
+
+// then init the async hash change handlers, then they can do async content loading by URL hash
+// e.g.: expand hidden comments or load incomplete diff files
+initAsyncHashChangeListeners();
+
+const paletteTrigger = document.querySelector<HTMLFormElement>('#forge-palette-trigger');
+if (paletteTrigger) {
+  const triggerInput = paletteTrigger.querySelector<HTMLInputElement>('input')!;
+  const openPalette = async () => {
+    const {openCommandPalette} = await import('./features/command-palette.ts');
+    openCommandPalette(triggerInput.value);
+    triggerInput.value = '';
+  };
+  triggerInput.addEventListener('input', () => {
+    openPalette();
+  });
+  paletteTrigger.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (event.target === paletteTrigger.querySelector('kbd') && !event.isTrusted) return; // keep / as a focus shortcut
+    openPalette();
+  });
+  paletteTrigger.addEventListener('submit', (event) => {
+    event.preventDefault();
+    openPalette();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key.toLowerCase() === 'k' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.isComposing) {
+      event.preventDefault();
+      openPalette();
+    }
+  }, {capture: true});
+  const userID = document.querySelector<HTMLDialogElement>('#forge-palette')!.getAttribute('data-user-id');
+  try {
+    const previousUserKey = `forge-palette-user:${window.config.appSubUrl}`;
+    const previousUserID = localUserSettings.getString(previousUserKey);
+    localUserSettings.remove('forge-palette-recent'); // discard recents that predate account scoping
+    if (previousUserID && previousUserID !== userID) {
+      localUserSettings.remove(paletteRecentKey(previousUserID));
+      localUserSettings.remove(previousUserKey);
+    }
+    if (userID) {
+      const recentKey = paletteRecentKey(userID);
+      localUserSettings.setString(previousUserKey, userID);
+      document.addEventListener('click', (event) => {
+        const {target} = event;
+        if (target instanceof Element && target.closest('a')?.getAttribute('href') === `${window.config.appSubUrl}/user/logout`) {
+          try {
+            localUserSettings.remove(recentKey);
+          } catch { /* storage can be disabled */ }
+        }
+      }, {capture: true});
+      const stored: unknown = JSON.parse(localUserSettings.getString(recentKey, '[]'));
+      const pageURL = location.pathname + location.search;
+      // same title means the same page to the reader, like / and /inbox
+      const recent = Array.isArray(stored) ? stored.filter((item: unknown) =>
+        typeof item === 'object' && item !== null && 'url' in item && typeof item.url === 'string' &&
+        'label' in item && typeof item.label === 'string' && item.url.startsWith('/') &&
+        !item.url.startsWith('//') && item.url !== pageURL && item.label !== document.title) : [];
+      localUserSettings.setString(recentKey, JSON.stringify([{url: pageURL, label: document.title}, ...recent].slice(0, 8)));
+    }
+  } catch { /* storage can be disabled */ }
+}

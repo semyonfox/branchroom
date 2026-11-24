@@ -18,14 +18,12 @@ import (
 	"gitea.dev/modules/public"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/test"
-	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExternalMarkupRenderer(t *testing.T) {
-	defer tests.PrepareTestEnv(t)()
 	if !setting.Database.Type.IsSQLite3() {
 		t.Skip("only SQLite3 test config supports external markup renderer")
 		return
@@ -112,7 +110,7 @@ func TestExternalMarkupRenderer(t *testing.T) {
 				// FIXME: actually here is a bug (legacy design problem), the "PostProcess" will escape "<script>" tag, but it indeed is the sanitizer's job
 				assert.Equal(t,
 					`<script nonce crossorigin src="`+public.AssetURI("web_src/js/external-render-helper.ts")+`" id="gitea-external-render-helper" data-render-query-string=""></script>`+
-						`<link rel="stylesheet" href="`+public.AssetURI("web_src/css/themes/theme-gitea-auto.css")+`">`+
+						`<link rel="stylesheet" href="`+public.AssetURI("web_src/css/themes/theme-branchroom-auto.css")+`">`+
 						`<div><any attr="val">&lt;script&gt;&lt;/script&gt;</any></div>`,
 					respSub.Body.String(),
 				)
@@ -138,7 +136,7 @@ func TestExternalMarkupRenderer(t *testing.T) {
 				respSub := MakeRequest(t, req, http.StatusOK)
 				assert.Equal(t,
 					`<script nonce crossorigin src="`+public.AssetURI("web_src/js/external-render-helper.ts")+`" id="gitea-external-render-helper" data-render-query-string="a=1%2f2"></script>`+
-						`<link rel="stylesheet" href="`+public.AssetURI("web_src/css/themes/theme-gitea-auto.css")+`">`+
+						`<link rel="stylesheet" href="`+public.AssetURI("web_src/css/themes/theme-branchroom-auto.css")+`">`+
 						`<script>foo("raw")</script>`,
 					respSub.Body.String(),
 				)

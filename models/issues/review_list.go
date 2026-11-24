@@ -89,11 +89,12 @@ func (reviews ReviewList) LoadIssues(ctx context.Context) error {
 // FindReviewOptions represent possible filters to find reviews
 type FindReviewOptions struct {
 	db.ListOptions
-	Types        []ReviewType
-	IssueID      int64
-	ReviewerID   int64
-	OfficialOnly bool
-	Dismissed    optional.Option[bool]
+	Types          []ReviewType
+	IssueID        int64
+	ReviewerID     int64
+	OfficialOnly   bool
+	PersonsOwnOnly bool
+	Dismissed      optional.Option[bool]
 }
 
 func (opts *FindReviewOptions) toCond() builder.Cond {
@@ -109,6 +110,9 @@ func (opts *FindReviewOptions) toCond() builder.Cond {
 	}
 	if opts.OfficialOnly {
 		cond = cond.And(builder.Eq{"official": true})
+	}
+	if opts.PersonsOwnOnly {
+		cond = cond.And(personsOwnReviewCond())
 	}
 	if opts.Dismissed.Has() {
 		cond = cond.And(builder.Eq{"dismissed": opts.Dismissed.Value()})
@@ -170,14 +174,22 @@ func GetReviewsByIssueID(ctx context.Context, issueID int64) (latestReviews, mig
 	// filter them in memory to get the latest review of each reviewer
 	// Since the reviews should not be too many for one issue, less than 100 commonly, it's acceptable to do this in memory
 	// And since there are too less indexes in review table, it will be very slow to filter in the database
-	reviewersMap := make(map[int64][]*Review)         // key is reviewer id
-	originalReviewersMap := make(map[int64][]*Review) // key is original author id
-	reviewTeamsMap := make(map[int64][]*Review)       // key is reviewer team id
+	type originalReviewer struct {
+		id   int64
+		name string
+	}
+	reviewersMap := make(map[int64][]*Review)                    // key is reviewer id
+	originalReviewersMap := make(map[originalReviewer][]*Review) // key is original author
+	reviewTeamsMap := make(map[int64][]*Review)                  // key is reviewer team id
 	countedReviewTypes := []ReviewType{ReviewTypeApprove, ReviewTypeReject, ReviewTypeRequest, ReviewTypeComment}
 	for _, review := range reviews {
 		if review.ReviewerTeamID == 0 && slices.Contains(countedReviewTypes, review.Type) && !review.Dismissed {
 			if review.OriginalAuthorID != 0 {
-				originalReviewersMap[review.OriginalAuthorID] = append(originalReviewersMap[review.OriginalAuthorID], review)
+				key := originalReviewer{id: review.OriginalAuthorID}
+				if review.OriginalAuthorID == user_model.GhostUserID {
+					key.name = review.OriginalAuthor
+				}
+				originalReviewersMap[key] = append(originalReviewersMap[key], review)
 			} else {
 				reviewersMap[review.ReviewerID] = append(reviewersMap[review.ReviewerID], review)
 			}

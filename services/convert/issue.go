@@ -33,7 +33,7 @@ func ToAPIIssue(ctx context.Context, doer *user_model.User, issue *issues_model.
 	return toIssue(ctx, doer, issue, APIAssetDownloadURL)
 }
 
-func toIssue(ctx context.Context, doer *user_model.User, issue *issues_model.Issue, getDownloadURL func(repo *repo_model.Repository, attach *repo_model.Attachment) string) *api.Issue {
+func toIssue(ctx context.Context, doer *user_model.User, issue *issues_model.Issue, getDownloadURL func(ctx context.Context, repo *repo_model.Repository, attach *repo_model.Attachment) string) *api.Issue {
 	if err := issue.LoadPoster(ctx); err != nil {
 		return &api.Issue{}
 	}
@@ -47,20 +47,25 @@ func toIssue(ctx context.Context, doer *user_model.User, issue *issues_model.Iss
 		return &api.Issue{}
 	}
 
+	identity, err := issue.AgentIdentity(ctx)
+	if err != nil {
+		log.Error("load agent identity: %v", err)
+	}
 	apiIssue := &api.Issue{
-		ID:          issue.ID,
-		Index:       issue.Index,
-		Poster:      ToUser(ctx, issue.Poster, doer),
-		Title:       issue.Title,
-		Body:        issue.Content,
-		Attachments: toAttachments(issue.Repo, issue.Attachments, getDownloadURL),
-		Ref:         issue.Ref,
-		State:       issue.State(),
-		IsLocked:    issue.IsLocked,
-		Comments:    issue.NumComments,
-		Created:     issue.CreatedUnix.AsTime(),
-		Updated:     issue.UpdatedUnix.AsTime(),
-		PinOrder:    util.Iif(issue.PinOrder == -1, 0, issue.PinOrder), // -1 means loaded with no pin order
+		AgentIdentity: identity,
+		ID:            issue.ID,
+		Index:         issue.Index,
+		Poster:        ToAuthor(ctx, issue.Poster, issue.OriginalAuthor, doer),
+		Title:         issue.Title,
+		Body:          issue.Content,
+		Attachments:   toAttachments(ctx, issue.Repo, issue.Attachments, getDownloadURL),
+		Ref:           issue.Ref,
+		State:         issue.State(),
+		IsLocked:      issue.IsLocked,
+		Comments:      issue.NumComments,
+		Created:       issue.CreatedUnix.AsTime(),
+		Updated:       issue.UpdatedUnix.AsTime(),
+		PinOrder:      util.Iif(issue.PinOrder == -1, 0, issue.PinOrder), // -1 means loaded with no pin order
 
 		TimeEstimate:   issue.TimeEstimate,
 		ContentVersion: issue.ContentVersion,

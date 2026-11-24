@@ -24,7 +24,7 @@ func (a *Auth) Name() string {
 }
 
 // Verify extracts the user from the Bearer token
-func (a *Auth) Verify(req *http.Request, w http.ResponseWriter, store auth.DataStore, sess auth.SessionStore) (*user_model.User, error) {
+func (a *Auth) Verify(req *http.Request, w http.ResponseWriter, _ auth.DataStore, sess auth.SessionStore) (*user_model.User, error) {
 	packageMeta, err := packages.ParseAuthorizationRequest(req)
 	if err != nil {
 		log.Trace("ParseAuthorizationToken: %v", err)
@@ -45,15 +45,13 @@ func (a *Auth) Verify(req *http.Request, w http.ResponseWriter, store auth.DataS
 	case user_model.ActionsUserID:
 		u = user_model.NewActionsUserWithTaskID(packageMeta.ActionsUserTaskID)
 	default:
-		u, err = user_model.GetUserByID(req.Context(), packageMeta.UserID)
+		u, err = user_model.GetDoerPermissionUser(req.Context(), packageMeta.UserID, packageMeta.UserExtDoerData)
 		if err != nil {
 			return nil, err
 		}
+		if packageMeta.Scope != "" && packageMeta.UserExtDoerData == "" {
+			u.ExtDoerData = user_model.NewTokenExtDoerData("", 0, packageMeta.Scope)
+		}
 	}
-
-	if packageMeta.Scope != "" {
-		store.GetData()["ApiTokenScope"] = packageMeta.Scope
-	}
-
 	return u, nil
 }

@@ -12,6 +12,7 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/log"
+	branchroom_service "gitea.dev/services/branchroom"
 )
 
 // checkConflictsMergeTree uses git merge-tree to check for conflicts and if none are found checks if the patch is empty
@@ -21,6 +22,11 @@ func checkConflictsMergeTree(ctx context.Context, pr *issues_model.PullRequest, 
 	treeHash, conflict, conflictFiles, err := git.MergeTree(ctx, pr.BaseRepo, baseCommitID, pr.HeadCommitID, pr.MergeBase)
 	if err != nil {
 		return false, fmt.Errorf("MergeTree: %w", err)
+	}
+	if pr.Index > 0 && !conflict {
+		if _, err := updateMergeRef(ctx, pr, baseCommitID, pr.HeadCommitID, treeHash); err != nil {
+			log.Error("updateMergeRef for %-v: %v", pr, err)
+		}
 	}
 	if conflict {
 		pr.Status = issues_model.PullRequestStatusConflict
@@ -36,7 +42,7 @@ func checkConflictsMergeTree(ctx context.Context, pr *issues_model.PullRequest, 
 	// against the current base commit (baseCommitID) using `git diff-tree`. The command returns exit code 0
 	// if there is no diff between these trees (empty patch) and exit code 1 if there is a diff.
 	gitErr := gitcmd.NewCommand("diff-tree", "-r", "--quiet").
-		AddDynamicArguments(treeHash, baseCommitID).WithRepo(pr.BaseRepo).Run(ctx)
+		AddDynamicArguments(treeHash, baseCommitID).WithRepo(pr.BaseRepo).RunWithStderr(ctx)
 	switch {
 	case gitErr == nil:
 		log.Debug("PullRequest[%d]: Patch is empty - ignoring", pr.ID)
@@ -73,28 +79,32 @@ func checkPullRequestMergeableByMergeTree(ctx context.Context, pr *issues_model.
 	}
 
 	// 3. Get head commit id
-	if pr.Flow == issues_model.PullRequestFlowGithub {
+	switch {
+	case pr.Flow == issues_model.PullRequestFlowGithub && pr.ID > 0:
 		pr.HeadCommitID, err = headGitRepo.GetRefCommitID(ctx, git.BranchPrefix+pr.HeadBranch)
 		if err != nil {
 			return fmt.Errorf("GetBranchCommitID: can't find commit ID for head: %w", err)
 		}
-	} else {
-		if pr.ID > 0 {
-			pr.HeadCommitID, err = baseGitRepo.GetRefCommitID(ctx, pr.GetGitHeadRefName())
-			if err != nil {
-				return fmt.Errorf("GetRefCommitID: can't find commit ID for head: %w", err)
-			}
-		} else if pr.HeadCommitID == "" { // for new pull request with agit, the head commit id must be provided
-			return errors.New("head commit ID is empty for pull request Agit flow")
+	case pr.ID > 0:
+		pr.HeadCommitID, err = baseGitRepo.GetRefCommitID(ctx, pr.GetGitHeadRefName())
+		if err != nil {
+			return fmt.Errorf("GetRefCommitID: can't find commit ID for head: %w", err)
 		}
+	case pr.HeadCommitID == "": // NewPullRequest or agit provides the head it checked
+		return errors.New("head commit ID is empty for a new pull request")
 	}
 
 	// 4. fetch head commit id into the current repository
-	// it will be checked in 2 weeks by default from git if the pull request created failure.
 	if !pr.IsSameRepo() {
+		// NewPullRequest checked a new head, a later one may carry commits PushToBaseRepo refused even if unreferenced copies exist
+		if pr.ID > 0 {
+			if err := branchroom_service.CheckPullRequestHead(ctx, nil, pr.BaseRepo, pr.HeadRepo, pr.HeadBranch, pr.HeadCommitID); err != nil {
+				return err
+			}
+		}
 		if !baseGitRepo.IsReferenceExist(ctx, pr.HeadCommitID) {
-			if err := git.FetchRemoteCommit(ctx, pr.BaseRepo, pr.HeadRepo, pr.HeadCommitID); err != nil {
-				return fmt.Errorf("FetchRemoteCommit: %w", err)
+			if err := git.FetchRemoteTempCommit(ctx, pr.BaseRepo, pr.HeadRepo, pr.HeadCommitID); err != nil {
+				return fmt.Errorf("FetchRemoteTempCommit: %w", err)
 			}
 		}
 	}

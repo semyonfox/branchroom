@@ -1,0 +1,108 @@
+.branchroom h1.ui.header,
+.branchroom h2.ui.header,
+.branchroom-source-handoffs h1.ui.header {
+  font-size: 1.07142857rem;
+}
+
+.branchroom .item-title,
+.branchroom-group-heading {
+  margin: 0;
+}
+
+.branchroom-group-heading {
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold);
+}
+
+.branchroom-source-handoffs .item-title {
+  font-size: 1.14285714rem;
+  overflow-wrap: anywhere;
+}
+
+.branchroom .ui.form input:not([type="hidden"]),
+.branchroom .ui.form select,
+.branchroom-source-handoffs input {
+  min-width: 0;
+}
+
+.branchroom-workspace-name {
+  margin: 0;
+  font-size: 16px;
+}
+
+.branchroom-workspace .flex-text-block > form {
+  display: contents;
+}
+
+/* the submit sits on the same baseline as the inputs beside it */
+.branchroom-access-submit {
+  display: flex;
+  align-items: flex-end;
+}
+
+.branchroom .ui.table.branchroom-access-table {
+  margin-top: 12px;
+}
+
+/* optional fields open from a plain link, without the browser's disclosure triangle */
+.branchroom .repo-setting-content details > summary {
+  list-style: none;
+  cursor: pointer;
+  width: fit-content;
+  color: var(--color-primary);
+}
+
+.branchroom .repo-setting-content details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.branchroom .repo-setting-content details > summary:hover {
+  color: var(--color-primary-hover);
+}
+
+.branchroom .repo-setting-content details[open] > summary {
+  color: var(--color-text-light);
+}
+
+.branchroom-copy-status,
+.branchroom-time-error {
+  margin: 0;
+}
+
+.branchroom-time-error:not(:empty) {
+  margin-top: 8px;
+  color: var(--color-red);
+}
+
+.branchroom :focus-visible,
+.branchroom-source-handoffs :focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+@media (max-width: 767.98px) {
+  /* touch targets on phones */
+  .branchroom .ui.button,
+  .branchroom-source-handoffs .ui.button,
+  .branchroom .ui.form :is(input:not([type="hidden"], [type="checkbox"]), select),
+  .branchroom-source-handoffs input {
+    min-height: 44px !important; /* the theme pins buttons to 32px with !important */
+  }
+
+  .branchroom .ui.form input,
+  .branchroom .ui.form select,
+  .branchroom-source-handoffs input {
+    font-size: 16px;
+  }
+
+  .branchroom-source-handoffs .ui.action.input {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .branchroom-source-handoffs .ui.action.input > input {
+    width: 100%;
+    flex-basis: 100%;
+    border-radius: var(--border-radius);
+  }
+}

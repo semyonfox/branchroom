@@ -21,6 +21,7 @@ var ErrAuditConflict = errors.New("branchroom audit head changed")
 
 // Decision records the safe result of one policy evaluation.
 type Decision struct {
+	Details         string             `xorm:"TEXT"`
 	ID              int64              `xorm:"pk autoincr"`
 	DecisionKey     string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
 	ScopeID         int64              `xorm:"INDEX(scope_created) NOT NULL"`
@@ -37,7 +38,7 @@ type Decision struct {
 	OrdinaryAllowed bool               `xorm:"NOT NULL"`
 	RequestID       string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	ExpiresUnix     timeutil.TimeStamp `xorm:"INDEX NOT NULL DEFAULT 0"`
-	CreatedUnix     timeutil.TimeStamp `xorm:"created INDEX(scope_created) INDEX(actor_created) NOT NULL"`
+	CreatedUnix     timeutil.TimeStamp `xorm:"INDEX(scope_created) INDEX(actor_created) NOT NULL"`
 }
 
 // TableName returns the stable Branchroom decision table name.
@@ -56,6 +57,7 @@ func (decision *Decision) Validate() error {
 
 // AuditEvent is one immutable, hash-linked event in a scope audit stream.
 type AuditEvent struct {
+	Details         string             `xorm:"TEXT"`
 	ID              int64              `xorm:"pk autoincr"`
 	EventKey        string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
 	DecisionKey     string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
@@ -73,9 +75,9 @@ type AuditEvent struct {
 	ReasonCode      string             `xorm:"VARCHAR(64) NOT NULL"`
 	OrdinaryAllowed bool               `xorm:"NOT NULL"`
 	RequestID       string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
-	PreviousHash    string             `xorm:"CHAR(64) NOT NULL DEFAULT ''"`
+	PreviousHash    string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	EventHash       string             `xorm:"CHAR(64) UNIQUE NOT NULL"`
-	CreatedUnix     timeutil.TimeStamp `xorm:"created INDEX(scope_created) INDEX(actor_created) NOT NULL"`
+	CreatedUnix     timeutil.TimeStamp `xorm:"INDEX(scope_created) INDEX(actor_created) NOT NULL"`
 }
 
 // TableName returns the stable Branchroom audit-event table name.
@@ -123,12 +125,12 @@ func (event *AuditEvent) ComputeHash() string {
 		_, _ = hash.Write([]byte{':'})
 		_, _ = hash.Write([]byte(field))
 	}
+	// empty details preserve hashes written before structured evidence was added
+	if event.Details != "" {
+		_, _ = hash.Write([]byte(strconv.Itoa(len(event.Details)) + ":" + event.Details))
+	}
 	return hex.EncodeToString(hash.Sum(nil))
 }
-
-// maxRecordDecisionAuditAttempts bounds retries when the audit-head compare-and-swap
-// races another writer, so a benign conflict cannot fail an otherwise valid operation.
-const maxRecordDecisionAuditAttempts = 3
 
 // RecordDecisionAndAudit writes a decision and its audit event atomically.
 func RecordDecisionAndAudit(ctx context.Context, scope *Scope, decision *Decision) (*AuditEvent, error) {
@@ -136,15 +138,7 @@ func RecordDecisionAndAudit(ctx context.Context, scope *Scope, decision *Decisio
 		return nil, util.NewInvalidArgumentErrorf("Branchroom scope and decision are required")
 	}
 
-	var event *AuditEvent
-	var err error
-	for range maxRecordDecisionAuditAttempts {
-		event, err = recordDecisionAndAuditOnce(ctx, scope, decision)
-		if !errors.Is(err, ErrAuditConflict) {
-			return event, err
-		}
-	}
-	return event, err
+	return recordDecisionAndAuditOnce(ctx, scope, decision)
 }
 
 func recordDecisionAndAuditOnce(ctx context.Context, scope *Scope, decision *Decision) (*AuditEvent, error) {
@@ -169,6 +163,7 @@ func recordDecisionAndAuditOnce(ctx context.Context, scope *Scope, decision *Dec
 			decision.ExpiresUnix = decision.CreatedUnix
 		}
 		event = &AuditEvent{
+			Details:         decision.Details,
 			EventKey:        uuid.NewString(),
 			DecisionKey:     decision.DecisionKey,
 			ScopeID:         current.ID,

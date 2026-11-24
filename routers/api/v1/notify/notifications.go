@@ -25,6 +25,7 @@ func NewAvailable(ctx *context.APIContext) {
 
 	total, err := db.Count[activities_model.Notification](ctx, activities_model.FindNotificationOptions{
 		UserID: ctx.Doer.ID,
+		Doer:   ctx.Doer,
 		Status: []activities_model.NotificationStatus{activities_model.NotificationStatusUnread},
 	})
 	if err != nil {
@@ -44,12 +45,20 @@ func getFindNotificationOptions(ctx *context.APIContext) *activities_model.FindN
 	opts := &activities_model.FindNotificationOptions{
 		ListOptions:       utils.GetListOptions(ctx),
 		UserID:            ctx.Doer.ID,
+		Doer:              ctx.Doer,
 		UpdatedBeforeUnix: before,
 		UpdatedAfterUnix:  since,
 	}
 	if !ctx.FormBool("all") {
 		statuses := ctx.FormStrings("status-types")
 		opts.Status = statusStringsToNotificationStatuses(statuses, []string{"unread", "pinned"})
+	}
+
+	if reason := ctx.FormTrim("reason"); reason != "" {
+		if opts.Reason = activities_model.ParseNotificationReason(reason); opts.Reason == "" {
+			ctx.APIError(http.StatusUnprocessableEntity, "reason must be review_requested, assign, mention or author")
+			return nil
+		}
 	}
 
 	subjectTypes := ctx.FormStrings("subject-type")

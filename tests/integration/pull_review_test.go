@@ -4,21 +4,26 @@
 package integration
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
+	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
@@ -30,8 +35,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPullView_ReviewerMissed(t *testing.T) {
+func TestPullReview(t *testing.T) {
 	defer tests.PrepareTestEnv(t)()
+	t.Run("ReviewerMissed", testPullReviewReviewerMissed)
+	t.Run("LockedOrBlocked", testPullReviewLockedOrBlocked)
+}
+
+func testPullReviewReviewerMissed(t *testing.T) {
 	session := loginUser(t, "user1")
 
 	req := NewRequest(t, "GET", "/pulls")
@@ -50,6 +60,41 @@ func TestPullView_ReviewerMissed(t *testing.T) {
 	assert.True(t, test.IsNormalPageCompleted(resp.Body.String()))
 }
 
+func testPullReviewLockedOrBlocked(t *testing.T) {
+	require.NoError(t, issues_model.UpdateIssueCols(t.Context(), &issues_model.Issue{ID: 3, IsLocked: true}, "is_locked"))
+	for _, tc := range []struct {
+		reviewerID, index, replyCommentID int64
+		webStatus                         int
+	}{
+		{4, 3, 7, http.StatusBadRequest},
+		{34, 2, 4, http.StatusForbidden},
+	} {
+		reviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: tc.reviewerID})
+		issue := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{RepoID: 1, Index: tc.index})
+		pendingReview, err := issues_model.CreateReview(t.Context(), issues_model.CreateReviewOptions{Type: issues_model.ReviewTypePending, Issue: issue, Reviewer: reviewer})
+		require.NoError(t, err)
+		commentCount := unittest.GetCount(t, &issues_model.Comment{IssueID: issue.ID})
+		pullPath := fmt.Sprintf("user2/repo1/pulls/%d", tc.index)
+		session := loginUser(t, reviewer.Name)
+		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
+
+		testSubmitReview(t, session, "user2", "repo1", strconv.FormatInt(tc.index, 10), "", "comment", tc.webStatus)
+		session.MakeRequest(t, NewRequestWithValues(t, "POST", "/"+pullPath+"/files/reviews/comments", map[string]string{
+			"origin": "diff", "content": "test", "path": "README.md", "side": "proposed", "line": "1",
+		}), tc.webStatus)
+		MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/"+pullPath+"/reviews", &api.CreatePullReviewOptions{Event: api.ReviewStateComment, Body: "test"}).AddTokenAuth(token), http.StatusForbidden)
+		MakeRequest(t, NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/reviews/%d", pullPath, pendingReview.ID), &api.SubmitPullReviewOptions{Event: api.ReviewStateComment, Body: "test"}).AddTokenAuth(token), http.StatusForbidden)
+		MakeRequest(t, NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/comments/%d/replies", pullPath, tc.replyCommentID), &api.CreatePullReviewCommentReplyOptions{Body: "test"}).AddTokenAuth(token), http.StatusForbidden)
+		unittest.AssertCount(t, &issues_model.Comment{IssueID: issue.ID}, commentCount)
+	}
+	MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls/3/reviews", &api.CreatePullReviewOptions{Event: api.ReviewStateComment, Body: "test"}).AddTokenAuth(getUserToken(t, "user2", auth_model.AccessTokenScopeWriteRepository)), http.StatusOK)
+
+	for name, status := range map[string]int{"user5": http.StatusForbidden, "user40": http.StatusOK} {
+		require.NoError(t, db.Insert(t.Context(), &user_model.Blocking{BlockerID: 1, BlockeeID: unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: name}).ID}))
+		testSubmitReview(t, loginUser(t, name), "user2", "repo1", "2", "", "comment", status)
+	}
+}
+
 func TestPullView_CodeOwner(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, u *url.URL) {
 		user2 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
@@ -65,6 +110,12 @@ func TestPullView_CodeOwner(t *testing.T) {
 			DefaultBranch:    "master",
 		}, true)
 		assert.NoError(t, err)
+
+		for _, reviewer := range []*user_model.User{user5, user8} {
+			require.NoError(t, repo_model.WatchRepoWithOptions(t.Context(), reviewer, repo, repo_model.WatchOptions{
+				Mode: repo_model.WatchModeCustom, WatchPullRequests: true,
+			}))
+		}
 
 		// create code owner branch protection
 		protectBranch := git_model.ProtectedBranch{
@@ -90,18 +141,45 @@ func TestPullView_CodeOwner(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
+		t.Run("File owners", func(t *testing.T) {
+			session := loginUser(t, "user2")
+			resp := session.MakeRequest(t, NewRequest(t, "GET", "/user2/test_codeowner/src/branch/master/README.md"), http.StatusOK)
+			doc := NewHTMLParser(t, resp.Body)
+			assert.Equal(t, "@user5", doc.Find(".file-codeowners a").Text())
+
+			_, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, &files_service.ChangeRepoFilesOptions{
+				OldBranch: repo.DefaultBranch,
+				NewBranch: "file-owners",
+				Files: []*files_service.ChangeRepoFile{{
+					Operation:     "update",
+					TreePath:      "CODEOWNERS",
+					ContentReader: strings.NewReader("## review-request=false\n[Docs] @user8 @org3/team1\n*.md\n"),
+				}},
+			})
+			require.NoError(t, err)
+			resp = session.MakeRequest(t, NewRequest(t, "GET", "/user2/test_codeowner/src/branch/file-owners/README.md"), http.StatusOK)
+			doc = NewHTMLParser(t, resp.Body)
+			assert.Equal(t, "@user8", doc.Find(".file-codeowners a[href='/user8']").Text())
+			assert.Equal(t, "@org3/team1", doc.Find(".file-codeowners a[href='/org3/teams/team1']").Text())
+			resp = session.MakeRequest(t, NewRequest(t, "GET", "/user2/test_codeowner/src/branch/file-owners/CODEOWNERS"), http.StatusOK)
+			doc = NewHTMLParser(t, resp.Body)
+			assert.Zero(t, doc.Find(".file-codeowners").Length())
+		})
+
+		readmeBranchOptions := func(branch, content string) *files_service.ChangeRepoFilesOptions {
+			return &files_service.ChangeRepoFilesOptions{
+				NewBranch: branch,
+				Files: []*files_service.ChangeRepoFile{{
+					Operation:     "update",
+					TreePath:      "README.md",
+					ContentReader: strings.NewReader(content),
+				}},
+			}
+		}
+
 		t.Run("First Pull Request", func(t *testing.T) {
 			// create a new branch to prepare for pull request
-			_, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, &files_service.ChangeRepoFilesOptions{
-				NewBranch: "codeowner-basebranch",
-				Files: []*files_service.ChangeRepoFile{
-					{
-						Operation:     "update",
-						TreePath:      "README.md",
-						ContentReader: strings.NewReader("# This is a new project\n"),
-					},
-				},
-			})
+			_, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, readmeBranchOptions("codeowner-basebranch", "# This is a new project\n"))
 			assert.NoError(t, err)
 
 			// Create a pull request.
@@ -131,17 +209,14 @@ func TestPullView_CodeOwner(t *testing.T) {
 			}, 10*time.Second, 20*time.Millisecond, "code owner user8 was never requested for review")
 			unittest.AssertCount(t, &issues_model.Review{IssueID: pr.IssueID, Type: issues_model.ReviewTypeRequest}, 2) // only user5 and user8
 
-			err = issue_service.ChangeTitle(t.Context(), pr.Issue, user2, "[WIP] Test Pull Request")
-			assert.NoError(t, err)
-			prUpdated1 := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
-			assert.NoError(t, prUpdated1.LoadIssue(t.Context()))
-			assert.Equal(t, "[WIP] Test Pull Request", prUpdated1.Issue.Title)
-
-			err = issue_service.ChangeTitle(t.Context(), prUpdated1.Issue, user2, "Test Pull Request2")
-			assert.NoError(t, err)
-			prUpdated2 := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
-			assert.NoError(t, prUpdated2.LoadIssue(t.Context()))
-			assert.Equal(t, "Test Pull Request2", prUpdated2.Issue.Title)
+			prUpdated := pr
+			for _, title := range []string{"[WIP] Test Pull Request", "Test Pull Request2"} {
+				err = issue_service.ChangeTitle(t.Context(), prUpdated.Issue, user2, title)
+				assert.NoError(t, err)
+				prUpdated = unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
+				assert.NoError(t, prUpdated.LoadIssue(t.Context()))
+				assert.Equal(t, title, prUpdated.Issue.Title)
+			}
 
 			// ensure it cannot be merged
 			hasCodeownerReviews := issue_service.HasAllRequiredCodeownerReviews(t.Context(), &protectBranch, pr)
@@ -161,6 +236,11 @@ func TestPullView_CodeOwner(t *testing.T) {
 			hasCodeownerReviews = issue_service.HasAllRequiredCodeownerReviews(t.Context(), &protectBranch, pr)
 			assert.True(t, hasCodeownerReviews)
 
+			_, err = issue_service.ReviewRequest(t.Context(), pr.Issue, user5, nil, user5, true)
+			assert.NoError(t, err)
+			hasCodeownerReviews = issue_service.HasAllRequiredCodeownerReviews(t.Context(), &protectBranch, pr)
+			assert.False(t, hasCodeownerReviews)
+
 			// a later requested-changes review from a required code owner must override
 			// that user's earlier approval and no longer satisfy the requirement
 			_, _, err = issues_model.SubmitReview(t.Context(), user5, pr.Issue, issues_model.ReviewTypeReject, "Needs changes", resp.Commit.SHA, false, make([]string, 0))
@@ -170,16 +250,7 @@ func TestPullView_CodeOwner(t *testing.T) {
 		})
 
 		t.Run("Dismissed Code Owner Review", func(t *testing.T) {
-			_, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, &files_service.ChangeRepoFilesOptions{
-				NewBranch: "codeowner-dismiss-branch",
-				Files: []*files_service.ChangeRepoFile{
-					{
-						Operation:     "update",
-						TreePath:      "README.md",
-						ContentReader: strings.NewReader("# New README content\n"),
-					},
-				},
-			})
+			_, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, readmeBranchOptions("codeowner-dismiss-branch", "# New README content\n"))
 			assert.NoError(t, err)
 
 			session := loginUser(t, "user2")
@@ -225,16 +296,7 @@ func TestPullView_CodeOwner(t *testing.T) {
 
 		t.Run("Second Pull Request", func(t *testing.T) {
 			// create a new branch to prepare for pull request
-			resp, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, &files_service.ChangeRepoFilesOptions{
-				NewBranch: "codeowner-basebranch2",
-				Files: []*files_service.ChangeRepoFile{
-					{
-						Operation:     "update",
-						TreePath:      "README.md",
-						ContentReader: strings.NewReader("# This is a new project2\n"),
-					},
-				},
-			})
+			resp, err := files_service.ChangeRepoFiles(t.Context(), repo, user2, readmeBranchOptions("codeowner-basebranch2", "# This is a new project2\n"))
 			assert.NoError(t, err)
 
 			// Create a pull request.
@@ -272,16 +334,7 @@ func TestPullView_CodeOwner(t *testing.T) {
 			assert.NoError(t, err)
 
 			// create a new branch to prepare for pull request
-			resp, err := files_service.ChangeRepoFiles(t.Context(), forkedRepo, user5, &files_service.ChangeRepoFilesOptions{
-				NewBranch: "codeowner-basebranch-forked",
-				Files: []*files_service.ChangeRepoFile{
-					{
-						Operation:     "update",
-						TreePath:      "README.md",
-						ContentReader: strings.NewReader("# This is a new forked project\n"),
-					},
-				},
-			})
+			resp, err := files_service.ChangeRepoFiles(t.Context(), forkedRepo, user5, readmeBranchOptions("codeowner-basebranch-forked", "# This is a new forked project\n"))
 			assert.NoError(t, err)
 
 			session := loginUser(t, "user5")
@@ -398,4 +451,242 @@ func testIssueClose(t *testing.T, session *TestSession, owner, repo, issueNumber
 
 	req := NewRequestWithValues(t, "POST", closeURL, options)
 	return session.MakeRequest(t, req, http.StatusOK)
+}
+
+func TestPullReviewApplySuggestion(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		ctx := t.Context()
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		_, err := files_service.ChangeRepoFiles(ctx, repo, doer, &files_service.ChangeRepoFilesOptions{
+			OldBranch: "master", NewBranch: "review-suggestion",
+			Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "suggestion.txt", ContentReader: strings.NewReader("original\nuntouched\n")}},
+		})
+		require.NoError(t, err)
+		session := loginUser(t, "user2")
+		testPullCreate(t, session, "user2", "repo1", false, "master", "review-suggestion", "Suggested change")
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "review-suggestion"})
+		require.NoError(t, pr.LoadIssue(ctx))
+		gitRepo, err := git.OpenRepository(ctx, repo)
+		require.NoError(t, err)
+		defer gitRepo.Close()
+		comment, err := pull_service.CreateCodeComment(ctx, doer, gitRepo, pr.Issue, 1, "Try this:\n```suggestion\nreplacement\nsecond line\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		stale, err := pull_service.CreateCodeComment(ctx, doer, gitRepo, pr.Issue, 1, "```suggestion\nstale replacement\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "-original")
+		assert.Contains(t, page.Body.String(), "Apply suggestion")
+		apply := func(id int64) {
+			req := NewRequestWithValues(t, "POST", "/user2/repo1/issues/apply_suggestion", map[string]string{"comment_id": strconv.FormatInt(id, 10)})
+			session.MakeRequest(t, req, http.StatusOK)
+		}
+		apply(comment.ID)
+		head, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, "Apply suggestion from review", head.MessageTitle())
+		assert.Equal(t, doer.NewGitSig().Name, head.Author.Name)
+		blob, err := head.GetBlobByPath(ctx, gitRepo, "suggestion.txt")
+		require.NoError(t, err)
+		content, err := blob.GetBlobContent(ctx, 1024)
+		require.NoError(t, err)
+		assert.Equal(t, "replacement\nsecond line\nuntouched\n", content)
+		saved := unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: comment.ID})
+		require.NotNil(t, saved.CommentMetaData)
+		assert.Equal(t, head.ID.String(), saved.CommentMetaData.AppliedSuggestionCommit)
+		apply(stale.ID)
+		after, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, head.ID, after.ID)
+		page = session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "This suggestion is stale")
+		assert.Contains(t, page.Body.String(), "Suggestion applied")
+	})
+}
+
+func TestPullReviewApplyRangeSuggestion(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		ctx := t.Context()
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		_, err := files_service.ChangeRepoFiles(ctx, repo, doer, &files_service.ChangeRepoFilesOptions{
+			OldBranch: "master", NewBranch: "review-range-suggestion",
+			Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "suggestion.txt", ContentReader: strings.NewReader("original\nlast original\nuntouched\n")}},
+		})
+		require.NoError(t, err)
+		session := loginUser(t, "user2")
+		testPullCreate(t, session, "user2", "repo1", false, "master", "review-range-suggestion", "Suggested change")
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "review-range-suggestion"})
+		require.NoError(t, pr.LoadIssue(ctx))
+		gitRepo, err := git.OpenRepository(ctx, repo)
+		require.NoError(t, err)
+		defer gitRepo.Close()
+		comment, err := pull_service.CreateCodeCommentRange(ctx, doer, gitRepo, pr.Issue, 1, 2, "Try this:\n```suggestion\nreplacement\nlast original\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		stale, err := pull_service.CreateCodeCommentRange(ctx, doer, gitRepo, pr.Issue, 1, 2, "```suggestion\nstale replacement\n```", "suggestion.txt", false, 0, "", nil)
+		require.NoError(t, err)
+		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "-original")
+		assert.Contains(t, page.Body.String(), "-last original")
+		assert.Contains(t, page.Body.String(), "lines 1 to 2")
+		assert.Contains(t, page.Body.String(), "Apply suggestion")
+		apply := func(id int64) {
+			req := NewRequestWithValues(t, "POST", "/user2/repo1/issues/apply_suggestion", map[string]string{"comment_id": strconv.FormatInt(id, 10)})
+			session.MakeRequest(t, req, http.StatusOK)
+		}
+		apply(comment.ID)
+		head, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, "Apply suggestion from review", head.MessageTitle())
+		assert.Equal(t, doer.NewGitSig().Name, head.Author.Name)
+		blob, err := head.GetBlobByPath(ctx, gitRepo, "suggestion.txt")
+		require.NoError(t, err)
+		content, err := blob.GetBlobContent(ctx, 1024)
+		require.NoError(t, err)
+		assert.Equal(t, "replacement\nlast original\nuntouched\n", content)
+		saved := unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{ID: comment.ID})
+		require.NotNil(t, saved.CommentMetaData)
+		assert.Equal(t, head.ID.String(), saved.CommentMetaData.AppliedSuggestionCommit)
+		apply(stale.ID)
+		after, err := gitRepo.GetBranchCommit(ctx, pr.HeadBranch)
+		require.NoError(t, err)
+		assert.Equal(t, head.ID, after.ID)
+		page = session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "This suggestion is stale")
+		assert.Contains(t, page.Body.String(), "Suggestion applied")
+	})
+}
+
+func TestPullReviewRangeComment(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		ctx := t.Context()
+		doer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+		_, err := files_service.ChangeRepoFiles(ctx, repo, doer, &files_service.ChangeRepoFilesOptions{
+			OldBranch: "master", NewBranch: "review-range",
+			Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "range.txt", ContentReader: strings.NewReader("first\nsecond\nthird\n")}},
+		})
+		require.NoError(t, err)
+		session := loginUser(t, "user2")
+		testPullCreate(t, session, "user2", "repo1", false, "master", "review-range", "Range review")
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "review-range"})
+		require.NoError(t, pr.LoadIssue(ctx))
+		require.NoError(t, pr.Issue.LoadRepo(ctx))
+		req := NewRequestWithValues(t, "POST", pr.Issue.Link()+"/files/reviews/comments", map[string]string{
+			"path": "range.txt", "line": "3", "start_line": "1", "side": "proposed", "content": "Range comment", "single_review": "true", "origin": "diff",
+		})
+		session.MakeRequest(t, req, http.StatusOK)
+		comment := unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{IssueID: pr.IssueID, Content: "Range comment"})
+		assert.EqualValues(t, 1, comment.StartLine)
+		assert.EqualValues(t, 3, comment.Line)
+		assert.Contains(t, comment.Patch, "first")
+		assert.Contains(t, comment.Patch, "second")
+		assert.Contains(t, comment.Patch, "third")
+		reviewsURL := fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d/reviews", pr.Index)
+		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
+		apiReq := NewRequestWithJSON(t, "POST", reviewsURL, &api.CreatePullReviewOptions{
+			Event:    api.ReviewStateComment,
+			Comments: []api.CreatePullReviewComment{{Path: "range.txt", Body: "API range", StartLine: 1, NewLineNum: 2}},
+		}).AddTokenAuth(token)
+		review := DecodeJSON(t, MakeRequest(t, apiReq, http.StatusOK), &api.PullReview{})
+		apiReq = NewRequest(t, "GET", fmt.Sprintf("%s/%d/comments", reviewsURL, review.ID)).AddTokenAuth(token)
+		comments := DecodeJSON(t, MakeRequest(t, apiReq, http.StatusOK), &[]api.PullReviewComment{})
+		require.Len(t, *comments, 1)
+		assert.EqualValues(t, 1, (*comments)[0].StartLine)
+		assert.EqualValues(t, 2, (*comments)[0].LineNum)
+
+		page := session.MakeRequest(t, NewRequest(t, "GET", pr.Issue.Link()), http.StatusOK)
+		assert.Contains(t, page.Body.String(), "lines 1 to 3")
+	})
+}
+
+func TestPathReviewers(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, _ *url.URL) {
+		for _, mode := range []string{"team", "codeowners", "codeowner-gate"} {
+			t.Run(mode, func(t *testing.T) {
+				author := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+				org := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 3})
+				repo, err := repo_service.CreateRepositoryDirectly(t.Context(), author, org, repo_service.CreateRepoOptions{Name: "path-reviewers-" + mode, Readme: "Default", AutoInit: true, DefaultBranch: "main"}, true)
+				require.NoError(t, err)
+				team := unittest.AssertExistsAndLoadBean(t, &organization.Team{ID: 2})
+				require.NoError(t, repo_service.TeamAddRepository(t.Context(), team, repo))
+				_, err = files_service.ChangeRepoFiles(t.Context(), repo, author, &files_service.ChangeRepoFilesOptions{
+					OldBranch: "main", Files: []*files_service.ChangeRepoFile{{Operation: "create", TreePath: "CODEOWNERS", ContentReader: strings.NewReader("README.md @user4 @user5\n")}},
+				})
+				require.NoError(t, err)
+				changed, err := files_service.ChangeRepoFiles(t.Context(), repo, author, &files_service.ChangeRepoFilesOptions{
+					OldBranch: "main", NewBranch: "change", Files: []*files_service.ChangeRepoFile{{Operation: "update", TreePath: "README.md", ContentReader: strings.NewReader("changed\n")}},
+				})
+				require.NoError(t, err)
+				token := getUserToken(t, "user2", auth_model.AccessTokenScopeWriteRepository)
+				MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/"+repo.FullName()+"/pulls", &api.CreatePullRequestOption{Head: "change", Base: "main", Title: "path reviews"}).AddTokenAuth(token), http.StatusCreated)
+				pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, HeadBranch: "change"})
+				require.NoError(t, pr.LoadIssue(t.Context()))
+				pr.Issue.Repo = repo
+				pb := &git_model.ProtectedBranch{RepoID: repo.ID, RuleName: "main"}
+				pb.BlockOnCodeownerReviews = mode == "codeowner-gate"
+				require.NoError(t, pull_service.CreateOrUpdateProtectedBranch(t.Context(), repo, pb, git_model.WhitelistOptions{}))
+				endpoint := "/api/v1/repos/" + repo.FullName() + "/branch_protections/path_reviewers/main"
+				input := api.PathReviewerRule{Pattern: "README.md", Team: "team1", RequiredApprovals: 1}
+				if mode == "codeowners" {
+					input.Team, input.CodeOwners, input.RequiredApprovals = "", true, 2
+				}
+				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{Rules: []api.PathReviewerRule{input}}).AddTokenAuth(token), http.StatusOK)
+				deniedToken := getUserToken(t, "user4", auth_model.AccessTokenScopeWriteRepository)
+				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{}).AddTokenAuth(deniedToken), http.StatusForbidden)
+				invalid := input
+				invalid.RequiredApprovals = 0
+				MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{Rules: []api.PathReviewerRule{invalid}}).AddTokenAuth(token), http.StatusUnprocessableEntity)
+				if mode == "codeowner-gate" {
+					MakeRequest(t, NewRequestWithJSON(t, "PUT", endpoint, &api.SetPathReviewerRulesOptions{}).AddTokenAuth(token), http.StatusOK)
+				}
+				blocker := pull_service.BlockerPathReviews
+				if mode == "codeowner-gate" {
+					blocker = pull_service.BlockerCodeOwners
+				}
+				check := func(blocked bool) {
+					t.Helper()
+					readiness, err := pull_service.GetReadiness(t.Context(), pr)
+					require.NoError(t, err)
+					if blocked {
+						assert.Contains(t, readiness.Blockers, blocker)
+						require.ErrorIs(t, pull_service.CheckPullBranchProtections(t.Context(), pr, false), pull_service.ErrNotReadyToMerge)
+					} else {
+						assert.NotContains(t, readiness.Blockers, blocker)
+						require.NoError(t, pull_service.CheckPullBranchProtections(t.Context(), pr, false))
+					}
+				}
+				approve := func(id int64) int64 {
+					t.Helper()
+					reviewer := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: id})
+					review, _, err := issues_model.SubmitReview(t.Context(), reviewer, pr.Issue, issues_model.ReviewTypeApprove, "approved", changed.Commit.SHA, false, nil)
+					require.NoError(t, err)
+					return review.ID
+				}
+				check(true)
+				approve(8)
+				check(true)
+				agentToken := DecodeJSON(t, MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/users/user4/tokens", &api.CreateAccessTokenOption{
+					Name: "path-review-agent-" + mode, Scopes: []string{"all"}, AgentIdentity: &api.AgentIdentity{Agent: "review helper"},
+				}).AddBasicAuth("user4"), http.StatusCreated), api.AccessToken{})
+				MakeRequest(t, NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/pulls/%d/reviews", repo.FullName(), pr.Index), &api.CreatePullReviewOptions{
+					Event: api.ReviewStateApproved, Body: "agent approval",
+				}).AddTokenAuth(agentToken.Token), http.StatusOK)
+				check(true)
+				ownerReviewID := approve(4)
+				if mode == "codeowners" {
+					check(true)
+					approve(5)
+				}
+				check(false)
+				if mode == "team" {
+					_, err := db.GetEngine(t.Context()).ID(ownerReviewID).Cols("dismissed").Update(&issues_model.Review{Dismissed: true})
+					require.NoError(t, err)
+					check(true)
+				}
+				require.NoError(t, git_model.DeleteProtectedBranch(t.Context(), repo, pb.ID))
+				unittest.AssertNotExistsBean(t, &git_model.BranchroomPathReviewer{ProtectedBranchID: pb.ID})
+			})
+		}
+	})
 }

@@ -105,6 +105,20 @@ type swaggerResponseHookList struct {
 	Body []api.Hook `json:"body"`
 }
 
+// HookDelivery
+// swagger:response HookDelivery
+type swaggerResponseHookDelivery struct {
+	// in:body
+	Body api.HookDelivery `json:"body"`
+}
+
+// HookDeliveryList
+// swagger:response HookDeliveryList
+type swaggerResponseHookDeliveryList struct {
+	// in:body
+	Body []api.HookDelivery `json:"body"`
+}
+
 // GitHook
 // swagger:response GitHook
 type swaggerResponseGitHook struct {
@@ -138,6 +152,13 @@ type swaggerResponseReleaseList struct {
 type swaggerResponsePullRequest struct {
 	// in:body
 	Body api.PullRequest `json:"body"`
+}
+
+// PullRequestReadiness
+// swagger:response PullRequestReadiness
+type swaggerResponsePullRequestReadiness struct {
+	// in:body
+	Body api.PullRequestReadiness `json:"body"`
 }
 
 // PullRequestList
@@ -287,13 +308,6 @@ type swaggerChangedFileList struct {
 type swaggerNote struct {
 	// in: body
 	Body api.Note `json:"body"`
-}
-
-// EmptyRepository
-// swagger:response EmptyRepository
-type swaggerEmptyRepository struct {
-	// in: body
-	Body api.APIError `json:"body"`
 }
 
 // FileResponse
@@ -508,4 +522,18 @@ type swaggerCompare struct {
 type swaggerMergeUpstreamResponse struct {
 	// in:body
 	Body api.MergeUpstreamResponse `json:"body"`
+}
+
+// PathReviewerRules
+// swagger:response PathReviewerRules
+type swaggerResponsePathReviewerRules struct {
+	// in:body
+	Body []api.PathReviewerRule `json:"body"`
+}
+
+// CodeSearchResults
+// swagger:response CodeSearchResults
+type swaggerResponseCodeSearchResults struct {
+	// in:body
+	Body api.CodeSearchResults `json:"body"`
 }

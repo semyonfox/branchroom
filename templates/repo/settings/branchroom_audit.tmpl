@@ -1,0 +1,78 @@
+{{template "repo/settings/layout_head" (dict "pageClass" "repository settings branchroom")}}
+<div class="repo-setting-content">
+	<h4 class="ui top attached header branchroom-restricted">{{ctx.Locale.Tr "repo.settings.branchroom.audit.title"}}: {{.AuditScope.Name}}</h4>
+	<div class="ui attached segment">
+		{{if .AuditBrokenSequence}}
+			<div class="ui negative message" id="branchroom-chain-status">{{ctx.Locale.Tr "repo.settings.branchroom.audit.broken" .AuditBrokenSequence}}</div>
+		{{else}}
+			<div class="ui positive message" id="branchroom-chain-status">{{ctx.Locale.Tr "repo.settings.branchroom.audit.verified"}}</div>
+		{{end}}
+		<form class="ui form" method="get">
+			<div class="two fields">
+				<div class="field">
+					<label for="audit-actor">{{ctx.Locale.Tr "repo.settings.branchroom.audit.actor"}}</label>
+					<input id="audit-actor" name="actor" value="{{.AuditFilter.Actor}}">
+					<div class="help">{{ctx.Locale.Tr "repo.settings.branchroom.audit.actor_help"}}</div>
+				</div>
+				<div class="field">
+					<label for="audit-kind">{{ctx.Locale.Tr "repo.settings.branchroom.audit.kind"}}</label>
+					<select id="audit-kind" name="kind">
+						<option value="">{{ctx.Locale.Tr "repo.settings.branchroom.audit.all"}}</option>
+						<option value="read" {{if eq .AuditFilter.Kind "read"}}selected{{end}}>{{ctx.Locale.Tr "repo.settings.branchroom.audit.read"}}</option>
+						<option value="write" {{if eq .AuditFilter.Kind "write"}}selected{{end}}>{{ctx.Locale.Tr "repo.settings.branchroom.audit.write"}}</option>
+						<option value="grant" {{if eq .AuditFilter.Kind "grant"}}selected{{end}}>{{ctx.Locale.Tr "repo.settings.branchroom.audit.grant"}}</option>
+						<option value="lifecycle" {{if eq .AuditFilter.Kind "lifecycle"}}selected{{end}}>{{ctx.Locale.Tr "repo.settings.branchroom.audit.lifecycle"}}</option>
+					</select>
+				</div>
+			</div>
+			<div class="two fields">
+				<div class="field">
+					<label for="audit-from">{{ctx.Locale.Tr "repo.settings.branchroom.audit.from"}}</label>
+					<input id="audit-from" type="date" name="from" value="{{.AuditFilter.From}}">
+				</div>
+				<div class="field">
+					<label for="audit-to">{{ctx.Locale.Tr "repo.settings.branchroom.audit.to"}}</label>
+					<input id="audit-to" type="date" name="to" value="{{.AuditFilter.To}}">
+				</div>
+			</div>
+			<button type="submit" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.audit.filter"}}</button>
+		</form>
+		<form class="tw-mt-3" method="post" action="{{.RepoLink}}/settings/branchroom/scopes/{{.AuditScope.ID}}/audit/export">
+			<input type="hidden" name="actor" value="{{.AuditFilter.Actor}}">
+			<input type="hidden" name="kind" value="{{.AuditFilter.Kind}}">
+			<input type="hidden" name="from" value="{{.AuditFilter.From}}">
+			<input type="hidden" name="to" value="{{.AuditFilter.To}}">
+			<button type="submit" class="ui button">{{ctx.Locale.Tr "repo.settings.branchroom.audit.export"}}</button>
+			<p class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.audit.snapshot"}}</p>
+		</form>
+	</div>
+	<div class="ui attached segment tw-overflow-x-auto">
+		<table class="ui unstackable table tw-table-fixed tw-w-full tw-break-all">
+			<thead><tr>
+				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.time"}}</th>
+				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.actor"}}</th>
+				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.action"}}</th>
+				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.outcome"}}</th>
+				<th>{{ctx.Locale.Tr "repo.settings.branchroom.audit.resource"}}</th>
+			</tr></thead>
+			<tbody>
+				{{range $row := .AuditRows}}
+					<tr>
+						<td>{{DateUtils.FullTime $row.Event.CreatedUnix}}</td>
+						<td>{{if $row.ActorLink}}<a href="{{$row.ActorLink}}">{{$row.Actor}}</a>{{else}}{{$row.Actor}}{{end}}</td>
+						<td>{{$row.Event.Action}}</td>
+						<td>{{$row.Event.Result}}<br><code>{{$row.Event.ReasonCode}}</code>{{if $row.Event.Details}}<pre class="tw-whitespace-pre-wrap tw-break-all">{{$row.Event.Details}}</pre>{{end}}</td>
+						<td>{{$row.Event.ResourceType}}: {{$row.Event.ResourceID}}{{if $row.Event.GrantID}}<br>{{$row.Event.GrantID}}{{end}}</td>
+					</tr>
+				{{else}}
+					<tr><td colspan="5">{{ctx.Locale.Tr "repo.settings.branchroom.audit.empty"}}</td></tr>
+				{{end}}
+			</tbody>
+		</table>
+		<div class="flex-text-block">
+			{{if .AuditPrevious}}<a class="ui button" href="{{.AuditPrevious}}">{{ctx.Locale.Tr "repo.settings.branchroom.audit.previous"}}</a>{{end}}
+			{{if .AuditNext}}<a class="ui button" href="{{.AuditNext}}">{{ctx.Locale.Tr "repo.settings.branchroom.audit.next"}}</a>{{end}}
+		</div>
+	</div>
+</div>
+{{template "repo/settings/layout_footer" .}}

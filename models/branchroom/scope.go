@@ -24,7 +24,7 @@ type Scope struct {
 	OwnerID       int64              `xorm:"INDEX(owner) NOT NULL"`
 	CreatedByID   int64              `xorm:"NOT NULL"`
 	AuditSequence int64              `xorm:"NOT NULL DEFAULT 0"`
-	AuditHeadHash string             `xorm:"CHAR(64) NOT NULL DEFAULT ''"`
+	AuditHeadHash string             `xorm:"VARCHAR(64) NOT NULL DEFAULT ''"`
 	CreatedUnix   timeutil.TimeStamp `xorm:"created NOT NULL"`
 	UpdatedUnix   timeutil.TimeStamp `xorm:"updated NOT NULL"`
 }

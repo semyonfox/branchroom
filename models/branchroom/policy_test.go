@@ -4,6 +4,7 @@
 package branchroom
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -78,13 +79,6 @@ func TestGrantValidationAndRevocation(t *testing.T) {
 		SubjectID:   3,
 		Action:      ActionDiscover,
 		WorkflowID:  "deploy.yml",
-		CreatedByID: 1,
-	}).Validate())
-	assert.Error(t, (&Grant{
-		ScopeID:     scope.ID,
-		SubjectType: SubjectTypeTeam,
-		SubjectID:   3,
-		Action:      ActionMaterialize,
 		CreatedByID: 1,
 	}).Validate())
 	assert.NoError(t, (&Grant{
@@ -163,7 +157,9 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	scope := newTestScope()
 	require.NoError(t, InsertScope(ctx, scope))
 
-	first, err := RecordDecisionAndAudit(ctx, scope, newTestDecision(scope, DecisionResultAllow, "grant_matched"))
+	firstDecision := newTestDecision(scope, DecisionResultAllow, "grant_matched")
+	firstDecision.CreatedUnix = timeutil.TimeStampNow() - 60
+	first, err := RecordDecisionAndAudit(ctx, scope, firstDecision)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, first.Sequence)
 	assert.Empty(t, first.PreviousHash)
@@ -179,6 +175,8 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, storedScope.AuditSequence)
 	assert.Equal(t, second.EventHash, storedScope.AuditHeadHash)
+
+	require.NoError(t, VerifyScopeAuditChain(ctx, storedScope))
 
 	var decisionCount, auditCount int64
 	decisionCount, err = db.GetEngine(ctx).Count(new(Decision))
@@ -206,6 +204,18 @@ func TestRecordDecisionAndAudit(t *testing.T) {
 	tampered := *second
 	tampered.ReasonCode = "tampered"
 	assert.Error(t, tampered.Validate())
+
+	_, err = db.GetEngine(ctx).ID(first.ID).Cols("reason_code").Update(&AuditEvent{ReasonCode: "rewritten"})
+	require.NoError(t, err)
+	chainErr, ok := errors.AsType[*AuditChainError](VerifyScopeAuditChain(ctx, storedScope))
+	require.True(t, ok)
+	assert.EqualValues(t, 1, chainErr.Sequence)
+	assert.Contains(t, chainErr.Error(), "audit event 1 does not match its hash")
+	_, err = db.GetEngine(ctx).ID(first.ID).Cols("reason_code").Update(&AuditEvent{ReasonCode: first.ReasonCode})
+	require.NoError(t, err)
+	_, err = db.GetEngine(ctx).ID(second.ID).Delete(new(AuditEvent))
+	require.NoError(t, err)
+	assert.ErrorContains(t, VerifyScopeAuditChain(ctx, storedScope), "scope head does not match")
 }
 
 // The Branchroom receive surface is an audit classification only, persisted through decisions and events.

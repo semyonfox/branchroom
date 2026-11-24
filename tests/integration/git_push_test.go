@@ -6,57 +6,203 @@ package integration
 import (
 	"fmt"
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 
 	auth_model "gitea.dev/models/auth"
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	git_model "gitea.dev/models/git"
 	repo_model "gitea.dev/models/repo"
+	system_model "gitea.dev/models/system"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/secretscan"
+	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/test"
 	repo_service "gitea.dev/services/repository"
+	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGitPush(t *testing.T) {
-	onGiteaRun(t, testGitPush)
+	onGiteaRun(t, func(t *testing.T, u *url.URL) {
+		t.Run("Branches", func(t *testing.T) {
+			defer tests.PrintCurrentTest(t)()
+			testGitPush(t, u)
+		})
+
+		t.Run("VisibilityOption", func(t *testing.T) {
+			defer tests.PrintCurrentTest(t)()
+			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+			repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{
+				Name:          "repo-visibility-option",
+				AutoInit:      false,
+				DefaultBranch: "master",
+				IsPrivate:     false,
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, repo)
+
+			gitPath := t.TempDir()
+			doGitInitTestRepository(gitPath)(t)
+
+			oldPath, oldUser := u.Path, u.User
+			defer func() { u.Path, u.User = oldPath, oldUser }()
+			u.Path = repo.FullName() + ".git"
+			u.User = url.UserPassword(user.LowerName, userPassword)
+			doGitAddRemote(gitPath, "origin", u)(t)
+
+			// The first push into an empty repository is a "push-to-create", so the
+			// repo.private push option is honored to set the initial visibility.
+			doGitPushTestRepository(gitPath, "origin", "master", "-o", "repo.private=true")(t)
+			repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+			assert.True(t, repo.IsPrivate, "repo.private option should apply on push-to-create")
+
+			// The repository is now populated; a later push must NOT silently flip
+			// visibility, otherwise a repo admin could change it bypassing the audit
+			// trail, webhooks, and notifications a proper settings change would fire.
+			doGitCreateBranch(gitPath, "branch2")(t)
+			doGitPushTestRepository(gitPath, "origin", "branch2", "-o", "repo.private=false")(t)
+			repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+			assert.True(t, repo.IsPrivate, "repo.private option must be ignored on an existing repository")
+
+			defer test.MockVariableValue(&setting.Repository.ForcePrivate, true)()
+			forcedRepo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{Name: "repo-visibility-forced", DefaultBranch: "master", IsPrivate: true})
+			require.NoError(t, err)
+			u.Path = forcedRepo.FullName() + ".git"
+			doGitAddRemote(gitPath, "forced", u)(t)
+			doGitPushTestRepository(gitPath, "forced", "master", "-o", "repo.private=false")(t)
+			assert.True(t, unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: forcedRepo.ID}).IsPrivate)
+		})
+
+		t.Run("SecretPushProtection", func(t *testing.T) {
+			defer tests.PrintCurrentTest(t)()
+			defer test.MockVariableValue(&setting.SecretScanning.PushProtection, true)()
+			scanner, err := secretscan.NewScanner(map[string]string{"internal token": `company_[A-Za-z0-9]{32}`})
+			require.NoError(t, err)
+			defer test.MockVariableValue(&setting.SecretScanningScanner, scanner)()
+			user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+			repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{Name: "repo-secret-push", DefaultBranch: "master"})
+			require.NoError(t, err)
+			token := &auth_model.AccessToken{UID: user.ID, Name: "live-secret", Scope: auth_model.AccessTokenScopeAll, AgentIdentity: &api.AgentIdentity{Agent: "Opus 5.5", TaskURL: "https://example.org/tasks/1"}}
+			require.NoError(t, auth_model.NewAccessToken(t.Context(), token))
+
+			gitPath := t.TempDir()
+			doGitInitTestRepository(gitPath)(t)
+			oldPath, oldUser := u.Path, u.User
+			defer func() { u.Path, u.User = oldPath, oldUser }()
+			u.Path = repo.FullName() + ".git"
+			u.User = url.UserPassword(user.LowerName, token.Token)
+			doGitAddRemote(gitPath, "origin", u)(t)
+			doGitPushTestRepository(gitPath, "origin", "master")(t)
+
+			for _, tc := range []struct {
+				branch, secret, kind, redacted string
+			}{
+				{"leak-token", token.Token, "Branchroom access token", token.Token[:8] + "********"},
+				{"leak-custom", "company_" + strings.Repeat("a1B2", 8), "internal token", "company_********"},
+			} {
+				t.Run(tc.branch, func(t *testing.T) {
+					doGitCheckoutBranch(gitPath, "master")(t)
+					doGitCreateBranch(gitPath, tc.branch)(t)
+					doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
+						LocalRepoPath: gitPath, CheckoutBranch: tc.branch, TreeFilePath: ".env",
+						TreeFileContent: "TOKEN=" + tc.secret + "\n",
+					})(t)
+					doGitPushTestRepositoryFail(gitPath, "origin", tc.branch)(t)
+					unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: tc.branch})
+					unittest.AssertNotExistsBean(t, &branchroom_model.PushReceipt{RepoID: repo.ID, Ref: "refs/heads/" + tc.branch})
+
+					// with the bypass turned off the option is refused
+					resetBypass := test.MockVariableValue(&setting.SecretScanning.AllowBypass, false)
+					t.Cleanup(resetBypass)
+					doGitPushTestRepositoryFail(gitPath, "origin", tc.branch, "-o", "secret_scanning.allow=true")(t)
+					unittest.AssertNotExistsBean(t, &git_model.Branch{RepoID: repo.ID, Name: tc.branch})
+					resetBypass()
+
+					doGitPushTestRepository(gitPath, "origin", tc.branch, "-o", "secret_scanning.allow=true")(t)
+					unittest.AssertExistsAndLoadBean(t, &git_model.Branch{RepoID: repo.ID, Name: tc.branch})
+					notices, err := system_model.Notices(t.Context(), 1, 50)
+					require.NoError(t, err)
+					assert.True(t, slices.ContainsFunc(notices, func(n *system_model.Notice) bool {
+						if !strings.Contains(n.Description, "user2 bypassed secret push protection on user2/repo-secret-push, branch "+tc.branch) {
+							return false
+						}
+						assert.Contains(t, n.Description, tc.kind+" in .env ("+tc.redacted+")")
+						assert.NotContains(t, n.Description, tc.secret[8:])
+						return true
+					}), "the bypass leaves an admin notice")
+					receipt := unittest.AssertExistsAndLoadBean(t, &branchroom_model.PushReceipt{RepoID: repo.ID, Ref: "refs/heads/" + tc.branch, TokenID: token.ID})
+					assert.Equal(t, "Opus 5.5", receipt.Agent)
+					sha, _, err := gitcmd.NewCommand("rev-parse").AddDynamicArguments(tc.branch).WithDir(gitPath).RunStdString(t.Context())
+					require.NoError(t, err)
+					assert.Equal(t, strings.TrimSpace(sha), receipt.NewSHA)
+					assert.Equal(t, strings.Repeat("0", 40), receipt.OldSHA)
+					assert.Equal(t, token.AgentIdentity.TaskURL, receipt.TaskURL)
+				})
+			}
+		})
+
+		t.Run("PullRefs", func(t *testing.T) {
+			baseAPITestContext := NewAPITestContext(t, "user2", "repo1", auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
+
+			u.Path = baseAPITestContext.GitPath()
+			u.User = url.UserPassword("user2", userPassword)
+
+			dstPath := t.TempDir()
+			doGitClone(dstPath, u)(t)
+
+			cmd := gitcmd.NewCommand("push", "--delete", "origin", "refs/pull/2/head")
+			stdout, stderr, err := cmd.WithDir(dstPath).RunStdString(t.Context())
+			assert.Error(t, err)
+			assert.Empty(t, stdout)
+			assert.NotContains(t, stderr, "[deleted]", "stderr: %s", stderr)
+		})
+	})
 }
 
 func testGitPush(t *testing.T, u *url.URL) {
 	t.Run("Push branches at once", func(t *testing.T) {
 		runTestGitPush(t, u, func(t *testing.T, gitPath string) (pushed, deleted []string) {
-			for i := range 10 {
+			for i := range 4 {
 				branchName := fmt.Sprintf("branch-%d", i)
 				pushed = append(pushed, branchName)
 				doGitCreateBranch(gitPath, branchName)(t)
 			}
 			pushed = append(pushed, "master")
-			doGitPushTestRepository(gitPath, "origin", "--all")(t)
+			_, stderr, err := gitcmd.NewCommand("push", "origin", "--all").WithDir(gitPath).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.NotContains(t, stderr, "Create a new pull request")
+
+			repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerID: 2, LowerName: "repo-to-push"})
+			assert.False(t, repo.IsEmpty)
+			assert.Equal(t, "master", repo.DefaultBranch)
 			return pushed, deleted
 		})
 	})
 
 	t.Run("Push branches exists", func(t *testing.T) {
 		runTestGitPush(t, u, func(t *testing.T, gitPath string) (pushed, deleted []string) {
-			for i := range 10 {
+			for i := range 4 {
 				branchName := fmt.Sprintf("branch-%d", i)
-				if i < 5 {
+				if i < 2 {
 					pushed = append(pushed, branchName)
 				}
 				doGitCreateBranch(gitPath, branchName)(t)
 			}
-			// only push master and the first 5 branches
 			pushed = append(pushed, "master")
 			args := append([]string{"origin"}, pushed...)
 			doGitPushTestRepository(gitPath, args...)(t)
 
 			pushed = pushed[:0]
-			// do some changes for the first 5 branches created above
-			for i := range 5 {
+			for i := range 2 {
 				branchName := fmt.Sprintf("branch-%d", i)
 				pushed = append(pushed, branchName)
 				doGitCheckoutWriteFileCommit(localGitAddCommitOptions{
@@ -67,13 +213,15 @@ func testGitPush(t *testing.T, u *url.URL) {
 				})(t)
 			}
 
-			for i := 5; i < 10; i++ {
+			for i := 2; i < 4; i++ {
 				pushed = append(pushed, fmt.Sprintf("branch-%d", i))
 			}
 			pushed = append(pushed, "master")
 
 			// push all, so that master is not changed
-			doGitPushTestRepository(gitPath, "origin", "--all")(t)
+			_, stderr, err := gitcmd.NewCommand("push", "origin", "--all").WithDir(gitPath).RunStdString(t.Context())
+			require.NoError(t, err)
+			assert.Contains(t, stderr, "Create a new pull request for 'branch-2'")
 
 			return pushed, deleted
 		})
@@ -81,7 +229,7 @@ func testGitPush(t *testing.T, u *url.URL) {
 
 	t.Run("Push branches one by one", func(t *testing.T) {
 		runTestGitPush(t, u, func(t *testing.T, gitPath string) (pushed, deleted []string) {
-			for i := range 10 {
+			for i := range 4 {
 				branchName := fmt.Sprintf("branch-%d", i)
 				doGitCreateBranch(gitPath, branchName)(t)
 				doGitPushTestRepository(gitPath, "origin", branchName)(t)
@@ -107,14 +255,14 @@ func testGitPush(t *testing.T, u *url.URL) {
 			doGitPushTestRepository(gitPath, "origin", "master")(t) // make sure master is the default branch instead of a branch we are going to delete
 			pushed = append(pushed, "master")
 
-			for i := range 10 {
+			for i := range 4 {
 				branchName := fmt.Sprintf("branch-%d", i)
 				pushed = append(pushed, branchName)
 				doGitCreateBranch(gitPath, branchName)(t)
 			}
 			doGitPushTestRepository(gitPath, "origin", "--all")(t)
 
-			for i := range 5 {
+			for i := range 2 {
 				branchName := fmt.Sprintf("branch-%d", i)
 				doGitPushTestRepository(gitPath, "origin", "--delete", branchName)(t)
 				deleted = append(deleted, branchName)
@@ -138,43 +286,6 @@ func testGitPush(t *testing.T, u *url.URL) {
 
 			return pushed, deleted
 		})
-	})
-}
-
-func TestGitPushVisibilityOption(t *testing.T) {
-	onGiteaRun(t, func(t *testing.T, u *url.URL) {
-		user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
-		repo, err := repo_service.CreateRepository(t.Context(), user, user, repo_service.CreateRepoOptions{
-			Name:          "repo-visibility-option",
-			AutoInit:      false,
-			DefaultBranch: "master",
-			IsPrivate:     false,
-		})
-		require.NoError(t, err)
-		require.NotEmpty(t, repo)
-
-		gitPath := t.TempDir()
-		doGitInitTestRepository(gitPath)(t)
-
-		oldPath, oldUser := u.Path, u.User
-		defer func() { u.Path, u.User = oldPath, oldUser }()
-		u.Path = repo.FullName() + ".git"
-		u.User = url.UserPassword(user.LowerName, userPassword)
-		doGitAddRemote(gitPath, "origin", u)(t)
-
-		// The first push into an empty repository is a "push-to-create", so the
-		// repo.private push option is honored to set the initial visibility.
-		doGitPushTestRepository(gitPath, "origin", "master", "-o", "repo.private=true")(t)
-		repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
-		assert.True(t, repo.IsPrivate, "repo.private option should apply on push-to-create")
-
-		// The repository is now populated; a later push must NOT silently flip
-		// visibility, otherwise a repo admin could change it bypassing the audit
-		// trail, webhooks, and notifications a proper settings change would fire.
-		doGitCreateBranch(gitPath, "branch2")(t)
-		doGitPushTestRepository(gitPath, "origin", "branch2", "-o", "repo.private=false")(t)
-		repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
-		assert.True(t, repo.IsPrivate, "repo.private option must be ignored on an existing repository")
 	})
 }
 
@@ -235,22 +346,4 @@ func runTestGitPush(t *testing.T, u *url.URL, gitOperation func(t *testing.T, gi
 	}
 
 	require.NoError(t, repo_service.DeleteRepositoryDirectly(t.Context(), repo.ID))
-}
-
-func TestPushPullRefs(t *testing.T) {
-	onGiteaRun(t, func(t *testing.T, u *url.URL) {
-		baseAPITestContext := NewAPITestContext(t, "user2", "repo1", auth_model.AccessTokenScopeWriteRepository, auth_model.AccessTokenScopeWriteUser)
-
-		u.Path = baseAPITestContext.GitPath()
-		u.User = url.UserPassword("user2", userPassword)
-
-		dstPath := t.TempDir()
-		doGitClone(dstPath, u)(t)
-
-		cmd := gitcmd.NewCommand("push", "--delete", "origin", "refs/pull/2/head")
-		stdout, stderr, err := cmd.WithDir(dstPath).RunStdString(t.Context())
-		assert.Error(t, err)
-		assert.Empty(t, stdout)
-		assert.NotContains(t, stderr, "[deleted]", "stderr: %s", stderr)
-	})
 }

@@ -1,14 +1,33 @@
 import {POST} from '../modules/fetch.ts';
 import {hideToastsAll, showErrorToast} from '../modules/toast.ts';
 import {getComboMarkdownEditor} from './comp/ComboMarkdownEditor.ts';
-import {hideElem} from '../utils/dom.ts';
+import {hideElem, showElem, generateElemId} from '../utils/dom.ts';
 import {fomanticQuery} from '../modules/fomantic/base.ts';
-import {hideFomanticModal, showFomanticModal} from '../modules/fomantic/modal.ts';
+import {hideModal, showModal} from '../modules/modal.ts';
 import {registerGlobalEventFunc, registerGlobalInitFunc} from '../modules/observer.ts';
 import {htmlEscape} from '../utils/html.ts';
 import {compareVersions} from 'compare-versions';
 
 export function initRepoReleaseNew() {
+  registerGlobalInitFunc('initReleaseNotes', (detail: HTMLElement) => {
+    const notes = detail.querySelector<HTMLElement>('.release-notes')!;
+    const content = notes.querySelector<HTMLElement>('.markup')!;
+    const button = notes.querySelector<HTMLButtonElement>('button')!;
+    const limit = Number.parseFloat(getComputedStyle(content).lineHeight) * 30;
+    if (content.scrollHeight <= limit) return;
+    content.id = generateElemId('release-notes-');
+    button.setAttribute('aria-controls', content.id);
+    content.classList.add('release-notes-collapsed');
+    showElem(button);
+    if (detail.getAttribute('data-promote-downloads') === 'true') {
+      notes.before(detail.querySelector('.download')!);
+    }
+    button.addEventListener('click', () => {
+      const collapsed = content.classList.toggle('release-notes-collapsed');
+      button.setAttribute('aria-expanded', String(!collapsed));
+      button.textContent = button.getAttribute(collapsed ? 'data-show-more' : 'data-show-less');
+    });
+  });
   registerGlobalEventFunc('click', 'onReleaseEditAttachmentDelete', (el) => {
     const uuid = el.getAttribute('data-uuid')!;
     const id = el.getAttribute('data-id')!;
@@ -84,7 +103,7 @@ function initGenerateReleaseNotes(elForm: HTMLFormElement) {
   const textMissingTag = buttonShowModal.getAttribute('data-text-missing-tag')!;
   const generateUrl = buttonShowModal.getAttribute('data-generate-url')!;
 
-  const elModal = document.querySelector('#generate-release-notes-modal')!;
+  const elModal = document.querySelector<HTMLDialogElement>('#generate-release-notes-modal')!;
 
   const doSubmit = async (tagName: string) => {
     const elPreviousTag = elModal.querySelector<HTMLSelectElement>('[name=previous_tag]')!;
@@ -111,18 +130,18 @@ function initGenerateReleaseNotes(elForm: HTMLFormElement) {
       } else {
         comboEditor.value(data.content);
       }
+      hideModal(elModal);
+      comboEditor.focus();
     } finally {
       elModal.classList.remove('loading', 'disabled');
-      hideFomanticModal(elModal);
-      comboEditor.focus();
     }
   };
 
   let inited = false;
   const doShowModal = () => {
-    hideToastsAll();
     const tagName = tagNameInput.value.trim();
     if (!tagName) {
+      hideToastsAll();
       showErrorToast(textMissingTag, {duration: 3000});
       tagNameInput.focus();
       return;
@@ -132,15 +151,12 @@ function initGenerateReleaseNotes(elForm: HTMLFormElement) {
     const $dropdown = fomanticQuery(elModal.querySelector('[name=previous_tag]')!);
     if (!inited) {
       inited = true;
-      const values = [];
-      for (const tagName of existingTags) {
-        values.push({name: htmlEscape(tagName), value: tagName}); // ATTENTION: dropdown takes the "name" input as raw HTML
-      }
+      const values = existingTags.map((tagName) => ({name: htmlEscape(tagName), value: tagName})); // ATTENTION: dropdown takes the "name" input as raw HTML
       $dropdown.dropdown('change values', values);
     }
     $dropdown.dropdown('set selected', guessPreviousReleaseTag(tagName, existingTags));
 
-    showFomanticModal(elModal, {
+    showModal(elModal, {
       onApprove: () => {
         doSubmit(tagName); // don't await, need to return false to keep the modal
         return false;

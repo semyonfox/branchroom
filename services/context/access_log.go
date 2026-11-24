@@ -5,17 +5,20 @@ package context
 
 import (
 	"bytes"
-	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"text/template"
 	"time"
 	"unicode"
 
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/httplib"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
+	"gitea.dev/modules/util"
 	"gitea.dev/modules/web/middleware"
+	"gitea.dev/modules/web/routing"
 )
 
 type accessLoggerTmplData struct {
@@ -60,7 +63,7 @@ func parseRequestIDFromRequestHeader(req *http.Request) string {
 		return "-"
 	}
 	if len(requestID) > maxRequestIDByteLength {
-		requestID = requestID[:maxRequestIDByteLength] + "..."
+		requestID = util.TruncateStringBytes(requestID, maxRequestIDByteLength) + "..."
 	}
 	return requestID
 }
@@ -77,15 +80,20 @@ func (lr *accessLogRecorder) record(start time.Time, respWriter ResponseWriter, 
 		requestID = parseRequestIDFromRequestHeader(req)
 	}
 
-	reqHost, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		reqHost = req.RemoteAddr
-	}
+	reqHost := httplib.RemoteHost(req)
 
 	identity := "-"
 	data := middleware.GetContextData(req.Context())
 	if signedUser, ok := data[middleware.ContextDataKeySignedUser].(*user_model.User); ok {
 		identity = signedUser.Name
+	}
+	if redacted := routing.RequestURIForLog(req.URL.RequestURI()); redacted != req.URL.RequestURI() {
+		if redactedURL, err := url.ParseRequestURI(redacted); err == nil {
+			requestForLog := *req
+			requestForLog.URL = redactedURL
+			requestForLog.RequestURI = redacted
+			req = &requestForLog
+		}
 	}
 	buf := bytes.NewBuffer([]byte{})
 	tmplData := accessLoggerTmplData{
@@ -100,7 +108,7 @@ func (lr *accessLogRecorder) record(start time.Time, respWriter ResponseWriter, 
 	}
 	tmplData.ResponseWriter.Status = respWriter.WrittenStatus()
 	tmplData.ResponseWriter.Size = respWriter.WrittenSize()
-	err = lr.logTemplate.Execute(buf, tmplData)
+	err := lr.logTemplate.Execute(buf, tmplData)
 	if err != nil {
 		log.Error("Could not execute access logger template: %v", err.Error())
 	}

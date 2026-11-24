@@ -1,0 +1,457 @@
+nav#navbar {
+  height: 48px;
+  min-height: 48px;
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: 0 24px;
+  /* a faint glow behind the mark is the one bit of atmosphere, everything else stays flat */
+  background-image: radial-gradient(360px 96px at 0 0, var(--color-primary-alpha-20), transparent 70%);
+}
+
+#navbar #navbar-logo {
+  gap: 8px;
+  /* room for the focus ring around the tilted mark, without moving the logo */
+  margin: 0 -6px;
+  padding: 0 6px;
+  min-width: 0;
+  min-height: 32px;
+  font-weight: var(--font-weight-semibold);
+}
+
+/* the logo is not a menu item, so it takes no hover box. The mark straightens instead */
+#navbar #navbar-logo:hover {
+  background: none;
+}
+
+.forge-mark {
+  width: 19px;
+  height: 19px;
+  border: 4px solid var(--color-primary);
+  border-radius: 3px;
+  transform: rotate(-8deg);
+  flex: none;
+}
+
+#navbar-logo:hover .forge-mark {
+  transform: rotate(0deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .forge-mark {
+    transition: transform 0.15s ease-out;
+  }
+}
+
+.forge-wordmark {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+/* links answer hover and press with a stronger colour, never an underline */
+a:hover,
+a:active,
+.interact-link:hover {
+  color: var(--color-primary-hover);
+  text-decoration-line: none;
+}
+
+a.muted:hover,
+a.suppressed:hover,
+.muted-links a:hover {
+  color: var(--color-primary);
+}
+
+a.silenced:hover {
+  color: inherit;
+}
+
+.title-full-link-hover:not(:has(:not(.title-full-link):hover)):hover > a.title-full-link {
+  text-decoration: none;
+}
+
+/* links whose colour is set by their surroundings still answer hover: text takes the accent, tabs and chips get brighter */
+.forge-repo-name a:hover,
+.forge-home-update-content a:hover,
+.forge-status-summary a:hover,
+.repo-overview-section h2 a:hover {
+  color: var(--color-primary);
+}
+
+.forge-repo-tabs > .item:hover {
+  color: var(--color-text);
+}
+
+.forge-inbox-views a:hover {
+  background: var(--color-hover);
+}
+
+/* a utility class or a chip fixes these colours, so brighten the whole thing */
+.labels-list a:hover,
+a.repo-topic:hover,
+a.tw-text-primary:hover {
+  filter: brightness(1.2);
+}
+
+.forge-search {
+  width: 280px;
+  margin-right: auto;
+}
+
+.forge-search label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--color-secondary);
+  border-radius: 6px;
+  color: var(--color-text-light);
+  height: 32px;
+}
+
+.forge-search input {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--color-text);
+  min-width: 0;
+  width: 100%;
+}
+
+.forge-search label:focus-within {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+#navbar .navbar-right {
+  display: flex;
+  flex-direction: row;
+  width: auto;
+  gap: 4px;
+}
+
+#navbar > .item,
+#navbar > .navbar-list > .item {
+  padding: 0 8px;
+  gap: 6px;
+  min-height: 44px;
+}
+
+#navbar .forge-inbox > div {
+  gap: 6px;
+}
+
+#navbar .octicon-triangle-down,
+.repo-header .octicon-triangle-down {
+  display: none;
+}
+
+.page-footer {
+  padding: 16px 24px;
+  min-height: 48px;
+  color: var(--color-text-light);
+  justify-content: flex-end;
+}
+
+.repo-header {
+  min-height: 72px;
+  gap: 12px;
+}
+
+.forge-repo-identity,
+.forge-repo-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.forge-repo-identity {
+  flex-wrap: wrap;
+}
+
+.forge-repo-name {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.forge-repo-name a {
+  color: var(--color-text);
+}
+
+.forge-repo-name a:last-child {
+  font-weight: var(--font-weight-semibold);
+}
+
+.forge-repo-visibility,
+.forge-tab-count {
+  color: var(--color-text-light);
+  font-size: 12px;
+  font-weight: var(--font-weight-normal);
+}
+
+.repo-header .forge-repo-star > .ui.button,
+.forge-repo-more > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 8px;
+  color: var(--color-text-light);
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.forge-repo-star .not-mobile {
+  display: none;
+}
+
+.repo-header .forge-repo-star .ui.label {
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-light);
+}
+
+.forge-repo-more .menu {
+  right: 0;
+  left: auto;
+}
+
+.forge-repo-more .menu .not-mobile {
+  display: inline !important; /* the mobile helper hides labels inside this menu */
+}
+
+.forge-repo-more .menu .ui.button {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  min-height: 32px;
+}
+
+.forge-repo-navigation {
+  position: relative;
+}
+
+.forge-repo-tabs {
+  display: flex;
+  gap: 24px;
+  align-items: stretch;
+}
+
+.forge-repo-tabs > .item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0;
+  min-height: 44px;
+  white-space: nowrap;
+  color: var(--color-text-light);
+  border-bottom: 2px solid transparent;
+}
+
+.forge-repo-tabs > .active {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.forge-repo-tabs > .item > .svg {
+  display: none;
+}
+
+.forge-repo-tabs > a:last-child[href$="/settings"] {
+  margin-left: auto;
+}
+
+.ui.vertical.menu.forge-settings-menu {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ui.vertical.menu.forge-settings-menu > .header.item {
+  color: var(--color-text-light);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  padding-top: 24px;
+  padding-bottom: 8px;
+}
+
+.ui.vertical.menu.forge-settings-menu > .header.item:first-child {
+  padding-top: 12px;
+}
+
+.ui.vertical.menu.forge-settings-menu .item::before,
+.ui.vertical.menu.forge-settings-menu .active.item::after {
+  display: none;
+}
+
+.ui.vertical.menu.forge-settings-menu a.item,
+.ui.vertical.menu.forge-settings-menu summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.ui.vertical.menu.forge-settings-menu .active.item {
+  background: var(--color-active);
+  border-radius: 6px;
+  color: var(--color-text);
+}
+
+body .ui.attached.header,
+body .ui.top.attached.header {
+  background: var(--color-box-body);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.ui.attached.header + .ui.attached.segment,
+.ui.attached.header + .ui.attached.table {
+  border-top: 0;
+}
+
+details > summary {
+  list-style: none;
+}
+
+details > summary::marker {
+  content: "";
+}
+
+body .ui.vertical.menu > details.item > summary::after,
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  nav#navbar {
+    gap: 2px;
+    padding: 0 8px;
+  }
+
+  #navbar #navbar-logo {
+    margin-right: auto;
+    flex-shrink: 1;
+  }
+
+  .forge-wordmark {
+    max-width: 110px;
+  }
+
+  .forge-search {
+    flex: none;
+    width: 44px;
+    margin: 0;
+  }
+
+  .forge-search label {
+    position: relative;
+    height: 44px;
+    border: 0;
+    padding: 0 14px;
+  }
+
+  .forge-search input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .forge-search kbd,
+  #navbar .forge-pulls span,
+  #navbar .forge-inbox-label,
+  #navbar .active-stopwatch {
+    display: none;
+  }
+
+  .forge-search:focus-within {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    z-index: 20;
+    background: var(--color-nav-bg);
+  }
+
+  .forge-search:focus-within label {
+    padding: 0 12px;
+  }
+
+  .forge-search:focus-within input {
+    position: static;
+    opacity: 1;
+    cursor: text;
+  }
+
+  #navbar .forge-inbox:has(.forge-inbox-count:not(.tw-hidden)) .svg {
+    display: none;
+  }
+
+  #navbar .navbar-right {
+    order: initial;
+  }
+
+  #navbar .forge-inbox,
+  #navbar .forge-pulls,
+  #navbar .navbar-right > .item {
+    min-width: 44px;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .repo-header {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .forge-repo-identity {
+    gap: 4px 8px;
+  }
+
+  .forge-repo-name {
+    font-size: 16px;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .forge-repo-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 20px;
+  }
+
+  .forge-repo-tabs > .item {
+    flex: none;
+  }
+
+  .forge-repo-tabs > .ui.dropdown > .menu {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    width: auto;
+  }
+
+  .repo-header .forge-repo-star > .ui.button,
+  .forge-repo-more .menu .ui.button {
+    min-height: 44px !important; /* theme compact buttons force a smaller minimum */
+  }
+
+  .ui.vertical.menu.forge-settings-menu a.item,
+  .ui.vertical.menu.forge-settings-menu summary,
+  .forge-repo-more .menu .ui.button,
+  .forge-repo-tabs .menu .item,
+  #navbar .menu .item {
+    min-height: 44px;
+  }
+}

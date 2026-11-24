@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,14 +24,15 @@ import (
 	"gitea.dev/models/perm"
 	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
+	unit_model "gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/models/webhook"
 	"gitea.dev/modules/commitstatus"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
-	"gitea.dev/modules/json"
-	"gitea.dev/modules/queue"
+	issue_indexer "gitea.dev/modules/indexer/issues"
+	"gitea.dev/modules/optional"
 	"gitea.dev/modules/setting"
 	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
@@ -51,6 +53,7 @@ type MergeOptions struct {
 	Style        repo_model.MergeStyle
 	HeadCommitID string
 	DeleteBranch bool
+	Message      string
 }
 
 func testPullMerge(t *testing.T, session *TestSession, user, repo, pullNum string, mergeOptions MergeOptions) *httptest.ResponseRecorder {
@@ -58,6 +61,7 @@ func testPullMerge(t *testing.T, session *TestSession, user, repo, pullNum strin
 		"do":                        string(mergeOptions.Style),
 		"head_commit_id":            mergeOptions.HeadCommitID,
 		"delete_branch_after_merge": util.Iif(mergeOptions.DeleteBranch, "on", ""),
+		"merge_message_field":       mergeOptions.Message,
 	}
 	var resp *httptest.ResponseRecorder
 	require.Eventually(t, func() bool {
@@ -77,19 +81,14 @@ func testPullMerge(t *testing.T, session *TestSession, user, repo, pullNum strin
 	assert.NoError(t, err)
 	assert.True(t, pull.HasMerged)
 
-	return resp
-}
-
-func testPullCleanUp(t *testing.T, session *TestSession, user, repo, pullnum string) *httptest.ResponseRecorder {
-	req := NewRequest(t, "GET", "/"+path.Join(user, repo, "pulls", pullnum))
-	resp := session.MakeRequest(t, req, http.StatusOK)
-
-	// Click the little button to create a pull
-	htmlDoc := NewHTMLParser(t, resp.Body)
-	link, exists := htmlDoc.doc.Find(".timeline-item .delete-branch-after-merge").Attr("data-url")
-	assert.True(t, exists, "The template has changed, can not find delete button url")
-	req = NewRequest(t, "POST", link)
-	resp = session.MakeRequest(t, req, http.StatusOK)
+	if mergeOptions.Message != "" {
+		gitRepo, err := git.OpenRepository(t.Context(), repository)
+		require.NoError(t, err)
+		defer gitRepo.Close()
+		commit, err := gitRepo.GetCommit(t.Context(), pull.MergedCommitID)
+		require.NoError(t, err)
+		assert.Contains(t, commit.CommitMessage.MessageRaw, mergeOptions.Message)
+	}
 
 	return resp
 }
@@ -130,8 +129,8 @@ func TestPullMerge(t *testing.T) {
 		elem := strings.Split(test.RedirectURL(resp), "/")
 		assert.Equal(t, "pulls", elem[3])
 		testPullMerge(t, session, elem[1], elem[2], elem[4], MergeOptions{
-			Style:        repo_model.MergeStyleMerge,
-			DeleteBranch: false,
+			Style:   repo_model.MergeStyleMerge,
+			Message: strings.Repeat("x", 200*1024),
 		})
 
 		repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
@@ -266,7 +265,7 @@ func TestPullSquashWithHeadCommitID(t *testing.T) {
 	})
 }
 
-func TestPullCleanUpAfterMerge(t *testing.T) {
+func TestPullCleanUpAfterClose(t *testing.T) {
 	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
 		session := loginUser(t, "user1") // FIXME: don't use admin user for testing
 		testRepoFork(t, session, "user2", "repo1", "user1", "repo1", "")
@@ -276,39 +275,60 @@ func TestPullCleanUpAfterMerge(t *testing.T) {
 		assert.Equal(t, 3, repo.NumPulls)
 		assert.Equal(t, 3, repo.NumOpenPulls)
 
-		resp := testPullCreate(t, session, "user1", "repo1", false, "master", "feature/test", "This is a pull title")
+		getDeleteBranchLink := func(t *testing.T, session *TestSession, user, repo, pullnum string) string {
+			req := NewRequest(t, "GET", "/"+path.Join(user, repo, "pulls", pullnum))
+			resp := session.MakeRequest(t, req, http.StatusOK)
+			htmlDoc := NewHTMLParser(t, resp.Body)
+			return htmlDoc.doc.Find(".timeline-item .delete-branch-after-merge").AttrOr("data-url", "")
+		}
 
-		elem := strings.Split(test.RedirectURL(resp), "/")
-		assert.Equal(t, "pulls", elem[3])
+		var closedPullNumStr string
+		t.Run("CreateAndClosePR", func(t *testing.T) {
+			resp := testPullCreate(t, session, "user1", "repo1", false, "master", "feature/test", "This is a pull title")
+			_, pullNumStr, _ := strings.CutLast(test.RedirectURL(resp), "/")
 
-		repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
-		assert.Equal(t, 4, repo.NumPulls)
-		assert.Equal(t, 4, repo.NumOpenPulls)
+			testIssueClose(t, session, "user2", "repo1", pullNumStr)
 
-		testPullMerge(t, session, elem[1], elem[2], elem[4], MergeOptions{
-			Style:        repo_model.MergeStyleMerge,
-			DeleteBranch: false,
+			repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
+			assert.Equal(t, 4, repo.NumPulls)
+			assert.Equal(t, 3, repo.NumOpenPulls)
+
+			closedPullNumStr = pullNumStr
+
+			// the closed but unmerged PR should have the "delete branch" button
+			link := getDeleteBranchLink(t, session, "user2", "repo1", closedPullNumStr)
+			assert.NotEmpty(t, link)
 		})
 
-		repo = unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repo.ID})
-		assert.Equal(t, 4, repo.NumPulls)
-		assert.Equal(t, 3, repo.NumOpenPulls)
+		t.Run("CreateAndMergePR", func(t *testing.T) {
+			resp := testPullCreate(t, session, "user1", "repo1", false, "master", "feature/test", "This is a pull title")
+			_, pullNumStr, _ := strings.CutLast(test.RedirectURL(resp), "/")
 
-		// Check PR branch deletion
-		resp = testPullCleanUp(t, session, elem[1], elem[2], elem[4])
-		respJSON := test.ParseJSONRedirect(resp.Body.Bytes())
-		require.NotEmpty(t, respJSON.Redirect, "Redirected URL is not found")
+			// the closed but unmerged PR should not have the "delete branch" button because there is a new PR for the same branch
+			link := getDeleteBranchLink(t, session, "user2", "repo1", closedPullNumStr)
+			assert.Empty(t, link)
 
-		elem = strings.Split(*respJSON.Redirect, "/")
-		assert.Equal(t, "pulls", elem[3])
+			testPullMerge(t, session, "user2", "repo1", pullNumStr, MergeOptions{
+				Style:        repo_model.MergeStyleMerge,
+				DeleteBranch: false,
+			})
 
-		// Check branch deletion result
-		req := NewRequest(t, "GET", *respJSON.Redirect)
-		resp = session.MakeRequest(t, req, http.StatusOK)
+			// Check PR branch deletion
+			link = getDeleteBranchLink(t, session, "user2", "repo1", pullNumStr)
+			assert.NotEmpty(t, link)
+			resp = session.MakeRequest(t, NewRequest(t, "POST", link), http.StatusOK)
 
-		htmlDoc := NewHTMLParser(t, resp.Body)
-		resultMsg := strings.TrimSpace(htmlDoc.doc.Find(".ui.message.flash-message").Text())
-		assert.Equal(t, `Branch "user1/repo1:feature/test" has been deleted.`, resultMsg)
+			// Check branch deletion result
+			req := NewRequest(t, "GET", test.RedirectURL(resp))
+			resp = session.MakeRequest(t, req, http.StatusOK)
+			htmlDoc := NewHTMLParser(t, resp.Body)
+			resultMsg := strings.TrimSpace(htmlDoc.doc.Find(".ui.message.flash-message").Text())
+			assert.Equal(t, `Branch "user1/repo1:feature/test" has been deleted.`, resultMsg)
+
+			// the "delete branch" button should be gone since the PR has been merged
+			link = getDeleteBranchLink(t, session, "user2", "repo1", pullNumStr)
+			assert.Empty(t, link)
+		})
 	})
 }
 
@@ -360,11 +380,11 @@ func TestCantMergeConflict(t *testing.T) {
 			BaseBranch: "base",
 		})
 
-		err := pull_service.Merge(t.Context(), pr, user1, repo_model.MergeStyleMerge, "", "CONFLICT", false)
+		err := pull_service.Merge(t.Context(), pr.ID, user1, repo_model.MergeStyleMerge, "", "CONFLICT", false)
 		assert.Error(t, err, "Merge should return an error due to conflict")
 		assert.True(t, pull_service.IsErrMergeConflicts(err), "Merge error is not a conflict error")
 
-		err = pull_service.Merge(t.Context(), pr, user1, repo_model.MergeStyleRebase, "", "CONFLICT", false)
+		err = pull_service.Merge(t.Context(), pr.ID, user1, repo_model.MergeStyleRebase, "", "CONFLICT", false)
 		assert.Error(t, err, "Merge should return an error due to conflict")
 		assert.True(t, pull_service.IsErrRebaseConflicts(err), "Merge error is not a conflict error")
 	})
@@ -386,7 +406,7 @@ func TestCantMergeUnrelated(t *testing.T) {
 			Name:    "repo1",
 		})
 
-		err := gitcmd.NewCommand("read-tree", "--empty").WithRepo(repo1).Run(t.Context())
+		var err error = gitcmd.NewCommand("read-tree", "--empty").WithRepo(repo1).RunWithStderr(t.Context())
 		assert.NoError(t, err)
 
 		stdout, _, err := gitcmd.NewCommand("hash-object", "-w", "--stdin").
@@ -430,13 +450,7 @@ func TestCantMergeUnrelated(t *testing.T) {
 		assert.NoError(t, err)
 		commitSha := strings.TrimSpace(stdout)
 
-		_, _, err = gitcmd.NewCommand("branch", "unrelated").
-			AddDynamicArguments(commitSha).
-			WithRepo(repo1).
-			RunStdString(t.Context())
-		assert.NoError(t, err)
-
-		testEditFileToNewBranch(t, session, "user1", "repo1", "master", "conflict", "README.md", "Hello, World (Edited Once)\n")
+		testEditFileToNewBranch(t, session, "user1", "repo1", "master", "unrelated", "README.md", "Hello, World (Edited Once)\n")
 
 		// Use API to create a conflicting pr
 		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
@@ -447,6 +461,12 @@ func TestCantMergeUnrelated(t *testing.T) {
 		}).AddTokenAuth(token)
 		session.MakeRequest(t, req, http.StatusCreated)
 
+		assert.NoError(t, git.UpdateRef(t.Context(), repo1, git.BranchPrefix+"unrelated", commitSha))
+		session.MakeRequest(t, NewRequestWithJSON(t, http.MethodPost, "/api/v1/repos/user1/repo1/pulls", &api.CreatePullRequestOption{
+			Head: "unrelated", Base: "base", Title: "create an unrelated pr",
+		}).AddTokenAuth(token), http.StatusUnprocessableEntity)
+		session.MakeRequest(t, NewRequestWithValues(t, "POST", "/user1/repo1/compare/master..unrelated", map[string]string{"title": "create an unrelated pr"}), http.StatusBadRequest)
+
 		// Now this PR could be marked conflict - or at least a race may occur - so drop down to pure code at this point...
 		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{
 			HeadRepoID: repo1.ID,
@@ -455,7 +475,7 @@ func TestCantMergeUnrelated(t *testing.T) {
 			BaseBranch: "base",
 		})
 
-		err = pull_service.Merge(t.Context(), pr, user1, repo_model.MergeStyleMerge, "", "UNRELATED", false)
+		err = pull_service.Merge(t.Context(), pr.ID, user1, repo_model.MergeStyleMerge, "", "UNRELATED", false)
 		assert.Error(t, err, "Merge should return an error due to unrelated")
 		assert.True(t, pull_service.IsErrMergeUnrelatedHistories(err), "Merge error is not a unrelated histories error")
 	})
@@ -491,7 +511,7 @@ func TestFastForwardOnlyMerge(t *testing.T) {
 			BaseBranch: "master",
 		})
 
-		err := pull_service.Merge(t.Context(), pr, user1, repo_model.MergeStyleFastForwardOnly, "", "FAST-FORWARD-ONLY", false)
+		err := pull_service.Merge(t.Context(), pr.ID, user1, repo_model.MergeStyleFastForwardOnly, "", "FAST-FORWARD-ONLY", false)
 		assert.NoError(t, err)
 	})
 }
@@ -578,7 +598,7 @@ func TestFastForwardOnlyMergeWithRequiredSignedCommits(t *testing.T) {
 		pb.RequireSignedCommits = false
 		require.NoError(t, git_model.UpdateProtectBranch(t.Context(), repo1, pb, git_model.WhitelistOptions{}))
 
-		require.NoError(t, pull_service.Merge(t.Context(), pr, user1, repo_model.MergeStyleFastForwardOnly, "", "FAST-FORWARD-ONLY", false))
+		require.NoError(t, pull_service.Merge(t.Context(), pr.ID, user1, repo_model.MergeStyleFastForwardOnly, "", "FAST-FORWARD-ONLY", false))
 	})
 }
 
@@ -613,7 +633,7 @@ func TestCantFastForwardOnlyMergeDiverging(t *testing.T) {
 			BaseBranch: "master",
 		})
 
-		err := pull_service.Merge(t.Context(), pr, user1, repo_model.MergeStyleFastForwardOnly, "", "DIVERGING", false)
+		err := pull_service.Merge(t.Context(), pr.ID, user1, repo_model.MergeStyleFastForwardOnly, "", "DIVERGING", false)
 		assert.Error(t, err, "Merge should return an error due to being for a diverging branch")
 		assert.True(t, pull_service.IsErrMergeDivergingFastForwardOnly(err), "Merge error is not a diverging fast-forward-only error")
 	})
@@ -649,7 +669,7 @@ func TestPullRetargetChildOnBranchDelete(t *testing.T) {
 
 		htmlDoc := NewHTMLParser(t, resp.Body)
 		targetBranch := htmlDoc.doc.Find("#branch_target>a").Text()
-		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.issue-state-label").Text())
+		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.forge-state").Text())
 
 		assert.Equal(t, "master", targetBranch)
 		assert.Equal(t, "Open", prStatus)
@@ -689,7 +709,7 @@ func TestPullDontRetargetChildOnWrongRepo(t *testing.T) {
 		htmlDoc := NewHTMLParser(t, resp.Body)
 		// the branch has been deleted, so there is no a html tag instead of span
 		targetBranch := htmlDoc.doc.Find("#branch_target>span").Text()
-		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.issue-state-label").Text())
+		prStatus := strings.TrimSpace(htmlDoc.doc.Find(".issue-title-meta>.forge-state").Text())
 
 		assert.Equal(t, "base-pr", targetBranch)
 		assert.Equal(t, "Closed", prStatus)
@@ -728,9 +748,6 @@ func TestPullMergeIndexerNotifier(t *testing.T) {
 		testEditFile(t, session, "user1", "repo1", "master", "README.md", "Hello, World (Edited)\n")
 		createPullResp := testPullCreate(t, session, "user1", "repo1", false, "master", "master", "Indexer notifier test pull")
 
-		assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 0))
-		time.Sleep(time.Second)
-
 		repo1 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{
 			OwnerName: "user2",
 			Name:      "repo1",
@@ -741,6 +758,13 @@ func TestPullMergeIndexerNotifier(t *testing.T) {
 			IsPull:   true,
 			IsClosed: false,
 		})
+		waitIndexed := func(isClosed bool) { // elasticsearch makes documents searchable asynchronously
+			require.Eventually(t, func() bool {
+				ids, _, err := issue_indexer.SearchIssues(t.Context(), &issue_indexer.SearchOptions{Keyword: "notifier", RepoIDs: []int64{repo1.ID}, IsClosed: optional.Some(isClosed)})
+				return err == nil && slices.Contains(ids, issue.ID)
+			}, 10*time.Second, 10*time.Millisecond)
+		}
+		waitIndexed(false)
 
 		// build the request for searching issues
 		link, _ := url.Parse("/api/v1/repos/issues/search")
@@ -768,9 +792,7 @@ func TestPullMergeIndexerNotifier(t *testing.T) {
 			ID: issue.ID,
 		})
 		assert.True(t, issue.IsClosed)
-
-		assert.NoError(t, queue.GetManager().FlushAll(t.Context(), 0))
-		time.Sleep(time.Second)
+		waitIndexed(true)
 
 		// search issues again
 		searchIssuesResp = session.MakeRequest(t, NewRequest(t, "GET", link.String()), http.StatusOK)
@@ -806,24 +828,22 @@ func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 			"enable_status_check":   "true",
 			"status_check_contexts": "gitea/actions",
 		})
-		session.MakeRequest(t, req, http.StatusSeeOther)
+		session.MakeRequest(t, req, http.StatusOK)
 
-		oldAutoMergeAddToQueue := automergequeue.AddToQueue
-		addToQueueShaChan := make(chan string, 1)
-		automergequeue.AddToQueue = func(pr *issues_model.PullRequest, sha string) {
-			addToQueueShaChan <- sha
-		}
+		addToQueuePullChan := make(chan automergequeue.AutoMergeItem, 1)
+		resetAutoMergeQueueMock := test.MockVariableValue(&automergequeue.AddToQueue, func(item automergequeue.AutoMergeItem) { addToQueuePullChan <- item })
+
 		// first time insert automerge record, return true
 		scheduled, err := automerge.ScheduleAutoMerge(t.Context(), user1, pr, repo_model.MergeStyleMerge, "auto merge test", false)
 		assert.NoError(t, err)
 		assert.True(t, scheduled)
 		// and the pr should be added to automergequeue, in case it is already "mergeable"
 		select {
-		case <-addToQueueShaChan:
+		case <-addToQueuePullChan:
 		case <-time.After(time.Second):
 			assert.FailNow(t, "Timeout: nothing was added to automergequeue")
 		}
-		automergequeue.AddToQueue = oldAutoMergeAddToQueue
+		resetAutoMergeQueueMock()
 
 		// second time insert automerge record, return false because it does exist
 		scheduled, err = automerge.ScheduleAutoMerge(t.Context(), user1, pr, repo_model.MergeStyleMerge, "auto merge test", false)
@@ -834,6 +854,13 @@ func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 		pr = unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
 		assert.False(t, pr.HasMerged)
 		assert.Empty(t, pr.MergedCommitID)
+
+		resp := session.MakeRequest(t, NewRequestf(t, "GET", "/user2/repo1/pulls/%d", pr.Index), http.StatusOK)
+		actions := NewHTMLParser(t, resp.Body).Find(".forge-merge-actions")
+		assert.Contains(t, actions.Find(".ui.info.message").Text(), "user1 scheduled this pull request to merge when all checks succeed.")
+		row := actions.Find(".flex-text-block")
+		assert.Equal(t, 1, row.Find("button.show-modal").Length())
+		assert.Equal(t, 1, row.Find(`form[action$="/cancel_auto_merge"]`).Length())
 
 		// update commit status to success, then it should be merged automatically
 		baseGitRepo, err := git.OpenRepository(t.Context(), baseRepo)
@@ -858,6 +885,60 @@ func TestPullAutoMergeAfterCommitStatusSucceed(t *testing.T) {
 		}, 2*time.Second, 100*time.Millisecond)
 		assert.NotEmpty(t, pr.MergedCommitID)
 		unittest.AssertNotExistsBean(t, &pull_model.AutoMerge{PullID: pr.ID})
+	})
+}
+
+func TestPullAutoMergeCancelledByForcePush(t *testing.T) {
+	onGiteaRun(t, func(t *testing.T, giteaURL *url.URL) {
+		session := loginUser(t, "user1")
+		user1 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
+		forkedName := "repo1-force"
+		testRepoFork(t, session, "user2", "repo1", "user1", forkedName, "")
+		testEditFile(t, session, "user1", forkedName, "master", "README.md", "Hello, World (Edited)\n")
+		testPullCreate(t, session, "user1", forkedName, false, "master", "master", "Force push cancels auto merge")
+
+		baseRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerName: "user2", Name: "repo1"})
+		forkedRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{OwnerName: "user1", Name: forkedName})
+		pr := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{
+			BaseRepoID: baseRepo.ID,
+			BaseBranch: "master",
+			HeadRepoID: forkedRepo.ID,
+			HeadBranch: "master",
+		})
+
+		// a pending status check keeps the scheduled merge waiting
+		req := NewRequestWithValues(t, "POST", "/user2/repo1/settings/branches/edit", map[string]string{
+			"rule_name":             "master",
+			"enable_push":           "true",
+			"enable_status_check":   "true",
+			"status_check_contexts": "gitea/actions",
+		})
+		session.MakeRequest(t, req, http.StatusOK)
+
+		defer test.MockVariableValue(&automergequeue.AddToQueue, func(automergequeue.AutoMergeItem) {})()
+		scheduled, err := automerge.ScheduleAutoMerge(t.Context(), user1, pr, repo_model.MergeStyleMerge, "auto merge test", false)
+		require.NoError(t, err)
+		require.True(t, scheduled)
+		unittest.AssertExistsAndLoadBean(t, &pull_model.AutoMerge{PullID: pr.ID})
+
+		// rebuild the head branch from develop, which drops the reviewed commit
+		token := getUserToken(t, "user1", auth_model.AccessTokenScopeWriteRepository)
+		opts := getChangeFilesOptions()
+		opts.BranchName = "develop"
+		opts.NewBranchName = "master"
+		opts.ForcePush = true
+		opts.Files = opts.Files[:1]
+		opts.Files[0].Path = "force-pushed.txt"
+		req = NewRequestWithJSON(t, "POST", "/api/v1/repos/user1/"+forkedName+"/contents", opts).AddTokenAuth(token)
+		MakeRequest(t, req, http.StatusCreated)
+
+		assert.Eventually(t, func() bool {
+			return unittest.GetCount(t, &pull_model.AutoMerge{PullID: pr.ID}) == 0
+		}, 5*time.Second, 100*time.Millisecond)
+		unittest.AssertExistsAndLoadBean(t, &issues_model.Comment{
+			IssueID: pr.IssueID,
+			Type:    issues_model.CommentTypePRUnScheduledToAutoMerge,
+		})
 	})
 }
 
@@ -890,7 +971,7 @@ func TestPullAutoMergeAfterCommitStatusSucceedAndApproval(t *testing.T) {
 			"status_check_contexts": "gitea/actions",
 			"required_approvals":    "1",
 		})
-		baseSession.MakeRequest(t, req, http.StatusSeeOther)
+		baseSession.MakeRequest(t, req, http.StatusOK)
 
 		// first time insert automerge record, return true
 		scheduled, err := automerge.ScheduleAutoMerge(t.Context(), baseUser, pr, repo_model.MergeStyleMerge, "auto merge test", false)
@@ -921,7 +1002,7 @@ func TestPullAutoMergeAfterCommitStatusSucceedAndApproval(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
-		time.Sleep(2 * time.Second)
+		require.NoError(t, automergequeue.AutoMergeQueue.FlushWithContext(t.Context(), 5*time.Second))
 
 		// reload pr again
 		pr = unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pr.ID})
@@ -1002,7 +1083,7 @@ func TestPullAutoMergeAfterCommitStatusSucceedAndApprovalForAgitFlow(t *testing.
 			"status_check_contexts": "gitea/actions",
 			"required_approvals":    "1",
 		})
-		session.MakeRequest(t, req, http.StatusSeeOther)
+		session.MakeRequest(t, req, http.StatusOK)
 
 		user1 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 1})
 		// first time insert automerge record, return true
@@ -1077,7 +1158,7 @@ func TestPullNonMergeForAdminWithBranchProtection(t *testing.T) {
 			"status_check_contexts":      "gitea/actions",
 			"block_admin_merge_override": "true",
 		})
-		session.MakeRequest(t, pbCreateReq, http.StatusSeeOther)
+		session.MakeRequest(t, pbCreateReq, http.StatusOK)
 
 		token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteRepository)
 
@@ -1123,7 +1204,7 @@ func TestPullForceMergeForBypassAllowlistUser(t *testing.T) {
 			"enable_bypass_allowlist":    "on",
 			"bypass_allowlist_users":     strconv.FormatInt(bypassUser.ID, 10),
 		})
-		ownerSession.MakeRequest(t, pbCreateReq, http.StatusSeeOther)
+		ownerSession.MakeRequest(t, pbCreateReq, http.StatusOK)
 		defer testAPIDeleteBranchProtection(t, "master", http.StatusNoContent)
 
 		token := getTokenForLoggedInUser(t, bypassSession, auth_model.AccessTokenScopeWriteRepository)
@@ -1131,12 +1212,8 @@ func TestPullForceMergeForBypassAllowlistUser(t *testing.T) {
 		resp = bypassSession.MakeRequest(t, NewRequest(t, "GET", pullURL), http.StatusOK)
 		htmlDoc := NewHTMLParser(t, resp.Body)
 		assert.Contains(t, htmlDoc.doc.Find(".merge-section").Text(), "You are allowed to bypass branch protection rules for this merge.")
-		mergeFormProps, exists := htmlDoc.doc.Find("#pull-request-merge-form").Attr("data-merge-form-props")
-		require.True(t, exists)
-		var mergeForm map[string]any
-		require.NoError(t, json.Unmarshal([]byte(mergeFormProps), &mergeForm))
-		assert.Equal(t, true, mergeForm["canMergeNow"])
-		assert.Equal(t, false, mergeForm["allOverridableChecksOk"])
+		// the merge form is rendered on the server: merging now while a check still fails is a forced merge
+		assert.Equal(t, "true", htmlDoc.doc.Find(".forge-merge-actions input[name=force_merge]").First().AttrOr("value", ""))
 
 		mergeReq := func(forceMerge bool) *RequestWrapper {
 			return NewRequestWithValues(t, "POST", fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d/merge", prIndex), map[string]string{
@@ -1194,7 +1271,6 @@ func TestPullSquashMessage(t *testing.T) {
 		user2 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
 		user2Session := loginUser(t, user2.Name)
 
-		defer test.MockVariableValue(&setting.Repository.PullRequest.PopulateSquashCommentWithCommitMessages, true)()
 		defer test.MockVariableValue(&setting.Repository.PullRequest.DefaultMergeMessageSize, 80)()
 
 		repo, err := repo_service.CreateRepository(t.Context(), user2, user2, repo_service.CreateRepoOptions{
@@ -1205,6 +1281,14 @@ func TestPullSquashMessage(t *testing.T) {
 			DefaultBranch: "main",
 		})
 		require.NoError(t, err)
+		prUnit, err := repo.GetUnit(t.Context(), unit_model.TypePullRequests)
+		require.NoError(t, err)
+		prUnit.PullRequestsConfig().DefaultSquashMergeMessage = repo_model.SquashMergeMessageCommitMessages
+		require.NoError(t, repo_service.UpdateRepositoryUnits(t.Context(), repo, []repo_model.RepoUnit{{
+			RepoID: repo.ID,
+			Type:   unit_model.TypePullRequests,
+			Config: prUnit.PullRequestsConfig(),
+		}}, nil))
 
 		type commitInfo struct {
 			userName      string
@@ -1324,5 +1408,37 @@ Co-authored-by: user4 <user4@example.com>
 				assert.Equal(t, tc.expectedMessage, squashMergeCommitMessage)
 			})
 		}
+
+		t.Run("Repository default squash merge message", func(t *testing.T) {
+			pullRequest := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, Index: 1})
+			require.NoError(t, pullRequest.LoadIssue(t.Context()))
+			pullRequest.Issue.Content = "PR description"
+			pullRequest.BaseRepo = repo
+
+			for style, expected := range map[repo_model.SquashMergeMessage]string{
+				repo_model.SquashMergeMessageBlank:  "",
+				repo_model.SquashMergeMessagePRBody: "PR description",
+			} {
+				prUnit.PullRequestsConfig().DefaultSquashMergeMessage = style
+				msg, err := pull_service.GetSquashMergeCommitMessages(t.Context(), pullRequest)
+				require.NoError(t, err)
+				assert.Equal(t, expected, msg, style)
+			}
+		})
+
+		t.Run("API squash merge without message uses repository default", func(t *testing.T) {
+			token := getTokenForLoggedInUser(t, user2Session, auth_model.AccessTokenScopeWriteRepository)
+			req := NewRequestWithJSON(t, "POST", fmt.Sprintf("/api/v1/repos/%s/%s/pulls/1/merge", user2.Name, repo.Name), map[string]string{"do": "squash"}).AddTokenAuth(token)
+			MakeRequest(t, req, http.StatusOK)
+
+			pullRequest := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{BaseRepoID: repo.ID, Index: 1})
+			gitRepo, err := git.OpenRepository(t.Context(), repo)
+			require.NoError(t, err)
+			defer gitRepo.Close()
+			commit, err := gitRepo.GetCommit(t.Context(), pullRequest.MergedCommitID)
+			require.NoError(t, err)
+			assert.Contains(t, commit.CommitMessage.MessageRaw, "Pull for test-branch-0 (#1)\n\n* commit msg 1\n\n* commit msg 2\n")
+			assert.Contains(t, commit.CommitMessage.MessageRaw, "\nReviewed-on: ")
+		})
 	})
 }

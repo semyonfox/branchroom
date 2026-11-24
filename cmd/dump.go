@@ -13,13 +13,11 @@ import (
 
 	"gitea.dev/models/db"
 	"gitea.dev/modules/dump"
-	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/storage"
 	"gitea.dev/modules/util"
 
-	"gitea.com/go-chi/session"
 	"github.com/urfave/cli/v3"
 )
 
@@ -90,9 +88,13 @@ func newDumpCommand() *cli.Command {
 				Name:  "skip-db",
 				Usage: "Skip database",
 			},
+			&cli.BoolFlag{
+				Name:  "branchroom-stores",
+				Usage: "Include Branchroom restricted stores, so the archive holds restricted source",
+			},
 			&cli.StringFlag{
 				Name:  "type",
-				Usage: `Dump output format, default to "zip", supported types: ` + strings.Join(dump.SupportedOutputTypes, ", "),
+				Usage: `Dump output format, default to the --file extension if supported, else "zip", supported types: ` + strings.Join(dump.SupportedOutputTypes, ", "),
 			},
 		},
 	}
@@ -126,7 +128,8 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		if exist, _ := util.IsExist(outFileName); exist {
 			fatal("Dump file %q exists", outFileName)
 		}
-		if outFile, err = os.Create(outFileName); err != nil {
+		// created private rather than chmodded at the end, since it may hold restricted source
+		if outFile, err = os.OpenFile(outFileName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
 			fatal("Unable to create dump file %q: %v", outFileName, err)
 		}
 		defer outFile.Close()
@@ -153,11 +156,9 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	}
 	dumper.Verbose = verbose
 	dumper.GlobalExcludeAbsPath(outFileName)
-	defer func() {
-		if err := dumper.Close(); err != nil {
-			fatal("Failed to save archive %q: %v", outFileName, err)
-		}
-	}()
+	if setting.Branchroom.RestrictedRepoRootPath != "" {
+		dumper.GlobalExcludeAbsPath(branchroomDumpExcludes(setting.Branchroom.RestrictedRepoRootPath, setting.AppDataPath, setting.CustomPath)...)
+	}
 
 	if cmd.IsSet("skip-repository") && cmd.Bool("skip-repository") {
 		log.Info("Skip dumping local repositories")
@@ -180,6 +181,19 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		}); err != nil {
 			fatal("Failed to dump LFS objects: %v", err)
 		}
+	}
+
+	includeBranchroomStores := cmd.Bool("branchroom-stores")
+	if includeBranchroomStores {
+		if setting.Branchroom.RestrictedRepoRootPath == "" {
+			fatal("Branchroom is not enabled, there are no restricted stores to dump")
+		}
+		log.Info("Dumping Branchroom restricted stores... %s", setting.Branchroom.RestrictedRepoRootPath)
+		if err := dumpBranchroomStores(dumper, setting.Branchroom.RestrictedRepoRootPath); err != nil {
+			fatal("Failed to include Branchroom restricted stores: %v", err)
+		}
+	} else if setting.Branchroom.RestrictedRepoRootPath != "" {
+		log.Info("Skip dumping Branchroom restricted stores, add --branchroom-stores to include them")
 	}
 
 	if cmd.Bool("skip-db") {
@@ -249,12 +263,8 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		log.Info("Packing data directory...%s", setting.AppDataPath)
 
 		var excludes []string
-		if setting.SessionConfig.OriginalProvider == "file" {
-			var opts session.Options
-			if err = json.Unmarshal([]byte(setting.SessionConfig.ProviderConfig), &opts); err != nil {
-				return err
-			}
-			excludes = append(excludes, opts.ProviderConfig)
+		if setting.SessionConfig.Provider == "file" {
+			excludes = append(excludes, setting.SessionConfig.ProviderConfig)
 		}
 
 		if cmd.IsSet("skip-index") && cmd.Bool("skip-index") {
@@ -316,13 +326,45 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	if err := dumper.Close(); err != nil {
+		fatal("Failed to save archive %q: %v", outFileName, err)
+		return err
+	}
+
+	var summarySuffix string
+	if setting.Branchroom.Enabled {
+		summarySuffix = util.Iif(includeBranchroomStores, " (Branchroom restricted stores included)", " (Branchroom restricted stores excluded)")
+	}
 	if outFileName == "-" {
-		log.Info("Finish dumping to stdout")
+		log.Info("Finish dumping to stdout%s", summarySuffix)
 	} else {
-		if err = os.Chmod(outFileName, 0o600); err != nil {
-			log.Info("Can't change file access permissions mask to 0600: %v", err)
-		}
-		log.Info("Finish dumping in file %s", outFileName)
+		log.Info("Finish dumping in file %s%s", outFileName, summarySuffix)
 	}
 	return nil
+}
+
+// dumpBranchroomStores also adds the root entry itself, so its owner-only mode comes back on restore
+func dumpBranchroomStores(dumper *dump.Dumper, root string) error {
+	if err := dumper.AddFileByPath("branchroom", root); err != nil {
+		return err
+	}
+	return dumper.AddRecursiveExclude("branchroom", root, nil)
+}
+
+// branchroomDumpExcludes adds the restricted root as seen through each walked directory, since the dumper
+// matches exact walked paths and a symlinked data path would otherwise slip the canonical root through
+func branchroomDumpExcludes(restricted string, walked ...string) []string {
+	excludes := []string{restricted}
+	for _, base := range walked {
+		resolved, err := filepath.EvalSymlinks(base)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(resolved, restricted)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		excludes = append(excludes, filepath.Join(base, relative))
+	}
+	return excludes
 }

@@ -6,6 +6,7 @@ package repo
 import (
 	"errors"
 	"html/template"
+	"strings"
 
 	pull_model "gitea.dev/models/pull"
 	repo_model "gitea.dev/models/repo"
@@ -13,7 +14,6 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/svg"
-	"gitea.dev/modules/templates"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/context"
 	pull_service "gitea.dev/services/pull"
@@ -54,14 +54,13 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 	// Check if there is a pending pr merge
 	hasPendingPullRequestMerge, pendingPullRequestMerge, err := pull_model.GetScheduledMergeByPullID(ctx, pull.ID)
 	if err != nil {
-		ctx.ServerError("GetScheduledMergeByPullID", err)
+		ctx.ServerErrorAuto(err)
 		return
 	}
 
 	var hasPendingPullRequestMergeTip template.HTML
 	if hasPendingPullRequestMerge {
-		createdPRMergeStr := templates.TimeSince(pendingPullRequestMerge.CreatedUnix)
-		hasPendingPullRequestMergeTip = ctx.Locale.Tr("repo.pulls.auto_merge_has_pending_schedule", pendingPullRequestMerge.Doer.Name, createdPRMergeStr)
+		hasPendingPullRequestMergeTip = ctx.Locale.Tr("repo.pulls.auto_merge_scheduled_by", pendingPullRequestMerge.Doer.Name)
 	}
 
 	var defaultMergeTitle, defaultMergeBody string
@@ -84,6 +83,27 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 	}
 
 	allOverridableChecksOk := !prInfo.MergeBoxData.hasOverridableBlockers
+	data := prInfo.MergeBoxData
+	// auto merge only waits for checks, so with anything else in the way it would never fire
+	autoMergeCanFire := !(data.isBlockedByApprovals || data.isBlockedByRejection || data.isBlockedByOfficialReviewRequests ||
+		data.isBlockedByCodeowners || data.isBlockedByOutdatedBranch || data.isBlockedByChangedProtectedFiles)
+	var skips []string
+	for _, b := range []struct {
+		on  bool
+		key string
+	}{
+		{data.isBlockedByRejection, "repo.pulls.skips_changes_requested"},
+		{data.isBlockedByApprovals, "repo.pulls.skips_approvals"},
+		{data.isBlockedByOfficialReviewRequests, "repo.pulls.skips_review_requests"},
+		{data.isBlockedByCodeowners, "repo.pulls.skips_code_owners"},
+		{data.isBlockedByOutdatedBranch, "repo.pulls.skips_outdated"},
+		{data.isBlockedByChangedProtectedFiles, "repo.pulls.skips_protected_files"},
+		{data.hasStatusCheckBlocker, "repo.pulls.skips_checks"},
+	} {
+		if b.on {
+			skips = append(skips, ctx.Locale.TrString(b.key))
+		}
+	}
 	mergeFormProps := map[string]any{
 		"baseLink":                       prInfo.issue.Link(),
 		"textCancel":                     ctx.Locale.Tr("cancel"),
@@ -91,11 +111,16 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 		"textAutoMergeButtonWhenSucceed": ctx.Locale.Tr("repo.pulls.auto_merge_button_when_succeed"),
 		"textAutoMergeWhenSucceed":       ctx.Locale.Tr("repo.pulls.auto_merge_when_succeed"),
 		"textAutoMergeCancelSchedule":    ctx.Locale.Tr("repo.pulls.auto_merge_cancel_schedule"),
+		"textMergeWithoutWaiting":        ctx.Locale.Tr("repo.pulls.merge_without_waiting"),
 		"textClearMergeMessage":          ctx.Locale.Tr("repo.pulls.clear_merge_message"),
 		"textClearMergeMessageHint":      ctx.Locale.Tr("repo.pulls.clear_merge_message_hint"),
 		"textMergeCommitId":              ctx.Locale.Tr("repo.pulls.merge_commit_id"),
 
 		"canMergeNow":                   prInfo.MergeBoxData.canMergeNow,
+		"autoMergeCanFire":              autoMergeCanFire,
+		"textMergeAnyway":               ctx.Locale.Tr("repo.pulls.merge_anyway"),
+		"textMergeAnywaySkips":          ctx.Locale.Tr("repo.pulls.merge_anyway_skips", strings.Join(skips, ", ")),
+		"textAutoMergeCannotFire":       ctx.Locale.Tr("repo.pulls.auto_merge_cannot_fire"),
 		"allOverridableChecksOk":        allOverridableChecksOk,
 		"emptyCommit":                   pull.IsEmpty(),
 		"pullHeadCommitID":              prInfo.CompareInfo.HeadCommitID,
@@ -112,7 +137,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 	// if this pr can be merged now, then hide the auto merge
 	generalHideAutoMerge := prInfo.MergeBoxData.canMergeNow && allOverridableChecksOk
 	var mergeStyles []any
-	if pull.IsStatusMergeable() {
+	if pull.IsStatusMergeable() || pull.IsEmpty() {
 		mergeStyles = []any{
 			map[string]any{
 				"name":                  "merge",
@@ -176,7 +201,7 @@ func (prInfo *pullRequestViewInfo) prepareMergeBoxFormProps(ctx *context.Context
 	if len(mergeStyles) > 0 {
 		mergeFormProps["mergeStyles"] = mergeStyles
 		prInfo.MergeBoxData.MergeFormProps = mergeFormProps
-	} else if pull.IsStatusMergeable() {
+	} else if pull.IsStatusMergeable() || pull.IsEmpty() {
 		// no merge style was set in repo setting
 		prInfo.MergeBoxData.infoCommitBlockers.AddInfoItem(
 			svg.RenderHTML("octicon-x", 16, "tw-text-red"),

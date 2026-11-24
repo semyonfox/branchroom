@@ -4,10 +4,13 @@
 package branchroom
 
 import (
+	"context"
 	"testing"
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
@@ -34,6 +37,7 @@ func TestDBEvaluatorDirectGrantRevocationAndMetadata(t *testing.T) {
 		CreatedByID: 1,
 	}
 	require.NoError(t, branchroom_model.InsertGrant(ctx, grant))
+	assert.NotZero(t, grant.ID)
 
 	decision, err := evaluator.Evaluate(ctx, testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 2}, true))
 	require.NoError(t, err)
@@ -125,6 +129,13 @@ func TestDBEvaluatorFailsClosed(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
 	assert.Equal(t, ReasonResourceMismatch, decision.ReasonCode)
+
+	request = testRequest(scope, Actor{Type: branchroom_model.ActorTypeUser, ID: 2}, true)
+	request.Action = branchroom_model.ActionMaterialize
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonUnsupportedAction, decision.ReasonCode)
 
 	decision, err = evaluator.Evaluate(ctx, testRequest(&branchroom_model.Scope{ID: 9999, RepoID: 1}, Actor{Type: branchroom_model.ActorTypeUser, ID: 2}, true))
 	require.NoError(t, err)
@@ -230,8 +241,15 @@ func TestDBEvaluatorWriteSourceRemainsUnavailable(t *testing.T) {
 	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
 
 	request.Actor = Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
-	request.RequestID = "write-source-code-write-denied"
+	request.RequestID = "write-source-code-read-only"
 	request.Ceiling.CodeWrite = false
+	decision, err = evaluator.Evaluate(ctx, request)
+	require.NoError(t, err)
+	assert.False(t, decision.Allowed)
+	assert.Equal(t, ReasonWriteSourceUnavailable, decision.ReasonCode)
+
+	request.RequestID = "write-source-code-read-denied"
+	request.Ceiling = RepositoryCeiling{CodeWrite: true}
 	decision, err = evaluator.Evaluate(ctx, request)
 	require.NoError(t, err)
 	assert.False(t, decision.Allowed)
@@ -244,29 +262,6 @@ func TestDBEvaluatorWriteSourceRemainsUnavailable(t *testing.T) {
 		OrdinaryAllowed: false,
 	})
 	auditRecord := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
-		DecisionKey:     decisionRecord.DecisionKey,
-		ScopeID:         scope.ID,
-		Action:          branchroom_model.ActionWriteSource,
-		ReasonCode:      ReasonOrdinaryPermissionDeny,
-		RequestID:       request.RequestID,
-		OrdinaryAllowed: false,
-	})
-	assert.Equal(t, decisionRecord.DecisionKey, auditRecord.DecisionKey)
-
-	request.RequestID = "write-source-code-read-denied"
-	request.Ceiling = RepositoryCeiling{CodeWrite: true}
-	decision, err = evaluator.Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonOrdinaryPermissionDeny, decision.ReasonCode)
-	decisionRecord = unittest.AssertExistsAndLoadBean(t, &branchroom_model.Decision{
-		ScopeID:         scope.ID,
-		Action:          branchroom_model.ActionWriteSource,
-		ReasonCode:      ReasonOrdinaryPermissionDeny,
-		RequestID:       request.RequestID,
-		OrdinaryAllowed: false,
-	})
-	auditRecord = unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{
 		DecisionKey:     decisionRecord.DecisionKey,
 		ScopeID:         scope.ID,
 		Action:          branchroom_model.ActionWriteSource,
@@ -419,98 +414,6 @@ func TestDBEvaluatorHonorsGrantTimeWindow(t *testing.T) {
 	assert.Equal(t, ReasonNoActiveGrant, decision.ReasonCode)
 }
 
-func TestDBEvaluatorMaterializesEnvironmentRevisionOnly(t *testing.T) {
-	enableBranchroom(t)
-	restoreEnvironment := test.MockVariableValue(&setting.BranchroomEnvironment)
-	t.Cleanup(restoreEnvironment)
-	setting.BranchroomEnvironment.Enabled = true
-	require.NoError(t, unittest.PrepareTestDatabase())
-	ctx := t.Context()
-	evaluator := fixedEvaluator(100)
-	scope := insertTestEnvironmentScope(t, 1, "deployment-environment")
-	grant := &branchroom_model.Grant{
-		ScopeID:     scope.ID,
-		SubjectType: branchroom_model.SubjectTypeUser,
-		SubjectID:   2,
-		Action:      branchroom_model.ActionMaterialize,
-		CreatedByID: 1,
-	}
-	require.NoError(t, branchroom_model.InsertGrant(ctx, grant))
-	revisionKey := uuid.NewString()
-	request := Request{
-		ScopeID:      scope.ID,
-		RepoID:       scope.RepoID,
-		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
-		Ceiling:      RepositoryCeiling{CodeRead: true},
-		Action:       branchroom_model.ActionMaterialize,
-		ResourceType: branchroom_model.ResourceTypeEnvironment,
-		ResourceID:   environmentRevisionResourceID(scope.ID, revisionKey),
-		Surface:      branchroom_model.SurfaceSystem,
-	}
-	decision, err := evaluator.Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.True(t, decision.Allowed)
-	assert.Equal(t, grant.ID, decision.GrantID)
-	assert.NotZero(t, decision.ID)
-
-	request.ResourceID = environmentRevisionResourceID(scope.ID+1, revisionKey)
-	decision, err = evaluator.Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonResourceMismatch, decision.ReasonCode)
-
-	repositoryScope := insertTestScope(t, 1, "not-an-environment")
-	request.ScopeID = repositoryScope.ID
-	request.ResourceID = environmentRevisionResourceID(repositoryScope.ID, uuid.NewString())
-	decision, err = evaluator.Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonResourceMismatch, decision.ReasonCode)
-}
-
-func TestDBEvaluatorMaterializationIsInternalDevelopmentOnly(t *testing.T) {
-	enableBranchroom(t)
-	restoreEnvironment := test.MockVariableValue(&setting.BranchroomEnvironment)
-	t.Cleanup(restoreEnvironment)
-	setting.BranchroomEnvironment.Enabled = true
-	require.NoError(t, unittest.PrepareTestDatabase())
-	ctx := t.Context()
-	scope := insertTestEnvironmentScope(t, 1, "internal-materialization")
-	require.NoError(t, branchroom_model.InsertGrant(ctx, &branchroom_model.Grant{
-		ScopeID:     scope.ID,
-		SubjectType: branchroom_model.SubjectTypeUser,
-		SubjectID:   2,
-		Action:      branchroom_model.ActionMaterialize,
-		CreatedByID: 1,
-	}))
-	request := Request{
-		ScopeID:      scope.ID,
-		RepoID:       scope.RepoID,
-		Actor:        Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
-		Ceiling:      RepositoryCeiling{CodeRead: true},
-		Action:       branchroom_model.ActionMaterialize,
-		ResourceType: branchroom_model.ResourceTypeEnvironment,
-		ResourceID:   environmentRevisionResourceID(scope.ID, uuid.NewString()),
-		Surface:      branchroom_model.SurfaceWeb,
-	}
-	decision, err := fixedEvaluator(100).Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonMaterializeUnavailable, decision.ReasonCode)
-
-	request.Actor = Actor{Type: branchroom_model.ActorTypeActionsTask, ID: 42}
-	request.Surface = branchroom_model.SurfaceSystem
-	request.WorkflowID = "deploy.yml"
-	request.WorkflowRepoID = 1
-	request.WorkflowCommitSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	request.Ref = "refs/heads/main"
-	request.RunnerID = 1
-	decision, err = fixedEvaluator(100).Evaluate(ctx, request)
-	require.NoError(t, err)
-	assert.False(t, decision.Allowed)
-	assert.Equal(t, ReasonMaterializeUnavailable, decision.ReasonCode)
-}
-
 func TestDBEvaluatorIsDisabledWithoutAnAuditWrite(t *testing.T) {
 	require.NoError(t, unittest.PrepareTestDatabase())
 	ctx := t.Context()
@@ -564,31 +467,6 @@ func TestCreateRepositoryScopeUsesActualOwnerAndBootstrapsDiscovery(t *testing.T
 	assert.ErrorIs(t, err, util.ErrNotExist)
 }
 
-func TestCreateRepositoryEnvironmentScopeIsDevelopmentOnly(t *testing.T) {
-	enableBranchroom(t)
-	require.NoError(t, unittest.PrepareTestDatabase())
-	ctx := t.Context()
-	request := CreateRepositoryScopeRequest{
-		RepoID:  1,
-		Actor:   Actor{Type: branchroom_model.ActorTypeUser, ID: 2},
-		Name:    "deployment-environment",
-		Surface: branchroom_model.SurfaceSystem,
-	}
-
-	_, err := createRepositoryEnvironmentScope(ctx, request)
-	assert.ErrorIs(t, err, util.ErrNotExist)
-	restoreEnvironment := test.MockVariableValue(&setting.BranchroomEnvironment)
-	t.Cleanup(restoreEnvironment)
-	setting.BranchroomEnvironment.Enabled = true
-	scope, err := createRepositoryEnvironmentScope(ctx, request)
-	require.NoError(t, err)
-	assert.Equal(t, branchroom_model.ScopeKindEnvironment, scope.Kind)
-	request.Name = "web-environment"
-	request.Surface = branchroom_model.SurfaceWeb
-	_, err = createRepositoryEnvironmentScope(ctx, request)
-	assert.ErrorIs(t, err, util.ErrInvalidArgument)
-}
-
 func fixedEvaluator(now timeutil.TimeStamp) *DBEvaluator {
 	return &DBEvaluator{Now: func() timeutil.TimeStamp { return now }}
 }
@@ -628,6 +506,20 @@ func insertTestEnvironmentScope(t *testing.T, repoID int64, name string) *branch
 	}
 	require.NoError(t, branchroom_model.InsertScope(t.Context(), scope))
 	return scope
+}
+
+func ensureTestRepositoryCodeUnit(ctx context.Context, t *testing.T) {
+	t.Helper()
+	exists, err := db.GetEngine(ctx).Where("repo_id = ? AND type = ?", 1, unit.TypeCode).Exist(new(repo_model.RepoUnit))
+	require.NoError(t, err)
+	if exists {
+		return
+	}
+	require.NoError(t, db.Insert(ctx, &repo_model.RepoUnit{
+		RepoID: 1,
+		Type:   unit.TypeCode,
+		Config: &repo_model.UnitConfig{},
+	}))
 }
 
 func testRequest(scope *branchroom_model.Scope, actor Actor, codeRead bool) Request {

@@ -1,17 +1,13 @@
 <div class="flex-container-nav">
-	<div class="ui fluid vertical menu">
-		<div class="header item">{{ctx.Locale.Tr "org.settings"}}</div>
+	<div class="ui fluid vertical menu forge-settings-menu">
+		<div class="header item">{{ctx.Locale.Tr "settings.general"}}</div>
 		<a class="{{if .PageIsSettingsOptions}}active {{end}}item" href="{{.OrgLink}}/settings">
 			{{ctx.Locale.Tr "org.settings.options"}}
 		</a>
-		{{if not DisableWebhooks}}
-		<a class="{{if .PageIsSettingsHooks}}active {{end}}item" href="{{.OrgLink}}/settings/hooks">
-			{{ctx.Locale.Tr "repo.settings.hooks"}}
-		</a>
-		{{end}}
 		<a class="{{if .PageIsOrgSettingsLabels}}active {{end}}item" href="{{.OrgLink}}/settings/labels">
 			{{ctx.Locale.Tr "repo.labels"}}
 		</a>
+		<div class="header item">{{ctx.Locale.Tr "forge.access"}}</div>
 		{{if .EnableOAuth2}}
 		<a class="{{if .PageIsSettingsApplications}}active {{end}}item" href="{{.OrgLink}}/settings/applications">
 			{{ctx.Locale.Tr "settings.applications"}}
@@ -20,9 +16,16 @@
 		<a class="{{if .PageIsSettingsBlockedUsers}}active {{end}}item" href="{{.OrgLink}}/settings/blocked_users">
 			{{ctx.Locale.Tr "user.block.list"}}
 		</a>
+		<div class="header item">{{ctx.Locale.Tr "forge.workspace"}}</div>
 		{{if .EnablePackages}}
 		<a class="{{if .PageIsSettingsPackages}}active {{end}}item" href="{{.OrgLink}}/settings/packages">
 			{{ctx.Locale.Tr "packages.title"}}
+		</a>
+		{{end}}
+		<div class="header item">{{ctx.Locale.Tr "forge.automation"}}</div>
+		{{if not DisableWebhooks}}
+		<a class="{{if .PageIsSettingsHooks}}active {{end}}item" href="{{.OrgLink}}/settings/hooks">
+			{{ctx.Locale.Tr "repo.settings.hooks"}}
 		</a>
 		{{end}}
 		{{if .EnableActions}}
@@ -47,5 +50,8 @@
 			</div>
 		</details>
 		{{end}}
+		<a class="{{if .PageIsSettingsAudit}}active {{end}}item tw-mt-4" href="{{.OrgLink}}/settings/audit_logs">
+			{{ctx.Locale.Tr "audit.title"}}
+		</a>
 	</div>
 </div>

@@ -86,7 +86,7 @@ func ListRepositorySourceHandoffs(ctx context.Context, request ListRepositorySou
 				}
 				return nil, err
 			}
-			if workspace.Validate() != nil || workspace.ScopeID != scope.ID || workspace.RepoID != request.RepoID || workspace.State != branchroom_model.WorkspaceStateReady {
+			if workspace.Validate() != nil || workspace.ScopeID != scope.ID || workspace.RepoID != request.RepoID || workspace.State != branchroom_model.WorkspaceStateReady || !WorkspaceStoreAvailable(workspace) {
 				continue
 			}
 			handoffs = append(handoffs, RepositorySourceHandoff{
@@ -112,36 +112,58 @@ func sourceHandoffNotFound() error {
 	return util.NewNotExistErrorf("Branchroom source handoff does not exist")
 }
 
-// userHasSourceHandoffAuthorization keeps the two-step direct-user opt-in and,
-// matching the Git HTTP gateway, also honors an active covering team read-source
-// grant: team membership is already an explicit owner decision.
 func userHasSourceHandoffAuthorization(ctx context.Context, orgID, scopeID, userID int64, now timeutil.TimeStamp) (bool, error) {
-	_, err := branchroom_model.GetActiveDirectUserGrantAt(ctx, scopeID, userID, branchroom_model.ActionDiscover, now)
-	hasDirectDiscovery := err == nil
-	if err != nil && !errors.Is(err, util.ErrNotExist) {
-		return false, err
-	}
-	_, err = branchroom_model.GetActiveDirectUserGrantAt(ctx, scopeID, userID, branchroom_model.ActionReadSource, now)
-	hasDirectRead := err == nil
-	if err != nil && !errors.Is(err, util.ErrNotExist) {
-		return false, err
-	}
-	if hasDirectDiscovery && hasDirectRead {
-		return true, nil
-	}
-	grants, err := branchroom_model.FindActiveGrantsAt(ctx, scopeID, branchroom_model.ActionReadSource, now)
-	if err != nil {
-		return false, err
-	}
-	for _, grant := range grants {
-		if grant.SubjectType != branchroom_model.SubjectTypeTeam {
-			continue
-		}
-		member, err := organization_model.IsTeamMember(ctx, orgID, grant.SubjectID, userID)
+	for _, action := range []branchroom_model.Action{branchroom_model.ActionDiscover, branchroom_model.ActionReadSource} {
+		grants, err := branchroom_model.FindActiveGrantsAt(ctx, scopeID, action, now)
 		if err != nil {
 			return false, err
 		}
-		if member {
+		allowed := false
+		for _, grant := range grants {
+			if grant.SubjectType == branchroom_model.SubjectTypeUser && grant.SubjectID == userID {
+				allowed = true
+				break
+			}
+			if grant.SubjectType == branchroom_model.SubjectTypeTeam {
+				member, err := organization_model.IsTeamMember(ctx, orgID, grant.SubjectID, userID)
+				if err != nil {
+					return false, err
+				}
+				if member {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// CanDiscoverRepository checks discovery without recording a page-view decision.
+func CanDiscoverRepository(ctx context.Context, repoID int64, actor Actor) (bool, error) {
+	if !setting.Branchroom.Enabled {
+		return false, nil
+	}
+	ceiling, active, err := resolveDirectUserRepositoryCeiling(ctx, repoID, actor)
+	if err != nil || !active || !ceiling.CodeRead {
+		return false, err
+	}
+	scopes, err := branchroom_model.FindScopesByRepoID(ctx, repoID)
+	if err != nil {
+		return false, err
+	}
+	for _, scope := range scopes {
+		if scope.Kind != branchroom_model.ScopeKindRepository || scope.State != branchroom_model.ScopeStateActive {
+			continue
+		}
+		grant, _, err := findMatchingGrant(ctx, scope, Request{Actor: actor, Action: branchroom_model.ActionDiscover}, timeutil.TimeStampNow())
+		if err != nil {
+			return false, err
+		}
+		if grant != nil {
 			return true, nil
 		}
 	}

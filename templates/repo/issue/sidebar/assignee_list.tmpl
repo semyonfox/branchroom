@@ -9,9 +9,9 @@
 >
 	<input class="combo-value" name="assignee_ids" type="hidden" value="{{$data.SelectedAssigneeIDs}}">
 	<div class="ui dropdown full-width {{if not $pageMeta.CanModifyIssueOrPull}}disabled{{end}}">
-		<a class="fixed-text muted">
-			<strong>{{ctx.Locale.Tr "repo.issues.new.assignees"}}</strong> {{if $pageMeta.CanModifyIssueOrPull}}{{svg "octicon-gear"}}{{end}}
-		</a>
+		<button type="button" class="fixed-text muted btn tw-w-full">
+			<strong>{{ctx.Locale.Tr "repo.issues.new.assignees"}}</strong> {{if $pageMeta.CanModifyIssueOrPull}}<span class="forge-picker-edit">{{ctx.Locale.Tr "repo.issues.edit"}}</span>{{end}}
+		</button>
 		<div class="menu">
 			<div class="ui icon search input">
 				<i class="icon">{{svg "octicon-search" 16}}</i>
@@ -32,9 +32,9 @@
 	<div class="ui relaxed list muted-links flex-items-block">
 		<span class="item empty-list {{if $issueAssignees}}tw-hidden{{end}}">{{ctx.Locale.Tr "repo.issues.new.no_assignees"}}</span>
 		{{range $issueAssignees}}
-			<a class="item" href="{{$listBaseLink}}?assignee={{.ID}}">
-				{{ctx.AvatarUtils.Avatar . 20}} {{.GetDisplayName}}
-			</a>
+			<span class="item flex-text-inline">
+				<a class="muted flex-text-inline" href="{{$listBaseLink}}?assignee={{.ID}}">{{ctx.AvatarUtils.Avatar . 20}} {{.GetDisplayName}}</a>{{template "shared/user/user_type_label" .}}
+			</span>
 		{{end}}
 	</div>
 </div>

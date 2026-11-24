@@ -20,7 +20,8 @@ import (
 	base "gitea.dev/modules/migration"
 
 	"github.com/stretchr/testify/assert"
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	"github.com/stretchr/testify/require"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 func TestGitlabDownloadRepo(t *testing.T) {
@@ -513,6 +514,39 @@ func TestGitlabGetReviews(t *testing.T) {
 		assert.NoError(t, err)
 		assertReviewsEqual(t, []*base.Review{&review}, rvs)
 	}
+
+	mux.HandleFunc(fmt.Sprintf("/api/v4/projects/%d/merge_requests/4/approvals", repoID), func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"approved_by": [{"user": null}]}`)
+	})
+	rvs, err := downloader.GetReviews(ctx, &base.Issue{Number: 4, ForeignIndex: 4})
+	require.NoError(t, err)
+	assert.Empty(t, rvs)
+}
+
+func TestGitlabSkipsConfidentialIssuesAndInternalNotes(t *testing.T) {
+	mux, server, client := gitlabClientMockSetup(t)
+	defer gitlabClientMockTeardown(server)
+	downloader := &GitlabDownloader{client: client, repoID: 1, maxPerPage: 100}
+	const timestamps = `"created_at": "2020-01-01T00:00:00Z", "updated_at": "2020-01-01T00:00:00Z"`
+	empty := func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `[]`) }
+	mux.HandleFunc("/api/v4/projects/1/issues", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[{"iid": 1, "author": {}, `+timestamps+`}, {"iid": 2, "confidential": true}]`)
+	})
+	mux.HandleFunc("/api/v4/projects/1/issues/1/award_emoji", empty)
+	mux.HandleFunc("/api/v4/projects/1/issues/1/discussions", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[{"notes": [{"id": 1, `+timestamps+`}, {"internal": true}]}]`)
+	})
+	mux.HandleFunc("/api/v4/projects/1/issues/1/resource_state_events", empty)
+
+	issues, _, err := downloader.GetIssues(t.Context(), 1, 100)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.EqualValues(t, 3, downloader.iidResolver.generatePullRequestNumber(1))
+
+	comments, _, err := downloader.GetComments(t.Context(), issues[0])
+	require.NoError(t, err)
+	require.Len(t, comments, 1)
+	assert.EqualValues(t, 1, comments[0].Index)
 }
 
 func TestAwardsToReactions(t *testing.T) {
@@ -565,73 +599,40 @@ func TestNoteToComment(t *testing.T) {
 	downloader := &GitlabDownloader{}
 
 	now := time.Now()
-	makeTestNote := func(id int64, body string, system bool) gitlab.Note {
-		return gitlab.Note{
-			ID: id,
+	for _, testCase := range []struct {
+		id          int64
+		body        string
+		system      bool
+		commentType string
+		meta        map[string]any
+	}{
+		{1, "This is a regular comment", false, "", map[string]any{}},
+		{2, "enabled an automatic merge for abcd1234", true, "pull_scheduled_merge", map[string]any{}},
+		{3, "changed target branch from `master` to `main`", true, "change_target_branch", map[string]any{"OldRef": "master", "NewRef": "main"}},
+		{4, "canceled the automatic merge", true, "pull_cancel_scheduled_merge", map[string]any{}},
+	} {
+		note := gitlab.Note{
+			ID: testCase.id,
 			Author: gitlab.NoteAuthor{
 				ID:       72,
 				Email:    "test@example.com",
 				Username: "test",
 			},
-			Body:      body,
+			Body:      testCase.body,
 			CreatedAt: &now,
-			System:    system,
+			System:    testCase.system,
 		}
-	}
-	notes := []gitlab.Note{
-		makeTestNote(1, "This is a regular comment", false),
-		makeTestNote(2, "enabled an automatic merge for abcd1234", true),
-		makeTestNote(3, "changed target branch from `master` to `main`", true),
-		makeTestNote(4, "canceled the automatic merge", true),
-	}
-	comments := []base.Comment{{
-		IssueIndex:  17,
-		Index:       1,
-		PosterID:    72,
-		PosterName:  "test",
-		PosterEmail: "test@example.com",
-		CommentType: "",
-		Content:     "This is a regular comment",
-		Created:     now,
-		Meta:        map[string]any{},
-	}, {
-		IssueIndex:  17,
-		Index:       2,
-		PosterID:    72,
-		PosterName:  "test",
-		PosterEmail: "test@example.com",
-		CommentType: "pull_scheduled_merge",
-		Content:     "enabled an automatic merge for abcd1234",
-		Created:     now,
-		Meta:        map[string]any{},
-	}, {
-		IssueIndex:  17,
-		Index:       3,
-		PosterID:    72,
-		PosterName:  "test",
-		PosterEmail: "test@example.com",
-		CommentType: "change_target_branch",
-		Content:     "changed target branch from `master` to `main`",
-		Created:     now,
-		Meta: map[string]any{
-			"OldRef": "master",
-			"NewRef": "main",
-		},
-	}, {
-		IssueIndex:  17,
-		Index:       4,
-		PosterID:    72,
-		PosterName:  "test",
-		PosterEmail: "test@example.com",
-		CommentType: "pull_cancel_scheduled_merge",
-		Content:     "canceled the automatic merge",
-		Created:     now,
-		Meta:        map[string]any{},
-	}}
-
-	for i, note := range notes {
-		actualComment := *downloader.convertNoteToComment(17, &note)
-		assert.Equal(t, actualComment, comments[i])
+		assert.Equal(t, base.Comment{
+			IssueIndex:  17,
+			Index:       testCase.id,
+			PosterID:    72,
+			PosterName:  "test",
+			PosterEmail: "test@example.com",
+			CommentType: testCase.commentType,
+			Content:     testCase.body,
+			Created:     now,
+			Meta:        testCase.meta,
+		}, *downloader.convertNoteToComment(17, &note))
 	}
 }
 
@@ -650,4 +651,52 @@ func TestGitlabIIDResolver(t *testing.T) {
 		assert.EqualValues(t, 2, r.generatePullRequestNumber(1))
 		r.recordIssueIID(3) // the generation procedure has been started, it shouldn't accept any new issue IID, so it panics
 	})
+}
+
+func TestGitlabGetSettings(t *testing.T) {
+	mux, server, client := gitlabClientMockSetup(t)
+	defer gitlabClientMockTeardown(server)
+	downloader := &GitlabDownloader{client: client, repoID: 1, maxPerPage: 100}
+	for path, response := range map[string]string{
+		"/api/v4/projects/1": `{"id":1,"permissions":{"project_access":{"access_level":40}},"only_allow_merge_if_pipeline_succeeds":true,
+			"shared_with_groups":[{"group_name":"Coaches","group_full_path":"harbour/coaches","group_access_level":30},{"group_name":"Guests","group_full_path":"harbour/guests","group_access_level":10}]}`,
+		"/api/v4/projects/1/protected_branches": `[{"name":"main","push_access_levels":[{"access_level":0}],"merge_access_levels":[{"access_level":40}],"code_owner_approval_required":true},
+			{"name":"release-*","push_access_levels":[{"access_level":30},{"access_level":40}],"merge_access_levels":[{"access_level":30}],"allow_force_push":true},
+			{"name":"hotfix","push_access_levels":[{"access_level":40,"user_id":7}],"merge_access_levels":[{"access_level":30}]}]`,
+		"/api/v4/projects/1/approval_rules": `[{"rule_type":"regular","approvals_required":2,"protected_branches":[{"name":"main"}]},
+			{"rule_type":"any_approver","approvals_required":1},{"rule_type":"report_approver","approvals_required":5}]`,
+		"/api/v4/projects/1/members": `[{"id":7,"username":"niamh","access_level":40},{"id":8,"username":"cian","access_level":20},{"id":9,"username":"guest","access_level":10}]`,
+		"/api/v4/projects/1/hooks":   `[{"url":"https://ci.example.com/gitlab/hook?token=secret","push_events":true}]`,
+		"/api/v4/projects/1/variables": `[{"key":"NODE_VERSION","value":"24","environment_scope":"*"},
+			{"key":"DEPLOY_KEY","value":"s3cr3t","masked":true,"environment_scope":"*"},
+			{"key":"SIGNING_KEY","value":null,"hidden":true,"masked":true,"environment_scope":"*"},
+			{"key":"API_URL","value":"https://staging.example.com","environment_scope":"staging"}]`,
+	} {
+		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, response) })
+	}
+
+	settings, err := downloader.GetSettings(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []*base.BranchProtection{
+		{
+			Pattern: "main", BlockPush: true, RequiredApprovals: 2, RequireCodeOwnerReviews: true,
+			Unsupported: []string{"only Maintainers or named people could merge (anyone with write access can merge)", "pipelines must succeed (no check is required here until you pick one)"},
+		},
+		{Pattern: "release-**", AllowForcePush: true, RequiredApprovals: 1, Unsupported: []string{"pipelines must succeed (no check is required here until you pick one)"}},
+		{
+			Pattern: "hotfix", BlockPush: true, RequiredApprovals: 1,
+			Unsupported: []string{"only Maintainers or named people could push (direct pushes are off instead)", "pipelines must succeed (no check is required here until you pick one)"},
+		},
+	}, settings.BranchProtections)
+	assert.Equal(t, []*base.Collaborator{{ExternalID: "7", Login: "niamh", Permission: "admin"}, {ExternalID: "8", Login: "cian", Permission: "read"}}, settings.Collaborators)
+	assert.Equal(t, []*base.Team{{Name: "Coaches", Slug: "coaches", Permission: "write"}, {Name: "Guests", Slug: "guests", Permission: "none"}}, settings.Teams)
+	assert.Empty(t, settings.Webhooks)
+	assert.Equal(t, []*base.ActionsVariable{{Name: "NODE_VERSION", Value: "24"}}, settings.Variables)
+	assert.Equal(t, []*base.ActionsSecret{{Name: "DEPLOY_KEY", Value: "s3cr3t"}}, settings.Secrets)
+	assert.Equal(t, []base.SettingsNote{
+		{Kind: base.SettingsNoteCollaboratorRole, Name: "guest"},
+		{Kind: base.SettingsNoteWebhookFormat, Name: "ci.example.com"},
+		{Kind: base.SettingsNoteSecret, Name: "SIGNING_KEY"},
+		{Kind: base.SettingsNoteEnvironment, Name: "staging", Detail: "API_URL"},
+	}, settings.Notes)
 }

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"gitea.dev/models/db"
 	"gitea.dev/models/organization"
@@ -16,7 +15,9 @@ import (
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
 	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/egress/policy"
 	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/graceful"
 	"gitea.dev/modules/lfs"
 	"gitea.dev/modules/log"
@@ -49,12 +50,8 @@ func Migrate(ctx *context.APIContext) {
 	// responses:
 	//   "201":
 	//     "$ref": "#/responses/Repository"
-	//   "403":
-	//     "$ref": "#/responses/forbidden"
-	//   "409":
-	//     description: The repository with the same name already exists.
-	//   "422":
-	//     "$ref": "#/responses/validationError"
+	//   default:
+	//     "$ref": "#/responses/error"
 
 	form := web.GetForm[*api.MigrateRepoOptions](ctx)
 
@@ -98,16 +95,16 @@ func Migrate(ctx *context.APIContext) {
 		}
 	}
 
+	gitServiceType := convert.ToGitServiceType(form.Service)
+
 	remoteAddr, err := git.ParseRemoteAddr(form.CloneAddr, form.AuthUsername, form.AuthPassword)
 	if err == nil {
-		err = migrations.IsMigrateURLAllowed(remoteAddr, ctx.Doer)
+		err = migrations.IsMigrateURLAllowedForService(remoteAddr, gitServiceType, ctx.Doer)
 	}
 	if err != nil {
 		handleRemoteAddrError(ctx, err)
 		return
 	}
-
-	gitServiceType := convert.ToGitServiceType(form.Service)
 
 	if form.Mirror && setting.Mirror.DisableNewPull {
 		ctx.APIError(http.StatusForbidden, "the site administrator has disabled the creation of new pull mirrors")
@@ -153,6 +150,7 @@ func Migrate(ctx *context.APIContext) {
 		Comments:       form.Issues || form.PullRequests,
 		PullRequests:   form.PullRequests,
 		Releases:       form.Releases,
+		Settings:       form.Settings,
 		GitServiceType: gitServiceType,
 		MirrorInterval: form.MirrorInterval,
 	}
@@ -176,7 +174,6 @@ func Migrate(ctx *context.APIContext) {
 		GitServiceType: gitServiceType,
 		IsPrivate:      opts.Private || setting.Repository.ForcePrivate,
 		IsMirror:       opts.Mirror,
-		Status:         repo_model.RepositoryBeingMigrated,
 	}, false)
 	if err != nil {
 		handleMigrateError(ctx, repoOwner, err)
@@ -189,10 +186,12 @@ func Migrate(ctx *context.APIContext) {
 		defer func() {
 			if e := recover(); e != nil {
 				log.Error("MigrateRepository panic: %v\n%s", e, log.Stack(2))
-				if errDelete := repo_service.DeleteRepositoryDirectly(ctx, createdRepo.ID); errDelete != nil {
-					log.Error("Unable to delete repo after MigrateRepository panic: %v", errDelete)
-				}
 				retErr = errors.New("MigrateRepository panic") // no idea why it would happen, just legacy code
+			}
+			if retErr != nil {
+				if errDelete := repo_service.DeleteRepositoryDirectly(gocontext.WithoutCancel(ctx), createdRepo.ID); errDelete != nil {
+					log.Error("Unable to delete repo after failed migration: %v", errDelete)
+				}
 			}
 		}()
 
@@ -226,7 +225,7 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 	case repo_model.IsErrRepoAlreadyExist(err):
 		ctx.APIError(http.StatusConflict, "The repository with the same name already exists.")
 	case repo_model.IsErrRepoFilesAlreadyExist(err):
-		ctx.APIError(http.StatusConflict, "Files already exist for this repository. Adopt them or delete them.")
+		ctx.APIError(http.StatusConflict, "Files already exist for this repository.")
 	case migrations.IsRateLimitError(err):
 		ctx.APIError(http.StatusUnprocessableEntity, "Remote visit addressed rate limitation.")
 	case migrations.IsTwoFactorAuthError(err):
@@ -239,17 +238,15 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 		ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("The username '%s' contains invalid characters.", errNameCharsNotAllowed.Name))
 	case errors.As(err, &errNamePatternNotAllowed):
 		ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("The pattern '%s' is not allowed in a username.", errNamePatternNotAllowed.Pattern))
-	case git.IsErrInvalidCloneAddr(err):
-		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 	case base.IsErrNotSupported(err):
 		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, util.ErrInvalidArgument), errors.Is(err, policy.ErrDenied):
+		ctx.APIError(http.StatusUnprocessableEntity, util.SanitizeErrorCredentialURLs(err).Error())
 	default:
 		err = util.SanitizeErrorCredentialURLs(err)
-		if strings.Contains(err.Error(), "Authentication failed") ||
-			strings.Contains(err.Error(), "Bad credentials") ||
-			strings.Contains(err.Error(), "could not read Username") {
+		if migrations.IsAuthenticationError(err) {
 			ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("Authentication failed: %v.", err))
-		} else if strings.Contains(err.Error(), "fatal:") {
+		} else if _, ok := gitcmd.ErrorAsStderr(err); ok {
 			ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("Migration failed: %v.", err))
 		} else {
 			ctx.APIErrorInternal(err)
@@ -260,7 +257,7 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 func handleRemoteAddrError(ctx *context.APIContext, err error) {
 	if addrErr, ok := err.(*git.ErrInvalidCloneAddr); ok {
 		switch {
-		case addrErr.IsURLError:
+		case addrErr.IsURLError || addrErr.IsProtocolInvalid:
 			ctx.APIError(http.StatusUnprocessableEntity, "The provided URL is invalid.")
 		case addrErr.IsPermissionDenied:
 			if addrErr.LocalPath {

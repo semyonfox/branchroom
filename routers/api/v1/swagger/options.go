@@ -16,6 +16,9 @@ import (
 // swagger:parameters parameterBodies
 type swaggerParameterBodies struct {
 	// in:body
+	InboxStateOptions api.InboxStateOptions
+
+	// in:body
 	AddCollaboratorOption api.AddCollaboratorOption
 
 	// in:body
@@ -52,6 +55,9 @@ type swaggerParameterBodies struct {
 
 	// in:body
 	CreateKeyOption api.CreateKeyOption
+
+	// in:body
+	CreateDeployKeyTokenOption api.CreateDeployKeyTokenOption
 
 	// in:body
 	RenameUserOption api.RenameUserOption
@@ -163,6 +169,9 @@ type swaggerParameterBodies struct {
 	UpdateBranchProtectionPriories api.UpdateBranchProtectionPriories
 
 	// in:body
+	SetPathReviewerRulesOptions api.SetPathReviewerRulesOptions
+
+	// in:body
 	CreateOAuth2ApplicationOptions api.CreateOAuth2ApplicationOptions
 
 	// in:body
@@ -252,6 +261,12 @@ type swaggerParameterBodies struct {
 
 	// in:body
 	MoveProjectIssueOption api.MoveProjectIssueOption
+
+	// in:body
+	CreateProjectWorkflowOption api.CreateProjectWorkflowOption
+
+	// in:body
+	EditProjectWorkflowOption api.EditProjectWorkflowOption
 
 	// in:body
 	MergeUpstreamRequest api.MergeUpstreamRequest

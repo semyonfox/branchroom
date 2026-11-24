@@ -11,7 +11,10 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"sync"
 
+	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
 	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
@@ -25,6 +28,7 @@ import (
 	"gitea.dev/modules/util"
 
 	"xorm.io/builder"
+	"xorm.io/xorm"
 )
 
 // ErrIssueNotExist represents a "IssueNotExist" kind of error.
@@ -53,7 +57,7 @@ var ErrIssueAlreadyChanged = util.NewInvalidArgumentErrorf("the issue is already
 // Issue represents an issue or pull request of repository.
 type Issue struct {
 	ID                int64                  `xorm:"pk autoincr"`
-	RepoID            int64                  `xorm:"INDEX UNIQUE(repo_index)"`
+	RepoID            int64                  `xorm:"INDEX(repo_closed_pull) UNIQUE(repo_index)"`
 	Repo              *repo_model.Repository `xorm:"-"`
 	Index             int64                  `xorm:"UNIQUE(repo_index)"` // Index in one repository.
 	PosterID          int64                  `xorm:"INDEX"`
@@ -75,13 +79,13 @@ type Issue struct {
 	AssigneeID        int64            `xorm:"-"`
 	Assignee          *user_model.User `xorm:"-"`
 	isAssigneeLoaded  bool             `xorm:"-"`
-	IsClosed          bool             `xorm:"INDEX"`
+	IsClosed          bool             `xorm:"INDEX(repo_closed_pull)"`
 	IsRead            bool             `xorm:"-"`
-	IsPull            bool             `xorm:"INDEX"` // Indicates whether is a pull request or not.
+	IsPull            bool             `xorm:"INDEX(repo_closed_pull)"` // Indicates whether is a pull request or not.
 	PullRequest       *PullRequest     `xorm:"-"`
 	NumComments       int
 
-	// TODO: RemoveIssueRef: see "repo/issue/branch_selector_field.tmpl"
+	// TODO: ISSUE-SIDEBAR-REF-SELECTOR: see "repo/issue/branch_selector_field.tmpl"
 	Ref string
 
 	PinOrder int `xorm:"-"` // 0 means not loaded, -1 means loaded but not pinned
@@ -110,10 +114,15 @@ type Issue struct {
 	TimeEstimate int64 `xorm:"NOT NULL DEFAULT 0"`
 }
 
-var (
-	issueTasksPat     = regexp.MustCompile(`(^\s*[-*]\s\[[\sxX]\]\s.)|(\n\s*[-*]\s\[[\sxX]\]\s.)`)
-	issueTasksDonePat = regexp.MustCompile(`(^\s*[-*]\s\[[xX]\]\s.)|(\n\s*[-*]\s\[[xX]\]\s.)`)
-)
+var globalVars = sync.OnceValue(func() (ret struct {
+	issueTasksPat     *regexp.Regexp
+	issueTasksDonePat *regexp.Regexp
+},
+) {
+	ret.issueTasksPat = regexp.MustCompile(`(^\s*[-*]\s\[[\sxX]\]\s.)|(\n\s*[-*]\s\[[\sxX]\]\s.)`)
+	ret.issueTasksDonePat = regexp.MustCompile(`(^\s*[-*]\s\[[xX]\]\s.)|(\n\s*[-*]\s\[[xX]\]\s.)`)
+	return ret
+})
 
 // IssueIndex represents the issue index table
 type IssueIndex db.ResourceIndex
@@ -121,6 +130,27 @@ type IssueIndex db.ResourceIndex
 func init() {
 	db.RegisterModel(new(Issue))
 	db.RegisterModel(new(IssueIndex))
+}
+
+func sanitizeDatabaseStringContent(s *string) {
+	// postgresql doesn't like "\x00"
+	// this is only a simple workaround for issues like https://github.com/go-gitea/gitea/issues/28890 and https://github.com/go-gitea/gitea/issues/40003
+	*s = strings.ReplaceAll(*s, "\x00", " ")
+}
+
+var (
+	_ xorm.BeforeInsertProcessor = (*Issue)(nil)
+	_ xorm.BeforeUpdateProcessor = (*Issue)(nil)
+)
+
+func (issue *Issue) BeforeInsert() {
+	sanitizeDatabaseStringContent(&issue.Title)
+	sanitizeDatabaseStringContent(&issue.Content)
+}
+
+func (issue *Issue) BeforeUpdate() {
+	sanitizeDatabaseStringContent(&issue.Title)
+	sanitizeDatabaseStringContent(&issue.Content)
 }
 
 // LoadTotalTimes load total tracked time
@@ -225,13 +255,11 @@ func (issue *Issue) loadCommentsByType(ctx context.Context, tp CommentType) (err
 	return err
 }
 
-func (issue *Issue) loadReactions(ctx context.Context) (err error) {
+func (issue *Issue) loadAllReactions(ctx context.Context) (err error) {
 	if issue.Reactions != nil {
 		return nil
 	}
-	reactions, _, err := FindReactions(ctx, FindReactionsOptions{
-		IssueID: issue.ID,
-	})
+	reactions, _, err := FindReactions(ctx, FindReactionsOptions{IssueIDWithComments: issue.ID})
 	if err != nil {
 		return err
 	}
@@ -340,7 +368,7 @@ func (issue *Issue) LoadAttributes(ctx context.Context) (err error) {
 		}
 	}
 
-	return issue.loadReactions(ctx)
+	return issue.loadAllReactions(ctx)
 }
 
 // IsPinned returns if a Issue is pinned
@@ -442,12 +470,12 @@ func (issue *Issue) IsPoster(uid int64) bool {
 
 // GetTasks returns the amount of tasks in the issues content
 func (issue *Issue) GetTasks() int {
-	return len(issueTasksPat.FindAllStringIndex(issue.Content, -1))
+	return len(globalVars().issueTasksPat.FindAllStringIndex(issue.Content, -1))
 }
 
 // GetTasksDone returns the amount of completed tasks in the issues content
 func (issue *Issue) GetTasksDone() int {
-	return len(issueTasksDonePat.FindAllStringIndex(issue.Content, -1))
+	return len(globalVars().issueTasksDonePat.FindAllStringIndex(issue.Content, -1))
 }
 
 // GetLastEventTimestamp returns the last user visible event timestamp, either the creation of this issue or the close.
@@ -757,6 +785,9 @@ func insertIssue(ctx context.Context, issue *Issue) error {
 	if _, err := sess.NoAutoTime().Insert(issue); err != nil {
 		return err
 	}
+	if err := branchroom_model.RecordAgentAction(ctx, user_model.GetDoerCredential(issue.Poster), "issue", issue.ID); err != nil {
+		return err
+	}
 	issueLabels := make([]IssueLabel, 0, len(issue.Labels))
 	for _, label := range issue.Labels {
 		issueLabels = append(issueLabels, IssueLabel{
@@ -806,4 +837,8 @@ func ChangeIssueTimeEstimate(ctx context.Context, issue *Issue, doer *user_model
 		}
 		return nil
 	})
+}
+
+func (issue *Issue) AgentIdentity(ctx context.Context) (*api.AgentIdentity, error) {
+	return branchroom_model.GetAgentAction(ctx, "issue", issue.ID)
 }

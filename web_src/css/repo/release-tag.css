@@ -7,10 +7,12 @@
 
 #release-list .release-list-title {
   font-size: 2rem;
-  font-weight: var(--font-weight-normal);
+  font-weight: var(--font-weight-medium);
+  line-height: 24px;
   display: flex;
   align-items: center;
   gap: 0.25em;
+  flex-wrap: wrap;
   margin: 0;
 }
 
@@ -70,13 +72,13 @@
   flex-wrap: wrap;
 }
 
-#release-list .release-entry .attachment-list > .item a {
-  min-width: 300px;
+#release-list .release-entry .attachment-list > .item > a {
+  min-width: 0;
 }
 
 #release-list .release-entry .attachment-list .attachment-right-info {
   flex-shrink: 0;
-  min-width: 300px;
+  gap: 12px;
 }
 
 #release-list .release-entry .detail .download[open] summary {
@@ -94,4 +96,24 @@
 #tags-table .tag-list-row-title {
   font-size: 18px;
   font-weight: var(--font-weight-normal);
+}
+
+.release-notes-collapsed {
+  max-height: 30lh;
+  overflow: hidden;
+}
+
+#release-list .release-notes {
+  margin-block: 16px;
+}
+
+#release-list .attachment-right-info .button {
+  margin: 0;
+}
+
+@media (max-width: 767.98px) {
+  #release-list .attachment-list > .item > .release-asset-name {
+    flex-basis: 100%;
+    margin-bottom: 8px;
+  }
 }

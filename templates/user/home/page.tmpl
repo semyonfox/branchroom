@@ -1,0 +1,63 @@
+{{template "base/head" .}}
+<div role="main" aria-label="{{.Title}}" class="page-content dashboard forge-home">
+	<div class="ui container forge-home-layout">
+		<aside class="forge-home-repos" aria-label="{{ctx.Locale.Tr "home.my_repos"}}">
+			{{template "user/dashboard/repolist" .}}
+		</aside>
+		<div class="forge-home-main">
+			{{template "base/alert" .}}
+			<section aria-labelledby="home-work-heading">
+				<div class="forge-home-heading"><h1 id="home-work-heading">{{ctx.Locale.Tr "home.your_work"}}</h1>
+					<a href="{{AppSubUrl}}/inbox?view=yours">{{ctx.Locale.Tr "home.open_inbox"}} {{svg "octicon-arrow-right" 14}}</a></div>
+				<div class="forge-home-work">
+					{{range $card := .HomeWork}}
+						<article class="forge-home-work-card">
+							<div class="forge-home-work-meta"><a class="forge-home-repo-chip" href="{{$card.Issue.Repo.Link}}">{{svg "octicon-repo" 12}} {{$card.Issue.Repo.FullName}}</a><span class="muted">{{DateUtils.TimeSince $card.Issue.UpdatedUnix}}</span></div>
+							<a class="forge-home-work-title" href="{{$card.Issue.Link}}">{{if $card.Issue.IsPull}}{{svg "octicon-git-pull-request" 16}}{{else}}{{svg "octicon-issue-opened" 16}}{{end}}<span>{{$card.Issue.Title}} <span class="muted">#{{$card.Issue.Index}}</span></span></a>
+							<div class="forge-home-work-meta">{{if $card.Issue.PullRequest}}<code class="forge-home-branch">{{$card.Issue.PullRequest.HeadBranch}}</code>{{end}}<span class="forge-home-state forge-home-state-{{$card.State}}">{{ctx.Locale.Tr (printf "home.work_state.%s" $card.State)}}</span></div>
+						</article>
+					{{else}}
+						<div class="forge-home-empty"><p>{{ctx.Locale.Tr "home.work_empty"}}</p><a href="{{AppSubUrl}}/repo/create">{{ctx.Locale.Tr "new_repo"}}</a></div>
+					{{end}}
+				</div>
+				<div class="forge-home-work-links"><a href="{{AppSubUrl}}/pulls?type=created_by">{{ctx.Locale.Tr "home.all_pulls"}}</a><a href="{{AppSubUrl}}/issues?type=assigned">{{ctx.Locale.Tr "home.all_assigned"}}</a></div>
+			</section>
+			<section class="forge-home-updates" aria-labelledby="home-updates-heading">
+				<h2 id="home-updates-heading">{{ctx.Locale.Tr "home.updates"}}</h2>
+				<ul class="forge-home-update-list">
+					{{range $update := .HomeUpdates}}
+						{{$action := $update.Action}}
+						<li>
+							{{ctx.AvatarUtils.Avatar $action.ActUser 24}}
+							<div class="forge-home-update-content">
+								<span>{{if $update.Pushes}}
+									<a href="{{$action.Repo.Link}}/commits">{{ctx.Locale.TrN $update.Pushes "home.push_one" "home.push_many" $update.Pushes $action.Repo.FullName}}</a>
+								{{else if $action.GetOpType.InActions "publish_release"}}
+									<a href="{{$action.Repo.Link}}/releases/tag/{{PathEscapeSegments $action.GetTag}}">{{svg "octicon-tag" 14}} {{ctx.Locale.Tr "home.released" $action.Repo.FullName $action.GetTag}}</a>
+								{{else if and $action.Issue ($action.GetOpType.InActions "merge_pull_request")}}
+									<a href="{{$action.Issue.Link}}">{{svg "octicon-git-merge" 14}} {{ctx.Locale.Tr "home.merged" $action.Repo.FullName $action.Issue.Index}} · {{$action.Issue.Title}}</a>
+								{{else}}
+									<a href="{{$action.ActUser.HomeLink}}">{{$action.ActUser.DisplayName}}</a> <span class="muted">{{ctx.Locale.Tr (printf "home.activity.%s" $action.GetOpType)}}</span> {{$infos := $action.GetIssueInfos}}{{if $action.Issue}}<a href="{{$action.Issue.Link}}">{{$action.Repo.FullName}}#{{$action.Issue.Index}} · {{$action.Issue.Title}}</a>{{else if and (index $infos 0) ($action.GetOpType.InActions "create_issue" "create_pull_request" "close_issue" "reopen_issue" "close_pull_request" "reopen_pull_request")}}<a href="{{$action.Repo.Link}}/issues/{{index $infos 0}}">{{$action.Repo.FullName}}#{{index $infos 0}}{{if index $infos 1}} · {{index $infos 1}}{{end}}</a>{{else}}<a href="{{$action.Repo.Link}}">{{$action.Repo.FullName}}</a>{{if $action.GetOpType.InActions "delete_branch"}} <code>{{$action.GetBranch}}</code>{{else if $action.GetOpType.InActions "delete_tag" "push_tag"}} <code>{{$action.GetTag}}</code>{{end}}{{end}}
+								{{end}}</span>
+								<span class="forge-home-update-time muted">{{DateUtils.TimeSince $action.CreatedUnix}}</span>
+							</div>
+						</li>
+					{{else}}
+						<li class="muted">{{ctx.Locale.Tr "home.updates_empty"}}</li>
+					{{end}}
+				</ul>
+			</section>
+		</div>
+		<aside class="forge-home-discover" aria-labelledby="home-discover-heading">
+			<h2 id="home-discover-heading">{{ctx.Locale.Tr "home.discover"}}</h2>
+			{{if .HomeReleases}}
+				<h3>{{ctx.Locale.Tr "home.starred_releases"}}</h3>
+				<ul>{{range $release := .HomeReleases}}<li><a href="{{$release.Link}}">{{svg "octicon-tag" 14}} {{$release.Repo.FullName}}<br><strong>{{$release.TagName}}</strong></a><div class="muted">{{DateUtils.TimeSince $release.PublishedUnix}}</div></li>{{end}}</ul>
+			{{end}}
+			<h3>{{ctx.Locale.Tr "home.new_repositories"}}</h3>
+			<ul>{{range $repo := .HomeDiscoverRepos}}<li><a href="{{$repo.Link}}">{{svg "octicon-repo" 14}} {{$repo.FullName}}</a>{{if $repo.Description}}<p class="muted">{{$repo.Description}}</p>{{end}}</li>{{else}}<li class="muted">{{ctx.Locale.Tr "home.discover_empty"}}</li>{{end}}</ul>
+			<a href="{{AppSubUrl}}/explore/repos">{{ctx.Locale.Tr "home.explore"}} {{svg "octicon-arrow-right" 14}}</a>
+		</aside>
+	</div>
+</div>
+{{template "base/footer" .}}

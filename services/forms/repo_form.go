@@ -70,6 +70,7 @@ type MigrateRepoForm struct {
 	Issues         bool   `json:"issues"`
 	PullRequests   bool   `json:"pull_requests"`
 	Releases       bool   `json:"releases"`
+	Settings       bool   `json:"settings"`
 	MirrorInterval string `json:"mirror_interval"`
 
 	AWSAccessKeyID     string `json:"aws_access_key_id"`
@@ -79,7 +80,7 @@ type MigrateRepoForm struct {
 // RepoSettingForm form for changing repository settings
 type RepoSettingForm struct {
 	middleware.FormDefaultValidator
-	RepoName               string `binding:"Required;AlphaDashDot;MaxSize(100)"`
+	RepoName               string `binding:"TrimSpace;Required;AlphaDashDot;MaxSize(100)"`
 	Description            string `binding:"MaxSize(2048)"`
 	Website                string `binding:"ValidUrl;MaxSize(1024)"`
 	Interval               string
@@ -105,12 +106,12 @@ type RepoSettingForm struct {
 	DefaultWikiBranch  string
 	ExternalWikiURL    string
 
-	EnableIssues                          bool
+	EnableInternalTracker                 bool
 	EnableExternalTracker                 bool
-	ExternalTrackerURL                    string
-	TrackerURLFormat                      string
+	ExternalTrackerURL                    string `binding:"TrimSpace"`
+	TrackerURLFormat                      string `binding:"TrimSpace"`
 	TrackerIssueStyle                     string
-	ExternalTrackerRegexpPattern          string
+	ExternalTrackerRegexpPattern          string `binding:"TrimSpace"`
 	EnableCloseIssuesViaCommitInAnyBranch bool
 
 	EnableProjects bool
@@ -133,12 +134,15 @@ type RepoSettingForm struct {
 	PullsAllowMergeUpdate            bool
 	PullsAllowRebaseUpdate           bool
 	PullsDefaultUpdateStyle          string
+	PullsDefaultSquashMergeMessage   string
 	DefaultDeleteBranchAfterMerge    bool
 	DefaultAllowMaintainerEdit       bool
 	DefaultTargetBranch              string
+	PullsCreationRestriction         string `binding:"In(reader,member,writer)"`
 	EnableTimetracker                bool
 	AllowOnlyContributorsToTrackTime bool
 	EnableIssueDependencies          bool
+	IssuesCreationRestriction        string `binding:"In(reader,member,writer)"`
 
 	// Signing Settings
 	TrustModel string
@@ -187,6 +191,16 @@ type BranchroomSourceWriteGrantForm struct {
 	Expires   string
 }
 
+// BranchroomAccessForm gives one direct user an access level, creating each grant it needs.
+type BranchroomAccessForm struct {
+	middleware.FormDefaultValidator
+	ScopeID   int64  `binding:"Required"`
+	Username  string `binding:"Required;MaxSize(255)"`
+	Access    string `binding:"Required;In(discover,read_source,write_source)"`
+	NotBefore string
+	Expires   string
+}
+
 // BranchroomTeamGrantForm grants discover or source read to one organization team.
 type BranchroomTeamGrantForm struct {
 	middleware.FormDefaultValidator
@@ -205,11 +219,12 @@ type ProtectBranchForm struct {
 	EnablePush                    string
 	WhitelistUsers                string
 	WhitelistTeams                string
-	WhitelistDeployKeys           bool
 	EnableForcePush               string
 	ForcePushAllowlistUsers       string
 	ForcePushAllowlistTeams       string
-	ForcePushAllowlistDeployKeys  bool
+	EnableDeletion                string
+	DeletionAllowlistUsers        string
+	DeletionAllowlistTeams        string
 	EnableMergeWhitelist          bool
 	MergeWhitelistUsers           string
 	MergeWhitelistTeams           string
@@ -313,7 +328,7 @@ type NewSlackHookForm struct {
 
 func (f *NewSlackHookForm) Validate(ctx *middleware.ValidateContext, errs validation.BindingErrors) validation.BindingErrors {
 	if !webhook.IsValidSlackChannel(strings.TrimSpace(f.Channel)) {
-		errs = middleware.AddValidationError(errs, "Channel", ctx.Locale.TrString("repo.settings.add_webhook.invalid_channel_name"))
+		errs = validation.AddValidationError(errs, "Channel", ctx.Locale.TrString("repo.settings.add_webhook.invalid_channel_name"))
 	}
 	return errs
 }
@@ -399,7 +414,7 @@ type CreateIssueForm struct {
 type CreateCommentForm struct {
 	middleware.FormDefaultValidator
 	Content string
-	Status  string `binding:"OmitEmpty;In(reopen,close)"`
+	Status  string `binding:"In(reopen,close)"`
 	Files   []string
 }
 
@@ -472,20 +487,21 @@ type MergePullRequestForm struct {
 	ForceMerge             bool   `json:"force_merge,omitempty"`
 	MergeWhenChecksSucceed bool   `json:"merge_when_checks_succeed,omitempty"`
 	DeleteBranchAfterMerge *bool  `json:"delete_branch_after_merge,omitempty"`
+	HasMergeMessageField   bool   `form:"-" json:"-"`
 }
 
 func (f *MergePullRequestForm) UnmarshalJSON(b []byte) error {
 	// This is for backward compatibility, to support both field names like "do" and "Do",
 	// because old code doesn't have "json" tag for these fields
 	type aux struct {
-		Do1                string `json:"do"`
-		Do2                string `json:"Do"`
-		MergeTitleField1   string `json:"merge_title_field"`
-		MergeTitleField2   string `json:"MergeTitleField"`
-		MergeMessageField1 string `json:"merge_message_field"`
-		MergeMessageField2 string `json:"MergeMessageField"`
-		MergeCommitID1     string `json:"merge_commit_id"`
-		MergeCommitID2     string `json:"MergeCommitID"`
+		Do1                string  `json:"do"`
+		Do2                string  `json:"Do"`
+		MergeTitleField1   string  `json:"merge_title_field"`
+		MergeTitleField2   string  `json:"MergeTitleField"`
+		MergeMessageField1 *string `json:"merge_message_field"`
+		MergeMessageField2 *string `json:"MergeMessageField"`
+		MergeCommitID1     string  `json:"merge_commit_id"`
+		MergeCommitID2     string  `json:"MergeCommitID"`
 
 		HeadCommitID           string `json:"head_commit_id"`
 		ForceMerge             bool   `json:"force_merge"`
@@ -498,7 +514,10 @@ func (f *MergePullRequestForm) UnmarshalJSON(b []byte) error {
 	}
 	f.Do = util.IfZero(a.Do1, a.Do2)
 	f.MergeTitleField = util.IfZero(a.MergeTitleField1, a.MergeTitleField2)
-	f.MergeMessageField = util.IfZero(a.MergeMessageField1, a.MergeMessageField2)
+	f.MergeMessageField, f.HasMergeMessageField = "", false
+	if mergeMessageField := util.IfZero(a.MergeMessageField1, a.MergeMessageField2); mergeMessageField != nil {
+		f.MergeMessageField, f.HasMergeMessageField = *mergeMessageField, true
+	}
 	f.MergeCommitID = util.IfZero(a.MergeCommitID1, a.MergeCommitID2)
 	f.HeadCommitID = a.HeadCommitID
 	f.ForceMerge = a.ForceMerge
@@ -513,6 +532,7 @@ type CodeCommentForm struct {
 	Origin         string `binding:"Required;In(timeline,diff)"`
 	Content        string `binding:"Required"`
 	Side           string `binding:"Required;In(previous,proposed)"`
+	StartLine      int64
 	Line           int64
 	TreePath       string `form:"path" binding:"Required"`
 	SingleReview   bool   `form:"single_review"`
@@ -584,6 +604,7 @@ type NewReleaseForm struct {
 	Draft      bool
 	TagOnly    bool
 	Prerelease bool
+	MakeLatest bool
 	AddTagMsg  bool
 	Files      []string
 }
@@ -603,6 +624,7 @@ type EditReleaseForm struct {
 	Content    string `form:"content"`
 	Draft      string `form:"draft"`
 	Prerelease bool   `form:"prerelease"`
+	MakeLatest bool   `form:"make_latest"`
 	Files      []string
 }
 
@@ -620,8 +642,9 @@ type AddTimeManuallyForm struct {
 	Minutes int `binding:"Range(0,1000)"`
 }
 
-// SaveTopicForm form for save topics for repository
-type SaveTopicForm struct {
+// AddDeployTokenForm form for adding a deploy token to a repository
+type AddDeployTokenForm struct {
 	middleware.FormDefaultValidator
-	Topics []string `binding:"topics;Required;"`
+	Title      string `binding:"Required;MaxSize(50)"`
+	IsWritable bool
 }

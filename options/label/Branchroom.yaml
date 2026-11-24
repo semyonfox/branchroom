@@ -1,0 +1,19 @@
+labels:
+  - name: pr/in-progress
+    exclusive: true
+    exclusive_order: 1
+    color: "d4a72c"
+    description: Work is underway
+  - name: pr/needs-review
+    exclusive: true
+    exclusive_order: 2
+    color: "8250df"
+    description: Waiting for a person to review
+  - name: pr/ready
+    exclusive: true
+    exclusive_order: 3
+    color: "1a7f37"
+    description: Reviewed and ready to land when checks succeed
+  - name: land
+    color: "0969da"
+    description: Maintainer intends to merge when checks succeed

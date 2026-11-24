@@ -1,0 +1,365 @@
+@font-face {
+  font-family: Inter;
+  src: url("../../../public/assets/branchroom/fonts/inter-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../../../public/assets/branchroom/fonts/source-serif-4-semibold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+:root {
+  /* light defaults, each theme file redefines them after this import */
+  --branchroom-primary-button: #1f58a8;
+  --branchroom-primary-hover: #174580;
+  --branchroom-primary-border: #1a4d93;
+  --branchroom-row-border: #ecece8;
+  --branchroom-restricted-bg: #fbf6ea;
+  --branchroom-restricted-border: #e3d3b0;
+  --branchroom-restricted-text: #4f3608;
+  --branchroom-restricted-label: #6e4a0b;
+  --branchroom-hatch-bg: #f6edda;
+  --branchroom-topic-text: #174580;
+  --branchroom-topic-bg: #eef3fa;
+  --branchroom-merged: #6639ba;
+  --branchroom-open: #1a7f37;
+  --branchroom-closed: #b42318;
+  --branchroom-hatch: #c9a35a;
+  --branchroom-separator: #767c87;
+  --fonts-proportional: Inter, system-ui, sans-serif;
+  --border-radius: 6px;
+  --border-radius-medium: 8px;
+  --font-weight-light: 400;
+  --font-weight-bold: 600;
+}
+
+/* tabular figures only where numbers line up: Inter's tnum also widens "-" and "%" in prose */
+table,
+relative-time,
+.ui.label,
+.commit-list,
+.repository.file.list .repo-file-cell.age {
+  font-feature-settings: "tnum";
+}
+
+/* type scale */
+
+h1, .ui.header h1 { font-size: 24px; }
+h2, .ui.header h2 { font-size: 20px; }
+h3, .ui.header h3 { font-size: 16px; }
+h4, h5, h6 { font-size: 14px; }
+
+h1, h2, h3, h4, h5, h6, .ui.header {
+  font-weight: var(--font-weight-semibold);
+}
+
+.file-view.markdown :is(h1, h2), .wiki-content-main :is(h1, h2) {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: var(--font-weight-semibold);
+}
+
+.file-view.markdown h1, .wiki-content-main h1 { font-size: 24px; }
+.file-view.markdown h2, .wiki-content-main h2 { font-size: 20px; }
+
+.repository.view.issue .issue-title h1,
+#release-list .release-list-title {
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+/* surfaces: flat, one radius for boxes */
+
+.ui.segment, .ui.card, .ui.cards > .card, .ui.menu, .ui.message, .ui.table,
+.ui.dropdown .menu, .modal-dialog, .ui.attached.header {
+  box-shadow: none;
+}
+
+.ui.segment, .ui.card, .ui.cards > .card, .ui.table, #readme.non-diff-file-content, #repo-files-table {
+  border-radius: 8px;
+}
+
+.ui.attached.segment {
+  border-radius: 0 0 8px 8px;
+}
+
+/* a search result is one card: its fragments are divided, not boxed */
+.repo-search-result .ui.attached.segment:not(:last-child) {
+  border-radius: 0;
+}
+
+.repo-search-result .ui.attached.segment:has(+ .ui.attached.segment:not(.bottom)) {
+  border-bottom-style: dashed;
+}
+
+.repo-search-result .ui.bottom.attached.segment {
+  border-radius: 0 0 8px 8px;
+}
+
+.ui.top.attached.header {
+  background: var(--color-box-header);
+  border-radius: 8px 8px 0 0;
+  border-color: var(--color-secondary);
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+}
+
+/* controls: 32px default, 28px compact */
+
+.ui.button {
+  min-height: 32px !important; /* size rules repeat .ui four times */
+  padding: 5px 12px;
+  font-size: 13px !important; /* keep the theme scale across button sizes */
+  font-weight: var(--font-weight-medium);
+  box-shadow: none;
+  border-color: var(--color-input-border);
+}
+
+.ui.button:is(.mini, .tiny, .compact) {
+  min-height: 28px !important; /* compact sizes use the same framework specificity */
+  padding: 3px 10px;
+}
+
+.ui.primary.button, .ui.primary.buttons .button {
+  background: var(--branchroom-primary-button);
+  border-color: var(--branchroom-primary-border);
+  color: var(--color-white);
+}
+
+.ui.primary.button:not(.basic):is(:hover, :focus, :active),
+.ui.primary.buttons .button:is(:hover, :focus, :active) {
+  background: var(--branchroom-primary-hover);
+  color: var(--color-white);
+}
+
+.ui.basic.primary.button {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.ui.green.button { background: var(--branchroom-open); color: var(--color-white); }
+.ui.red.button { background: var(--branchroom-closed); color: var(--color-white); }
+.ui.green.button:hover { background: color-mix(in srgb, var(--branchroom-open) 80%, black); }
+.ui.red.button:hover { background: color-mix(in srgb, var(--branchroom-closed) 80%, black); }
+
+.ui.input > input, .ui.form input:not([type="checkbox"], [type="radio"], [type="file"]),
+.ui.form select, .ui.selection.dropdown {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.form .help {
+  color: var(--color-text-light-1);
+}
+
+/* labels and state pills */
+
+.ui.label, .ui.labels .label {
+  border-radius: 4px;
+  font-weight: var(--font-weight-medium);
+}
+
+.ui.ui.ui:is(.green, .red, .purple, .primary).label:not(.basic) { color: var(--color-white); }
+.ui.ui.ui.green.label:not(.basic) { background: var(--branchroom-open); }
+.ui.ui.ui.red.label:not(.basic) { background: var(--branchroom-closed); }
+.ui.ui.ui.purple.label:not(.basic) { background: var(--branchroom-merged); }
+.ui.ui.ui.primary.label:not(.basic) { background: var(--branchroom-primary-button); }
+
+.ui.label.issue-state-label {
+  color: var(--color-white);
+  background: var(--color-text-light);
+}
+
+.ui.label.issue-state-label:is(.purple, .violet) { background: var(--branchroom-merged); }
+.ui.label.issue-state-label.green { background: var(--branchroom-open); }
+.ui.label.issue-state-label.red { background: var(--branchroom-closed); }
+
+.ui.ui.ui:is(.yellow, .orange).label:not(.basic) {
+  background: var(--branchroom-restricted-bg);
+  color: var(--branchroom-restricted-label);
+  border: 1px solid var(--branchroom-restricted-border);
+}
+
+.repository .repo-topic {
+  background: var(--branchroom-topic-bg);
+  color: var(--branchroom-topic-text);
+  border-radius: 4px;
+}
+
+/* tables and lists */
+
+.ui.table th, .ui.form .field > label {
+  font-weight: var(--font-weight-medium);
+}
+
+table.ui.table > tbody > tr > td { /* diff and code tables sit inside a div.ui.table and must keep their line height */
+  height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-color: var(--branchroom-row-border);
+}
+
+#repo-files-table {
+  font-size: 13px;
+}
+
+#repo-files-table :is(.repo-file-cell, .repo-file-line) {
+  min-height: 40px;
+  border-color: var(--branchroom-row-border);
+}
+
+/* header: the site bar and the repo bar read as one calm block */
+
+#navbar {
+  min-height: 52px;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  border-bottom-color: var(--color-light-border);
+}
+
+.page-content > .secondary-nav {
+  border-bottom: 1px solid var(--color-light-border);
+}
+
+.page-content > .secondary-nav + .ui.tabs.divider,
+.secondary-nav .ui.tabs.divider {
+  display: none;
+}
+
+.repo-header .flex-text-block.tw-text-18 {
+  font-size: 20px !important; /* override the title utility supplied by the template */
+  color: var(--branchroom-separator);
+}
+
+.repo-header .tw-text-18 > a {
+  color: var(--color-text-light);
+}
+
+.repo-header .tw-text-18 > a:last-of-type {
+  color: var(--color-text-dark);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* counts next to tabs and buttons are plain numbers, not pills */
+.secondary-nav .item > .label,
+.repo-header .ui.button > .label,
+.ui.tabular.menu .item > .label {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  color: var(--color-text-light-1);
+  font-weight: var(--font-weight-normal);
+}
+
+.repository .ui.menu .item {
+  font-size: 14px;
+}
+
+.ui.secondary.pointing.menu .active.item,
+.ui.tabular.menu .active.item,
+.ui.tabular.menu .active.item:hover {
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 2px solid var(--color-primary);
+  border-radius: 0 !important; /* the framework sets tab corners with !important */
+  font-weight: var(--font-weight-semibold);
+}
+
+/* repo home */
+
+.repository .repository-summary .segment.sub-menu {
+  background: transparent;
+  gap: 20px;
+}
+
+.repository .repository-summary .sub-menu .item {
+  flex: 0 0 auto;
+  padding: 0;
+  height: 32px;
+  color: var(--color-text-light);
+}
+
+.repository .repository-summary .sub-menu .item:hover {
+  color: var(--color-primary);
+}
+
+.repository .repository-summary .sub-menu .item.active {
+  background: transparent;
+  color: var(--color-text-dark);
+}
+
+.repository .repository-summary {
+  border: 0;
+  background: transparent;
+}
+
+@media (max-width: 767.98px) {
+  /* on a phone the facts collapse to wrapped lines so the readme starts higher */
+  .repo-home-sidebar-top > .flex-relaxed-list {
+    flex-flow: row wrap;
+    column-gap: 16px;
+  }
+  .repo-home-sidebar-top .repo-home-sidebar-header {
+    display: none;
+  }
+  .repo-home-sidebar-top :is(.repo-description, #repo-topics, #manage_topic, #topic_edit) {
+    flex-basis: 100%;
+  }
+}
+
+/* issue and pull request pages */
+
+.issue-content-right > .divider:first-of-type,
+.issue-content-right > .divider + .divider,
+.issue-content-right > .divider:last-child {
+  display: none;
+}
+
+.repository.view.issue .issue-title-buttons > .ui.button {
+  height: 32px;
+}
+
+/* restricted work: ochre surface with a striped top edge, in both themes */
+
+.branchroom-restricted,
+.ui.message.branchroom-restricted,
+.ui.top.attached.header.branchroom-restricted,
+.ui.attached.segment.branchroom-restricted {
+  background-color: var(--branchroom-restricted-bg);
+  background-image: repeating-linear-gradient(135deg, var(--branchroom-hatch) 0 6px, var(--branchroom-hatch-bg) 6px 12px);
+  background-size: 100% 4px;
+  background-repeat: no-repeat;
+  color: var(--branchroom-restricted-text);
+  border: 1px solid var(--branchroom-restricted-border);
+}
+
+.branchroom-restricted:not(.attached) {
+  border-radius: 8px;
+  padding-top: 16px;
+}
+
+.branchroom-restricted :is(a, strong, label) {
+  color: var(--branchroom-restricted-label);
+}
+
+.branchroom .ui.form input:not([type="hidden"]),
+.branchroom .ui.form select, .branchroom-source-handoffs input {
+  min-height: 32px;
+}
+
+/* each workspace card carries the restricted stripe so it reads as separate from the ordinary repository */
+.branchroom-workspace.ui.attached.segment {
+  background-image: repeating-linear-gradient(135deg, var(--branchroom-hatch) 0 6px, var(--branchroom-hatch-bg) 6px 12px);
+  background-size: 100% 4px;
+  background-repeat: no-repeat;
+  padding-top: 20px;
+}

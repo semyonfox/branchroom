@@ -18,6 +18,7 @@ const (
 	GitPushOptionRepoPrivate  = "repo.private"
 	GitPushOptionRepoTemplate = "repo.template"
 	GitPushOptionForcePush    = "force-push"
+	GitPushOptionAllowSecrets = "secret_scanning.allow"
 )
 
 // Bool checks for a key in the map and parses as a boolean
