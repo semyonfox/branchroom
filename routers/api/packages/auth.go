@@ -45,11 +45,11 @@ func (a *Auth) Verify(req *http.Request, w http.ResponseWriter, _ auth.DataStore
 	case user_model.ActionsUserID:
 		u = user_model.NewActionsUserWithTaskID(packageMeta.ActionsUserTaskID)
 	default:
-		u, err = user_model.GetUserByID(req.Context(), packageMeta.UserID)
+		u, err = user_model.GetDoerPermissionUser(req.Context(), packageMeta.UserID, packageMeta.UserExtDoerData)
 		if err != nil {
 			return nil, err
 		}
-		if packageMeta.Scope != "" {
+		if packageMeta.Scope != "" && packageMeta.UserExtDoerData == "" {
 			u.ExtDoerData = user_model.NewTokenExtDoerData("", 0, packageMeta.Scope)
 		}
 	}

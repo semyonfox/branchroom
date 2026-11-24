@@ -21,7 +21,6 @@ var ErrAuditConflict = errors.New("branchroom audit head changed")
 
 // Decision records the safe result of one policy evaluation.
 type Decision struct {
-	Details         string             `xorm:"TEXT"`
 	ID              int64              `xorm:"pk autoincr"`
 	DecisionKey     string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
 	ScopeID         int64              `xorm:"INDEX(scope_created) NOT NULL"`
@@ -57,7 +56,6 @@ func (decision *Decision) Validate() error {
 
 // AuditEvent is one immutable, hash-linked event in a scope audit stream.
 type AuditEvent struct {
-	Details         string             `xorm:"TEXT"`
 	ID              int64              `xorm:"pk autoincr"`
 	EventKey        string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
 	DecisionKey     string             `xorm:"CHAR(36) UNIQUE NOT NULL"`
@@ -125,10 +123,6 @@ func (event *AuditEvent) ComputeHash() string {
 		_, _ = hash.Write([]byte{':'})
 		_, _ = hash.Write([]byte(field))
 	}
-	// empty details preserve hashes written before structured evidence was added
-	if event.Details != "" {
-		_, _ = hash.Write([]byte(strconv.Itoa(len(event.Details)) + ":" + event.Details))
-	}
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -163,7 +157,6 @@ func recordDecisionAndAuditOnce(ctx context.Context, scope *Scope, decision *Dec
 			decision.ExpiresUnix = decision.CreatedUnix
 		}
 		event = &AuditEvent{
-			Details:         decision.Details,
 			EventKey:        uuid.NewString(),
 			DecisionKey:     decision.DecisionKey,
 			ScopeID:         current.ID,

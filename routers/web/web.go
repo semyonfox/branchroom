@@ -11,6 +11,7 @@ import (
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/perm"
 	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/consts"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/graceful"
@@ -161,6 +162,10 @@ func newWebAuthMiddleware() *AuthMiddleware {
 		if err != nil {
 			log.Error("Failed to verify user: %v", err)
 			ctx.HTTPError(http.StatusUnauthorized, "Failed to authenticate user")
+			return
+		}
+		if len(user_model.GetDoerRepositoryIDs(ar.Doer)) > 0 && ctx.Req.Method != http.MethodGet && ctx.Req.Method != http.MethodHead && ctx.Req.Method != http.MethodOptions && ctx.PathParam("reponame") == "" {
+			ctx.HTTPError(http.StatusForbidden)
 			return
 		}
 		ctx.Doer = ar.Doer

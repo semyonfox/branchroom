@@ -500,6 +500,10 @@ func repoAssignmentLegacy(ctx *Context, data *repoAssignmentPrepareDataStruct) {
 		}
 	}
 
+	if !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repo) {
+		ctx.NotFound()
+		return
+	}
 	ctx.Repo.Repository = repo
 	ctx.Data["RepoName"] = ctx.Repo.Repository.Name
 	ctx.Data["IsEmptyRepo"] = ctx.Repo.Repository.IsEmpty

@@ -6,7 +6,9 @@ package setting
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	audit_model "gitea.dev/models/audit"
 	auth_model "gitea.dev/models/auth"
@@ -14,8 +16,10 @@ import (
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 	"gitea.dev/services/audit"
+	auth_service "gitea.dev/services/auth"
 	"gitea.dev/services/context"
 	"gitea.dev/services/forms"
 )
@@ -36,12 +40,13 @@ func Applications(ctx *context.Context) {
 }
 
 type AccessTokensPanel struct {
-	Tokens          []*auth_model.AccessToken
-	ScopeCategories []string
-	ScopePublicOnly auth_model.AccessTokenScope
-	Link            string
-	IsBot           bool
-	NewTokenValue   string
+	Tokens            []*auth_model.AccessToken
+	TokenRepositories map[int64][]string
+	ScopeCategories   []string
+	ScopePublicOnly   auth_model.AccessTokenScope
+	Link              string
+	IsBot             bool
+	NewTokenValue     string
 }
 
 func NewAccessTokensPanel(ctx *context.Context, owner *user_model.User, link string) *AccessTokensPanel {
@@ -50,12 +55,21 @@ func NewAccessTokensPanel(ctx *context.Context, owner *user_model.User, link str
 		ctx.ServerErrorAuto(err)
 		return nil
 	}
+	names := make(map[int64][]string, len(tokens))
+	for _, token := range tokens {
+		names[token.ID], err = auth_service.TokenRepositoryNames(ctx, token)
+		if err != nil {
+			ctx.ServerErrorAuto(err)
+			return nil
+		}
+	}
 	panel := &AccessTokensPanel{
-		Tokens:          tokens,
-		ScopeCategories: auth_model.GetAccessTokenCategories(),
-		ScopePublicOnly: auth_model.AccessTokenScopePublicOnly,
-		Link:            link,
-		IsBot:           owner.IsTypeBot(),
+		TokenRepositories: names,
+		Tokens:            tokens,
+		ScopeCategories:   auth_model.GetAccessTokenCategories(),
+		ScopePublicOnly:   auth_model.AccessTokenScopePublicOnly,
+		Link:              link,
+		IsBot:             owner.IsTypeBot(),
 	}
 	if !owner.IsAdmin {
 		panel.ScopeCategories = util.SliceRemoveAll(panel.ScopeCategories, "admin")
@@ -95,6 +109,44 @@ func CreateAccessToken(ctx *context.Context, owner *user_model.User) {
 		Scope: scope,
 	}
 
+	expiry := ctx.FormString("expiry")
+	switch expiry {
+	case "none":
+	case "custom":
+		date, err := time.Parse("2006-01-02", ctx.FormString("expires-date"))
+		if err != nil {
+			ctx.JSONError(ctx.Tr("settings.token_invalid_expiry"))
+			return
+		}
+		t.ExpiresUnix = timeutil.TimeStamp(date.Unix())
+	default:
+		if expiry == "" {
+			expiry = "30"
+		}
+		days, err := strconv.Atoi(expiry)
+		if err != nil || (days != 7 && days != 30 && days != 90) {
+			ctx.JSONError(ctx.Tr("settings.token_invalid_expiry"))
+			return
+		}
+		t.ExpiresUnix = timeutil.TimeStampNow().AddDuration(time.Duration(days) * 24 * time.Hour)
+	}
+	if err := t.ValidateExpiry(); err != nil {
+		ctx.JSONError(ctx.Tr("settings.token_invalid_expiry"))
+		return
+	}
+	if ctx.FormString("repository-access") == "selected" {
+		names := ctx.Req.Form["repositories"]
+		if len(names) == 0 {
+			ctx.JSONError(ctx.Tr("settings.token_select_repository"))
+			return
+		}
+		ids, err := auth_service.ResolveTokenRepositories(ctx, owner, names)
+		if err != nil {
+			ctx.JSONError(ctx.Tr("settings.token_select_repository"))
+			return
+		}
+		t.RepositoryIDs = ids
+	}
 	exist, err := auth_model.AccessTokenByNameExists(ctx, t)
 	if err != nil {
 		ctx.ServerErrorAuto(err)

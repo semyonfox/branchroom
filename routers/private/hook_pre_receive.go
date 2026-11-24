@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"strings"
 
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
@@ -15,7 +14,6 @@ import (
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
 	"gitea.dev/modules/private"
-	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web"
 	"gitea.dev/services/agit"
@@ -111,11 +109,6 @@ func HookPreReceive(ctx *gitea_context.PrivateContext) {
 }
 
 func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, refFullName git.RefName) {
-	if setting.Branchroom.Enabled && !ctx.opts.IsWiki && strings.HasPrefix(refFullName.BranchName(), "branchroom/") {
-		ctx.PrivateUserErrorf(http.StatusForbidden, "branchroom/* branches are reserved. Use the restricted clone URL from the Branchroom access page.")
-		return
-	}
-
 	branchName := refFullName.BranchName()
 
 	if !ctx.assertCanWriteRef(refFullName) {

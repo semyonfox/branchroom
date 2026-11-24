@@ -34,6 +34,10 @@
 									{{ctx.Locale.Tr "settings.permissions_access_all"}}
 								{{end}}
 							</p>
+
+                            <p class="tw-my-1">{{ctx.Locale.Tr "settings.token_expiry"}}: {{if $token.ExpiresUnix}}{{DateUtils.AbsoluteShort $token.ExpiresUnix}}{{else}}{{ctx.Locale.Tr "settings.token_expiry_none"}}{{end}}</p>
+                            <p class="tw-my-1">{{ctx.Locale.Tr "settings.token_repositories"}}:</p>
+                            {{if $token.RepositoryIDs}}<ul>{{range $name := index $.TokenRepositories $token.ID}}<li>{{$name}}</li>{{end}}</ul>{{else}}<p>{{ctx.Locale.Tr "settings.token_all_repositories"}}</p>{{end}}
 							<p class="tw-my-1">{{ctx.Locale.Tr "settings.permissions_list"}}</p>
 							<ul class="tw-my-1">
 							{{range $scope := $token.Scope.StringSlice}}
@@ -64,11 +68,40 @@
 	<div class="ui bottom attached segment">
 		<details {{if not .Tokens}}open{{end}}>
 			<summary><h4 class="ui header tw-inline-block tw-my-2">{{ctx.Locale.Tr "settings.generate_new_token"}}</h4></summary>
-			<form class="ui form ignore-dirty form-fetch-action" action="{{.Link}}" method="post" data-fetch-sync="$body #access-token-panel">
+			<form class="ui form ignore-dirty form-fetch-action" action="{{.Link}}" method="post" data-fetch-sync="$body #access-token-panel" data-global-init="initAccessTokenForm">
 				<div class="field">
 					<label for="name">{{ctx.Locale.Tr "settings.token_name"}}</label>
 					<input id="name" name="name" required maxlength="255">
 				</div>
+
+                <div class="field">
+                    <label>{{ctx.Locale.Tr "settings.token_expiry"}}</label>
+                    <select name="expiry">
+                        <option value="7">{{ctx.Locale.Tr "settings.token_expiry_7"}}</option>
+                        <option value="30" selected>{{ctx.Locale.Tr "settings.token_expiry_30"}}</option>
+                        <option value="90">{{ctx.Locale.Tr "settings.token_expiry_90"}}</option>
+                        <option value="custom">{{ctx.Locale.Tr "settings.token_expiry_custom"}}</option>
+                        <option value="none">{{ctx.Locale.Tr "settings.token_expiry_none"}}</option>
+                    </select>
+                </div>
+                <div class="field tw-hidden" data-token-custom-expiry>
+                    <label>{{ctx.Locale.Tr "settings.token_expiry_custom"}}</label>
+                    <input type="date" name="expires-date">
+                </div>
+                <div class="field">
+                    <label>{{ctx.Locale.Tr "settings.token_repositories"}}</label>
+                    <select name="repository-access">
+                        <option value="all">{{ctx.Locale.Tr "settings.token_all_repositories"}}</option>
+                        <option value="selected">{{ctx.Locale.Tr "settings.token_selected_repositories"}}</option>
+                    </select>
+                </div>
+                <div class="field tw-hidden" data-token-repository-picker>
+                    <label>{{ctx.Locale.Tr "settings.token_repository_search"}}</label>
+                    <input type="search" data-token-repository-search>
+                    <button type="button" class="ui button" data-token-search-button>{{ctx.Locale.Tr "search"}}</button>
+                    <div data-token-search-results role="status"></div>
+                    <div data-token-selected-repositories></div>
+                </div>
 				<div class="field">
 					<div class="tw-my-2">{{ctx.Locale.Tr "settings.repo_and_org_access"}}</div>
 					<label class="gt-checkbox">

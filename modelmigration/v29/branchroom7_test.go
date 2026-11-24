@@ -37,17 +37,3 @@ func TestConvertBranchroomAuditHashesToVarchar(t *testing.T) {
 	assert.Empty(t, head)
 	assert.Empty(t, previous)
 }
-
-func TestAddBranchroomAuditDetails(t *testing.T) {
-	x, deferable := migrationtest.PrepareTestEnv(t, 0, new(branchroomDecisionMigration), new(branchroomAuditEventMigration), new(branchroomReceiveSessionMigration))
-	defer deferable()
-	if x == nil || t.Failed() {
-		return
-	}
-	require.NoError(t, AddBranchroomAuditDetails(t.Context(), x))
-	require.NoError(t, AddBranchroomAuditDetails(t.Context(), x))
-	tables := migrationtest.LoadTableSchemasMap(t, x)
-	assert.Contains(t, tables["branchroom_audit_event"].ColumnsSeq(), "details")
-	assert.Contains(t, tables["branchroom_decision"].ColumnsSeq(), "details")
-	assert.Contains(t, tables["branchroom_receive_session"].ColumnsSeq(), "updates")
-}

@@ -57,15 +57,14 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 		if err := branchroom_model.InsertScope(txCtx, scope); err != nil {
 			return nil, err
 		}
-		grant := &branchroom_model.Grant{
+		if err := branchroom_model.InsertGrant(txCtx, &branchroom_model.Grant{
 			ScopeID:     scope.ID,
 			SubjectType: branchroom_model.SubjectTypeUser,
 			SubjectID:   request.Actor.ID,
 			ExpiresUnix: timeutil.TimeStampNow().AddDuration(setting.Branchroom.GrantDuration()),
 			Action:      branchroom_model.ActionDiscover,
 			CreatedByID: request.Actor.ID,
-		}
-		if err := branchroom_model.InsertGrant(txCtx, grant); err != nil {
+		}); err != nil {
 			return nil, err
 		}
 
@@ -86,9 +85,6 @@ func createRepositoryScope(ctx context.Context, request CreateRepositoryScopeReq
 			ExpiresUnix:     now,
 			CreatedUnix:     now,
 		}); err != nil {
-			return nil, err
-		}
-		if err := recordRepositoryGrantChange(txCtx, scope, grant.ID, request.Actor, request.Surface, request.RequestID, reasonDiscoveryGrantCreated); err != nil {
 			return nil, err
 		}
 		return scope, nil

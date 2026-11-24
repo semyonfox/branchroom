@@ -37,13 +37,12 @@ func IsReceiveSessionStateValid(state ReceiveSessionState) bool {
 type ReceiveSessionOutcome string
 
 const (
-	ReceiveSessionOutcomeAccepted ReceiveSessionOutcome = "accepted"
-	ReceiveSessionOutcomePending  ReceiveSessionOutcome = "pending"
-	ReceiveSessionOutcomeDenied   ReceiveSessionOutcome = "denied"
-	ReceiveSessionOutcomeFailed   ReceiveSessionOutcome = "failed"
-	ReceiveSessionOutcomeExpired  ReceiveSessionOutcome = "expired"
-	ReceiveSessionOutcomeRevoked  ReceiveSessionOutcome = "revoked"
-	ReceiveSessionOutcomeLegacy   ReceiveSessionOutcome = "legacy"
+	ReceiveSessionOutcomePending ReceiveSessionOutcome = "pending"
+	ReceiveSessionOutcomeDenied  ReceiveSessionOutcome = "denied"
+	ReceiveSessionOutcomeFailed  ReceiveSessionOutcome = "failed"
+	ReceiveSessionOutcomeExpired ReceiveSessionOutcome = "expired"
+	ReceiveSessionOutcomeRevoked ReceiveSessionOutcome = "revoked"
+	ReceiveSessionOutcomeLegacy  ReceiveSessionOutcome = "legacy"
 
 	// ReceiveSessionOutcomeAdmitted means a pre-receive admission gate accepted an update;
 	// it does not mean Git committed refs.
@@ -53,7 +52,7 @@ const (
 // IsReceiveSessionOutcomeValid reports whether outcome is persisted by the current schema.
 func IsReceiveSessionOutcomeValid(outcome ReceiveSessionOutcome) bool {
 	switch outcome {
-	case ReceiveSessionOutcomeAccepted, ReceiveSessionOutcomePending, ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeExpired, ReceiveSessionOutcomeRevoked, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
+	case ReceiveSessionOutcomePending, ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeExpired, ReceiveSessionOutcomeRevoked, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
 		return true
 	default:
 		return false
@@ -62,10 +61,8 @@ func IsReceiveSessionOutcomeValid(outcome ReceiveSessionOutcome) bool {
 
 // ReceiveSession binds one direct user to one repository workspace for a single source-write push.
 // SessionKey is an opaque public locator and BearerSecretHash is a SHA-256 hash only; raw bearer
-// secrets, store IDs, route keys, clone locators, and paths must never be persisted here.
-// Updates contains only parsed ref names and object IDs for outcome evidence.
+// secrets, store IDs, route keys, clone locators, refs, object IDs, and paths must never be persisted here.
 type ReceiveSession struct {
-	Updates          string                `xorm:"TEXT"`
 	ID               int64                 `xorm:"pk autoincr"`
 	SessionKey       string                `xorm:"CHAR(36) UNIQUE NOT NULL"`
 	BearerSecretHash string                `xorm:"CHAR(64) UNIQUE NOT NULL"`
@@ -114,7 +111,7 @@ func (session *ReceiveSession) Validate() error {
 		outcomeValid = session.Outcome == ReceiveSessionOutcomePending
 	case ReceiveSessionStateCompleted:
 		switch session.Outcome {
-		case ReceiveSessionOutcomeAccepted, ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
+		case ReceiveSessionOutcomeDenied, ReceiveSessionOutcomeFailed, ReceiveSessionOutcomeLegacy, ReceiveSessionOutcomeAdmitted:
 			outcomeValid = true
 		}
 	case ReceiveSessionStateExpired:

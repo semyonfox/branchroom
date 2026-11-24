@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"gitea.dev/modules/auth/password/hash"
 	"gitea.dev/modules/egress/policy"
@@ -17,6 +18,7 @@ import (
 // Security settings
 var Security = struct {
 	// TODO: move more settings to this struct in future
+	MaxTokenDuration    time.Duration
 	XFrameOptions       string
 	XContentTypeOptions string
 
@@ -143,6 +145,7 @@ func generateSaveInternalToken(rootCfg ConfigProvider) {
 
 func loadSecurityFrom(rootCfg ConfigProvider) {
 	sec := rootCfg.Section("security")
+	Security.MaxTokenDuration = sec.Key("MAX_TOKEN_DURATION").MustDuration(0)
 	LogInRememberDays = sec.Key("LOGIN_REMEMBER_DAYS").MustInt(31)
 	SecretKey = loadSecret(sec, "SECRET_KEY_URI", "SECRET_KEY")
 	if SecretKey == "" {

@@ -197,6 +197,10 @@ func repoAssignment() func(ctx *context.APIContext) {
 		}
 
 		repo.Owner = owner
+		if !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repo) {
+			ctx.APIErrorNotFound()
+			return
+		}
 		ctx.Repo.Repository = repo
 
 		{
@@ -868,6 +872,11 @@ func apiAuth(authMethod auth.Method) func(*context.APIContext) {
 			msg, ok := auth.ErrAsUserAuthMessage(err)
 			msg = util.Iif(ok, msg, "invalid username, password or token")
 			ctx.APIError(http.StatusUnauthorized, msg)
+			return
+		}
+
+		if len(user_model.GetDoerRepositoryIDs(ar.Doer)) > 0 && ctx.Req.Method != http.MethodGet && ctx.Req.Method != http.MethodHead && ctx.Req.Method != http.MethodOptions && ctx.PathParam("reponame") == "" && (ctx.PathParam("type") == "" || ctx.PathParam("name") == "") {
+			ctx.APIError(http.StatusForbidden, "repository-limited tokens cannot change account or organisation resources")
 			return
 		}
 		ctx.Doer = ar.Doer

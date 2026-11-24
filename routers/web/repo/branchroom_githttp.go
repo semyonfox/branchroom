@@ -4,7 +4,6 @@
 package repo
 
 import (
-	"bytes"
 	"compress/gzip"
 	"errors"
 	"io"
@@ -156,11 +155,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		return
 	}
 	defer credential.Clear()
-	var receiveReport bytes.Buffer
-	defer func() {
-		credential.Report = receiveReport.Bytes()
-		branchroom_service.FinalizeReceiveAdmission(ctx, credential)
-	}()
+	defer branchroom_service.FinalizeReceiveAdmission(ctx, credential)
 
 	environ := branchroomGitHTTPEnvironment(ctx)
 	environ = append(environ,
@@ -179,7 +174,7 @@ func BranchroomGitHTTPReceivePack(ctx *context.Context) {
 		WithEnv(environ).
 		WithRepo(restricted).
 		WithStdinBytes(body).
-		WithStdoutCopy(io.MultiWriter(ctx.Resp, &receiveReport)).
+		WithStdoutCopy(ctx.Resp).
 		WithTimeout(rpcTimeout).
 		RunWithStderr(ctx)
 	if err != nil && !gitcmd.IsErrorCanceledOrKilled(err) {
@@ -396,7 +391,7 @@ func authorizeBranchroomGitHTTPIdentity(ctx *context.Context, tokenAuthorized fu
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}
-	if !tokenAuthorized(ctx) {
+	if !repo_model.DoerTokenAllowsRepo(ctx, ctx.Doer, repository) || !tokenAuthorized(ctx) {
 		branchroomGitHTTPNotFound(ctx)
 		return branchroomGitHTTPAuthorization{}, false
 	}

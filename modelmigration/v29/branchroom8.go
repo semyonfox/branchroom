@@ -7,20 +7,19 @@ import (
 	"context"
 
 	"gitea.dev/modelmigration/base"
+	"gitea.dev/modules/timeutil"
 
 	"xorm.io/xorm"
 )
 
-func AddBranchroomAuditDetails(_ context.Context, x base.EngineMigration) error {
-	for _, table := range []string{"branchroom_decision", "branchroom_audit_event"} {
-		if _, err := x.Table(table).SyncWithOptions(xorm.SyncOptions{IgnoreDropIndices: true, IgnoreConstrains: true}, &struct {
-			Details string `xorm:"TEXT"`
-		}{}); err != nil {
-			return err
-		}
-	}
-	_, err := x.Table("branchroom_receive_session").SyncWithOptions(xorm.SyncOptions{IgnoreDropIndices: true, IgnoreConstrains: true}, &struct {
-		Updates string `xorm:"TEXT"`
-	}{})
+type accessTokenRestrictions struct {
+	ExpiresUnix   timeutil.TimeStamp `xorm:"NOT NULL DEFAULT 0"`
+	RepositoryIDs []int64            `xorm:"JSON TEXT"`
+}
+
+func (accessTokenRestrictions) TableName() string { return "access_token" }
+
+func AddAccessTokenRestrictions(_ context.Context, x base.EngineMigration) error {
+	_, err := x.SyncWithOptions(xorm.SyncOptions{IgnoreDropIndices: true, IgnoreConstrains: true}, new(accessTokenRestrictions))
 	return err
 }

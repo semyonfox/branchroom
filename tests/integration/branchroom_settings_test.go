@@ -5,7 +5,6 @@ package integration
 
 import (
 	"bytes"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -88,7 +87,7 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		doc := NewHTMLParser(t, resp.Body)
 		AssertHTMLElement(t, doc, "#branchroom-scope-name", true)
-		assert.Contains(t, doc.Find(".ui.warning.message").Text(), "Restricted source is kept separately from the ordinary repository")
+		assert.Contains(t, doc.Find(".ui.warning.message").Text(), "Provisioning alone does not expose isolated source")
 
 		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, branchroomURL, map[string]string{"name": "security-fix"}), http.StatusSeeOther)
 
@@ -132,7 +131,7 @@ func TestBranchroomSettings(t *testing.T) {
 		resp = owner.MakeRequest(t, NewRequest(t, http.MethodGet, branchroomURL), http.StatusOK)
 		body := resp.Body.String()
 		assert.Contains(t, body, string(branchroom_model.WorkspaceStateReady))
-		assert.Contains(t, body, "Allows HTTPS pushes with clone access and Write on the repository")
+		assert.Contains(t, body, "This direct grant allows restricted HTTPS pushes")
 		assert.NotContains(t, body, workspace.WorkspaceKey)
 		assert.NotContains(t, body, oldRouteKey)
 		assert.NotContains(t, body, workspace.RouteKey)
@@ -141,7 +140,7 @@ func TestBranchroomSettings(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, body, gitrepo.RepoLocalPath(restricted))
 		doc = NewHTMLParser(t, resp.Body)
-		assert.Contains(t, doc.Find(".help").Text(), "Only people with permission to see and clone this workspace")
+		assert.Contains(t, doc.Find(".help").Text(), "remains hidden until a direct user")
 		AssertHTMLElement(t, doc, "#branchroom-source-grant-user-"+strconv.FormatInt(scope.ID, 10), true)
 		AssertHTMLElement(t, doc, "#branchroom-source-write-grant-user-"+strconv.FormatInt(scope.ID, 10), true)
 		AssertHTMLElement(t, doc, "#branchroom-route-key-rotate-"+strconv.FormatInt(scope.ID, 10), true)
@@ -255,9 +254,6 @@ func TestBranchroomSettings(t *testing.T) {
 		sourceGrants, err := branchroom_model.FindActiveGrantsAt(t.Context(), scope.ID, branchroom_model.ActionReadSource, timeutil.TimeStampNow())
 		require.NoError(t, err)
 		require.Len(t, sourceGrants, 1)
-		event := unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{GrantID: sourceGrants[0].ID, ReasonCode: "source_read_grant_created"})
-		assert.JSONEq(t, fmt.Sprintf(`{"not_before_unix":0,"expires_unix":%d}`, sourceGrants[0].ExpiresUnix), event.Details)
-
 		owner.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-grants/"+strconv.FormatInt(sourceGrants[0].ID, 10)+"/revoke"), http.StatusSeeOther)
 		storedSourceGrant, err := branchroom_model.GetGrantByID(t.Context(), sourceGrants[0].ID)
 		require.NoError(t, err)
@@ -535,7 +531,7 @@ func TestBranchroomAuditEvidence(t *testing.T) {
 	resp := owner.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL), http.StatusOK)
 	pageBody := resp.Body.String()
 	doc := NewHTMLParser(t, resp.Body)
-	assert.Contains(t, doc.Find("#branchroom-chain-status").Text(), "Audit hash chain intact")
+	assert.Contains(t, doc.Find("#branchroom-chain-status").Text(), "Audit chain verified")
 	assert.Contains(t, doc.Find("tbody").Text(), "workspace_created")
 	assert.NotContains(t, pageBody, workspace.RouteKey)
 	collaborator.MakeRequest(t, NewRequest(t, http.MethodGet, auditURL), http.StatusNotFound)

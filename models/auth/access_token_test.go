@@ -5,13 +5,17 @@ package auth_test
 
 import (
 	"testing"
+	"time"
 
 	auth_model "gitea.dev/models/auth"
 	"gitea.dev/models/db"
 	"gitea.dev/models/unittest"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAccessTokenLifecycle(t *testing.T) {
@@ -166,4 +170,29 @@ func TestUpdateAccessToken(t *testing.T) {
 
 	assert.NoError(t, auth_model.UpdateAccessToken(t.Context(), token))
 	unittest.AssertExistsAndLoadBean(t, token)
+}
+
+func TestAccessTokenExpiry(t *testing.T) {
+	require.NoError(t, unittest.PrepareTestDatabase())
+	token := &auth_model.AccessToken{UID: 2, Name: "expiry", Scope: "all", ExpiresUnix: timeutil.TimeStampNow().AddDuration(time.Hour), RepositoryIDs: []int64{1}}
+	require.NoError(t, auth_model.NewAccessToken(t.Context(), token))
+	loaded, err := auth_model.GetAccessTokenBySHA(t.Context(), token.Token)
+	require.NoError(t, err)
+	assert.Equal(t, token.RepositoryIDs, loaded.RepositoryIDs)
+	token.ExpiresUnix = timeutil.TimeStampNow() - 1
+	require.NoError(t, auth_model.UpdateAccessToken(t.Context(), token))
+	_, err = auth_model.GetAccessTokenBySHA(t.Context(), token.Token)
+	require.ErrorIs(t, err, util.ErrNotExist)
+	auth_model.TokenCache().Purge()
+	_, err = auth_model.GetAccessTokenBySHA(t.Context(), token.Token)
+	require.ErrorIs(t, err, util.ErrNotExist)
+	old := setting.Security.MaxTokenDuration
+	t.Cleanup(func() { setting.Security.MaxTokenDuration = old })
+	setting.Security.MaxTokenDuration = time.Hour
+	token.ExpiresUnix = 0
+	require.Error(t, auth_model.NewAccessToken(t.Context(), token))
+	token.ExpiresUnix = timeutil.TimeStampNow().AddDuration(2 * time.Hour)
+	require.Error(t, auth_model.NewAccessToken(t.Context(), token))
+	token.ExpiresUnix = timeutil.TimeStampNow().AddDuration(30 * time.Minute)
+	require.NoError(t, token.ValidateExpiry())
 }

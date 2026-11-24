@@ -102,7 +102,7 @@ func (b *Basic) VerifyAuthToken(req *http.Request, w http.ResponseWriter, store 
 			log.Error("UpdateAccessToken:  %v", err)
 		}
 
-		u.ExtDoerData = user_model.NewTokenExtDoerData(user_model.CredentialAccessToken, token.ID, token.Scope)
+		u.ExtDoerData = user_model.NewAccessTokenExtDoerData(token)
 		return u, nil
 	} else if !errors.Is(err, util.ErrNotExist) {
 		log.Error("GetAccessTokenBySHA: %v", err)

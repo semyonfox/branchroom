@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gitea.dev/models/db"
+	"gitea.dev/modules/setting"
 	"gitea.dev/modules/timeutil"
 	"gitea.dev/modules/util"
 
@@ -26,6 +27,8 @@ type AccessToken struct {
 	TokenSalt      string
 	TokenLastEight string `xorm:"INDEX token_last_eight"`
 	Scope          AccessTokenScope
+	ExpiresUnix    timeutil.TimeStamp `xorm:"NOT NULL DEFAULT 0"`
+	RepositoryIDs  []int64            `xorm:"JSON TEXT"`
 
 	CreatedUnix       timeutil.TimeStamp `xorm:"INDEX created"`
 	UpdatedUnix       timeutil.TimeStamp `xorm:"INDEX updated"`
@@ -55,6 +58,9 @@ func (t *AccessToken) setNewTokenValue() {
 
 // NewAccessToken creates new access token.
 func NewAccessToken(ctx context.Context, t *AccessToken) error {
+	if err := t.ValidateExpiry(); err != nil {
+		return err
+	}
 	t.setNewTokenValue()
 	_, err := db.GetEngine(ctx).Insert(t)
 	return err
@@ -101,7 +107,7 @@ func GetAccessTokenBySHA(ctx context.Context, token string) (*AccessToken, error
 		if err != nil {
 			return nil, err
 		}
-		if has && util.CryptoConstTimeEqual(accessToken.TokenHash, cached.TokenHash) {
+		if has && !accessToken.IsExpired() && util.CryptoConstTimeEqual(accessToken.TokenHash, cached.TokenHash) {
 			return accessToken, nil
 		}
 		// either the token has been deleted or changed, invalidate the cache
@@ -118,7 +124,7 @@ func GetAccessTokenBySHA(ctx context.Context, token string) (*AccessToken, error
 
 	for _, t := range tokens {
 		tempHash := HashToken(token, t.TokenSalt)
-		if util.CryptoConstTimeEqual(t.TokenHash, tempHash) {
+		if !t.IsExpired() && util.CryptoConstTimeEqual(t.TokenHash, tempHash) {
 			TokenCache().Add(cacheKey, &TokenCacheItem{TokenID: t.ID, TokenHash: t.TokenHash})
 			return &t, nil
 		}
@@ -176,6 +182,29 @@ func DeleteAccessTokenByID(ctx context.Context, id, userID int64) error {
 		return err
 	} else if cnt != 1 {
 		return util.NewNotExistErrorf("access token not found")
+	}
+	return nil
+}
+
+func (t *AccessToken) ExpiresAt() *time.Time {
+	if t.ExpiresUnix == 0 {
+		return nil
+	}
+	value := t.ExpiresUnix.AsTime()
+	return &value
+}
+
+func (t *AccessToken) IsExpired() bool {
+	return t.ExpiresUnix != 0 && t.ExpiresUnix <= timeutil.TimeStampNow()
+}
+
+func (t *AccessToken) ValidateExpiry() error {
+	now := timeutil.TimeStampNow()
+	if t.ExpiresUnix != 0 && t.ExpiresUnix <= now {
+		return util.NewInvalidArgumentErrorf("token expiry must be in the future")
+	}
+	if maximum := setting.Security.MaxTokenDuration; maximum > 0 && (t.ExpiresUnix == 0 || t.ExpiresUnix > now.AddDuration(maximum)) {
+		return util.NewInvalidArgumentErrorf("token expiry exceeds MAX_TOKEN_DURATION")
 	}
 	return nil
 }

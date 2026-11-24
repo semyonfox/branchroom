@@ -5,6 +5,7 @@ package context
 
 import (
 	"net/http"
+	"strings"
 
 	"gitea.dev/models/organization"
 	packages_model "gitea.dev/models/packages"
@@ -13,6 +14,7 @@ import (
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/templates"
+	"gitea.dev/modules/util"
 )
 
 // Package contains owner, access mode and optional the package descriptor
@@ -58,11 +60,36 @@ func packageAssignment(ctx *packageAssignmentCtx, errCb func(error)) *Package {
 	}
 	packageType := ctx.PathParam("type")
 	name := ctx.PathParam("name")
+	if len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 && packageType == "" {
+		path := strings.TrimPrefix(ctx.Req.URL.Path, setting.AppSubURL)
+		if rest, ok := strings.CutPrefix(path, "/api/packages/"+ctx.PathParam("username")+"/"); ok {
+			packageType, _, _ = strings.Cut(rest, "/")
+		}
+		if strings.HasPrefix(path, "/v2/") {
+			packageType = string(packages_model.TypeContainer)
+			name = ctx.PathParam("image")
+		}
+		if name == "" {
+			name = ctx.PathParam("packagename")
+		}
+		if name == "" {
+			name = ctx.PathParam("package")
+		}
+	}
+
 	if packageType == "" || name == "" {
+		if len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 {
+			errCb(util.NewNotExistErrorf("package not found"))
+			return nil
+		}
 		return pkg
 	}
 
 	version := ctx.PathParam("version")
+	if version == "" && len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 {
+		version = ctx.PathParam("packageversion")
+	}
+
 	if version != "" {
 		pv, err := packages_model.GetVersionByNameAndVersion(ctx, pkg.Owner.ID, packages_model.Type(packageType), name, version)
 		if err != nil {
@@ -88,6 +115,10 @@ func packageAssignment(ctx *packageAssignmentCtx, errCb func(error)) *Package {
 		}
 	}
 
+	if len(user_model.GetDoerRepositoryIDs(ctx.Doer)) > 0 && (pkg.Descriptor == nil || !user_model.DoerTokenAllowsRepositoryID(ctx.Doer, pkg.Descriptor.Package.RepoID)) {
+		errCb(util.NewNotExistErrorf("package not found"))
+		return nil
+	}
 	return pkg
 }
 

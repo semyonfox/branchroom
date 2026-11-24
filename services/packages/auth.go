@@ -26,12 +26,17 @@ type PackageMeta struct {
 	UserID            int64
 	Scope             auth_model.AccessTokenScope
 	ActionsUserTaskID int64
+	UserExtDoerData   string
 }
 
 func CreateAuthorizationToken(u *user_model.User, packageScope auth_model.AccessTokenScope) (string, error) {
 	now := time.Now()
 
 	actionsUserTaskID, _ := user_model.GetActionsUserTaskID(u)
+	var extData string
+	if u.ExtDoerData != nil {
+		extData = u.ExtDoerData.EncodeToString()
+	}
 	claims := packageClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
@@ -39,6 +44,7 @@ func CreateAuthorizationToken(u *user_model.User, packageScope auth_model.Access
 		},
 		PackageMeta: PackageMeta{
 			UserID:            u.ID,
+			UserExtDoerData:   extData,
 			Scope:             packageScope,
 			ActionsUserTaskID: actionsUserTaskID,
 		},
