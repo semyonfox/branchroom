@@ -159,11 +159,6 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 	if setting.Branchroom.RestrictedRepoRootPath != "" {
 		dumper.GlobalExcludeAbsPath(branchroomDumpExcludes(setting.Branchroom.RestrictedRepoRootPath, setting.AppDataPath, setting.CustomPath)...)
 	}
-	defer func() {
-		if err := dumper.Close(); err != nil {
-			fatal("Failed to save archive %q: %v", outFileName, err)
-		}
-	}()
 
 	if cmd.IsSet("skip-repository") && cmd.Bool("skip-repository") {
 		log.Info("Skip dumping local repositories")
@@ -188,7 +183,8 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	if cmd.Bool("branchroom-stores") {
+	includeBranchroomStores := cmd.Bool("branchroom-stores")
+	if includeBranchroomStores {
 		if setting.Branchroom.RestrictedRepoRootPath == "" {
 			fatal("Branchroom is not enabled, there are no restricted stores to dump")
 		}
@@ -330,10 +326,19 @@ func runDump(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	if err := dumper.Close(); err != nil {
+		fatal("Failed to save archive %q: %v", outFileName, err)
+		return err
+	}
+
+	var summarySuffix string
+	if setting.Branchroom.Enabled {
+		summarySuffix = util.Iif(includeBranchroomStores, " (Branchroom restricted stores included)", " (Branchroom restricted stores excluded)")
+	}
 	if outFileName == "-" {
-		log.Info("Finish dumping to stdout")
+		log.Info("Finish dumping to stdout%s", summarySuffix)
 	} else {
-		log.Info("Finish dumping in file %s", outFileName)
+		log.Info("Finish dumping in file %s%s", outFileName, summarySuffix)
 	}
 	return nil
 }
