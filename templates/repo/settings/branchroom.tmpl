@@ -34,12 +34,12 @@
 									<div class="help tw-mt-2">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_unreachable"}}</div>
 									{{if .CanRetryWorkspace}}
 										<form class="tw-mt-2" action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retry" method="post">
-											<button id="branchroom-workspace-retry-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retry"}}</button>
+											<button type="submit" id="branchroom-workspace-retry-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retry"}}</button>
 										</form>
 									{{end}}
 									{{if .CanRetireWorkspace}}
 										<form class="tw-mt-2" action="{{$.RepoLink}}/settings/branchroom/scopes/{{.ID}}/workspaces/retire" method="post">
-											<button id="branchroom-workspace-retire-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</button>
+											<button type="submit" id="branchroom-workspace-retire-{{.ID}}" class="ui basic button">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_retire"}}</button>
 										</form>
 									{{end}}
 									{{if .CanPurgeWorkspace}}
@@ -71,7 +71,7 @@
 								<form class="ui form flex-text-block tw-mt-3" action="{{$.RepoLink}}/settings/branchroom/workspaces" method="post">
 									<input type="hidden" name="scope_id" value="{{.ID}}">
 									<div class="item-body tw-flex-1">{{ctx.Locale.Tr "repo.settings.branchroom.workspace_default_branch"}}</div>
-									<button id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
+									<button type="submit" id="branchroom-workspace-provision-{{.ID}}" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.provision_workspace"}}</button>
 								</form>
 							{{end}}
 							{{if ne .State "retired"}}
@@ -82,7 +82,7 @@
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -98,7 +98,7 @@
 										<input id="branchroom-grant-user-{{.ID}}" name="username" maxlength="255" required>
 									</div>
 									{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-grant-%d" .ID))}}
-									<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_discovery"}}</button>
+									<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_discovery"}}</button>
 								</form>
 							{{end}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
@@ -108,7 +108,7 @@
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-grants/{{.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -124,7 +124,7 @@
 										<input id="branchroom-source-grant-user-{{.ID}}" name="username" maxlength="255" required>
 									</div>
 									{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-source-grant-%d" .ID))}}
-									<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_read"}}</button>
+									<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_read"}}</button>
 								</form>
 							{{end}}
 							<div class="item-body tw-mt-3 tw-flex-col tw-items-stretch">
@@ -135,7 +135,7 @@
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-write-grants/{{.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -150,7 +150,7 @@
 											<input id="branchroom-source-write-grant-user-{{.ID}}" name="username" maxlength="255" required>
 										</div>
 										{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-source-write-grant-%d" .ID))}}
-										<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_write"}}</button>
+										<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_source_write"}}</button>
 									</form>
 								{{end}}
 							</div>
@@ -163,7 +163,7 @@
 											<span>{{$teamGrant.TeamName}}</span>
 											<span class="ui basic label">{{$teamGrant.Action}}</span>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/team-grants/{{$teamGrant.ID}}/revoke" method="post">
-												<button class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
+												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
 										</div>
 									{{else}}
@@ -188,7 +188,7 @@
 											</select>
 										</div>
 										{{template "repo/settings/branchroom_time_fields" (dict "prefix" (printf "branchroom-team-grant-%d" .ID))}}
-										<button class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_team_access"}}</button>
+										<button type="submit" class="ui primary button tw-mt-3">{{ctx.Locale.Tr "repo.settings.branchroom.grant_team_access"}}</button>
 									</form>
 								{{end}}
 							</div>
@@ -201,6 +201,17 @@
 			</div>
 		</div>
 
+		{{if .BranchroomAuditScopes}}
+			<h4 class="ui top attached header">{{ctx.Locale.Tr "repo.settings.branchroom.audit.title"}}</h4>
+			<div class="ui attached segment">
+				<div class="ui list">
+					{{range $scope := .BranchroomAuditScopes}}
+						<div class="item"><a href="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/audit">{{$scope.Name}}</a></div>
+					{{end}}
+				</div>
+			</div>
+		{{end}}
+
 		<h4 class="ui top attached header">
 			{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}
 		</h4>
@@ -211,7 +222,7 @@
 					<input id="branchroom-scope-name" name="name" maxlength="255" required>
 					<div class="help">{{ctx.Locale.Tr "repo.settings.branchroom.scope_name_desc"}}</div>
 				</div>
-				<button class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}</button>
+				<button type="submit" class="ui primary button">{{ctx.Locale.Tr "repo.settings.branchroom.create_scope"}}</button>
 			</form>
 		</div>
 	</div>

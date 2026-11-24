@@ -125,9 +125,13 @@ Suspected disclosure of restricted source:
 2. Rotate the clone URL. Old URLs stop working at once.
 3. To shut everything at once, set `[branchroom] ENABLED = false` and restart. Every
    Branchroom route returns 404 and claimed pushes are rejected in the hook.
-4. Read the audit trail. There is no audit UI yet: query `branchroom_audit_event` and
-   `branchroom_decision` for the scope, ordered by `sequence`, and run the doctor check
-   to confirm the chain is intact.
+4. Read the audit trail. Open the scope's **Audit evidence** page in the repository's
+   **Settings > Branchroom**. Filter by actor, kind or UTC date range, check the chain
+   status and select **Export evidence** to download JSON Lines. Exports contain
+   the filtered events and decisions followed by a summary of the whole scope's
+   chain verification. Each export is recorded in the audit trail. Decisions whose audit event is
+   missing have sequence zero and empty hash fields in the export.
+   Run the doctor check to confirm the chain is intact.
 5. Retire the workspace if it should no longer be used, then purge it when its source
    is no longer needed. Repository deletion keeps the audit chain.
 
