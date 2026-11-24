@@ -22,10 +22,16 @@ var errBranchroomPreReceiveDenied = errors.New("Branchroom receive denied")
 
 var branchroomInterfaceAddrs = net.InterfaceAddrs
 
+// BranchroomPushProtectionError carries the authenticated hook's redacted findings.
+type BranchroomPushProtectionError string
+
+func (e BranchroomPushProtectionError) Error() string { return string(e) }
+
 type BranchroomPreReceiveRequest struct {
 	SessionKey   string `json:"session_key"`
 	BearerSecret []byte `json:"bearer_secret"`
 	Updates      []byte `json:"updates"`
+	AllowSecrets bool   `json:"allow_secrets,omitempty"`
 
 	// raw server-child Git quarantine facts, forwarded verbatim and never derived
 	ObjectDirectory            string `json:"object_directory"`
@@ -36,8 +42,8 @@ type BranchroomPreReceiveRequest struct {
 // BranchroomPreReceive posts the receive session payload to the internal admission
 // endpoint and accepts exactly a bodyless 204 response. It does not follow redirects,
 // because the session bearer must only reach the configured internal endpoint. Every
-// other transport or protocol result maps to one static error without exposing server
-// messages. The caller keeps ownership of the request buffers.
+// other result maps to a static error, except for redacted push protection findings.
+// The caller keeps ownership of the request buffers.
 func BranchroomPreReceive(ctx context.Context, request BranchroomPreReceiveRequest) error {
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -62,6 +68,15 @@ func BranchroomPreReceive(ctx context.Context, request BranchroomPreReceiveReque
 		return errBranchroomPreReceiveDenied
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnprocessableEntity {
+		const maxMessageBytes = 64 * 1024
+		body, err := io.ReadAll(io.LimitReader(response.Body, maxMessageBytes+1))
+		var rejected Response
+		if err == nil && len(body) <= maxMessageBytes && json.Unmarshal(body, &rejected) == nil && rejected.UserMsg != "" {
+			return BranchroomPushProtectionError(rejected.UserMsg)
+		}
+		return errBranchroomPreReceiveDenied
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 1))
 	if err != nil || response.StatusCode != http.StatusNoContent || len(body) != 0 {
 		return errBranchroomPreReceiveDenied

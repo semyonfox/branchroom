@@ -21,6 +21,7 @@ import (
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
+	system_model "gitea.dev/models/system"
 	"gitea.dev/models/unit"
 	"gitea.dev/models/unittest"
 	user_model "gitea.dev/models/user"
@@ -520,6 +521,30 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, publicObject.StatusCode)
 		})
 
+		t.Run("ordinary pushes cannot publish restricted commits through other refs or a fork", func(t *testing.T) {
+			fork, err := repository_service.ForkRepository(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.ForkRepoOptions{
+				BaseRepo: repository,
+				Name:     "restricted-publish-fork",
+			})
+			require.NoError(t, err)
+			forkURL := u.JoinPath(ordinaryWriter.Name, fork.Name+".git")
+			forkURL.User = publicURL.User
+			for _, push := range []struct {
+				remote *url.URL
+				ref    string
+			}{
+				{&publicURL, "refs/tags/restricted-tag"},
+				{&publicURL, "refs/for/" + repository.DefaultBranch + "/restricted-review"},
+				{forkURL, "refs/heads/restricted-fork-branch"},
+			} {
+				t.Run(push.ref, func(t *testing.T) {
+					_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(push.remote.String(), "HEAD:"+push.ref).WithDir(cloneDir).RunStdString(t.Context())
+					require.Error(t, err)
+					assert.Contains(t, stderr, "restricted workspace")
+				})
+			}
+		})
+
 		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {
 			defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
 			_, stderr, pushErr := gitcmd.NewCommand("push").AddDynamicArguments(publicURL.String(), "HEAD:refs/heads/fix-public").WithDir(cloneDir).RunStdString(t.Context())
@@ -543,6 +568,38 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 			assert.Equal(t, "restricted_commit_published_by_admin", events[len(events)-1].ReasonCode)
 			require.NoError(t, branchroom_model.VerifyScopeAuditChain(t.Context(), scope))
 			unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryGitPush, ActorID: repository.OwnerID, ScopeID: repository.ID})
+		})
+
+		t.Run("restricted push protection explains and records a bypass", func(t *testing.T) {
+			defer test.MockVariableValue(&setting.SecretScanning.PushProtection, true)()
+			defer test.MockVariableValue(&setting.SecretScanning.AllowBypass, true)()
+
+			secretClone := t.TempDir()
+			require.NoError(t, git.Clone(t.Context(), writerURL.String(), secretClone, git.CloneRepoOptions{}))
+			commit := commitBranchroomFakeEnvironment(t, secretClone, "TEST=AKIA"+"P7DRA5GK4GL3TX7D\n", "add a scanner fixture")
+			const firstRef = "refs/heads/branchroom/scan-one"
+			const secondRef = "refs/heads/branchroom/scan-two"
+
+			_, stderr, pushErr := gitcmd.NewCommand("push", "origin").AddDynamicArguments("HEAD:"+firstRef, "HEAD:"+secondRef).WithDir(secretClone).RunStdString(t.Context())
+			require.Error(t, pushErr)
+			assert.Contains(t, stderr, "AWS access key in .env")
+
+			pushErr = gitcmd.NewCommand("push", "-o", "secret_scanning.allow=true", "origin").
+				AddDynamicArguments("HEAD:"+firstRef, "HEAD:"+secondRef).WithDir(secretClone).RunWithStderr(t.Context())
+			require.NoError(t, pushErr)
+			assert.Equal(t, commit, branchroomObjectID(t, restricted, firstRef))
+			assert.Equal(t, commit, branchroomObjectID(t, restricted, secondRef))
+
+			notices, err := system_model.Notices(t.Context(), 1, 50)
+			require.NoError(t, err)
+			var bypassCount int
+			for _, notice := range notices {
+				if strings.Contains(notice.Description, ordinaryWriter.Name+" bypassed secret push protection on "+repository.FullName()) {
+					bypassCount++
+					assert.Contains(t, notice.Description, "AWS access key in .env (AKIAP7DR********)")
+				}
+			}
+			assert.Equal(t, 1, bypassCount)
 		})
 
 		t.Run("an unsafe restricted root hides private refs", func(t *testing.T) {

@@ -14,10 +14,15 @@ import (
 
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
+	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 	branchroom_module "gitea.dev/modules/branchroom"
 	"gitea.dev/modules/json"
 	"gitea.dev/modules/log"
+	"gitea.dev/modules/private"
+	"gitea.dev/modules/secretscan"
 	"gitea.dev/modules/setting"
+	secret_service "gitea.dev/services/secrets"
 )
 
 var errReceiveDenied = errors.New("Branchroom receive denied")
@@ -27,6 +32,7 @@ type VerifyReceiveSessionPushRequest struct {
 	BearerSecret []byte
 	Updates      []byte
 	Quarantine   branchroom_module.ReceiveQuarantineValues
+	AllowSecrets bool
 }
 
 func VerifyReceiveSessionPush(ctx context.Context, request VerifyReceiveSessionPushRequest) error {
@@ -38,10 +44,12 @@ type verifyClaimedReceiveRequest struct {
 	BearerSecret []byte
 	Updates      []byte
 	Quarantine   branchroom_module.ReceiveQuarantineValues
+	AllowSecrets bool
 }
 
 type receiveVerification struct {
-	admitted bool
+	admitted  bool
+	rejection private.BranchroomPushProtectionError
 }
 
 // completeReceiveSessionDenied closes an authenticated claim so it can never dangle.
@@ -87,6 +95,31 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 	hex.Encode(bearerHashHex, bearerHash[:])
 	defer clear(bearerHashHex)
 
+	if initial.Validate() != nil || initial.State != branchroom_model.ReceiveSessionStateClaimed ||
+		subtle.ConstantTimeCompare([]byte(initial.BearerSecretHash), bearerHashHex) != 1 {
+		return errReceiveDenied
+	}
+
+	updates, parseErr := branchroom_module.ParseReceiveUpdates(request.Updates)
+	var policyErr error
+	for _, update := range updates {
+		if policyErr = branchroom_module.CheckReceiveRefPolicyV0(update); policyErr != nil {
+			break
+		}
+	}
+	var scanStoreID string
+	var findings []secretscan.Finding
+	var scanErr error
+	scanEnabled := setting.SecretScanning.PushProtection
+	if scanEnabled && parseErr == nil && policyErr == nil {
+		scanStoreID, findings, scanErr = scanReceiveSecrets(ctx, initial, updates, request.Quarantine)
+	}
+	bypass := request.AllowSecrets && setting.SecretScanning.AllowBypass
+	target := "restricted refs"
+	if len(updates) == 1 {
+		target = strings.TrimPrefix(updates[0].Ref, "refs/heads/")
+	}
+
 	verified, err := db.WithTx2(ctx, func(txCtx context.Context) (receiveVerification, error) {
 		if err := lockRepositoryLifecycleForRead(txCtx, initial.RepoID); err != nil {
 			return receiveVerification{}, errReceiveDenied
@@ -113,25 +146,22 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 			return receiveVerification{}, errReceiveDenied
 		}
 
-		updates, err := branchroom_module.ParseReceiveUpdates(request.Updates)
-		if err != nil {
+		if parseErr != nil {
 			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
 		session.Updates = string(request.Updates)
 		if _, err := db.GetEngine(txCtx).ID(session.ID).Cols("updates").Update(session); err != nil {
 			return receiveVerification{}, err
 		}
-		for _, update := range updates {
-			if err := branchroom_module.CheckReceiveRefPolicyV0(update); err != nil {
-				if err := recordReceiveOutcome(txCtx, session, "receive_rejected", err.Error()); err != nil {
-					return receiveVerification{}, err
-				}
-				finalized, err := branchroom_model.CompleteReceiveSession(txCtx, session.ID, branchroom_model.ReceiveSessionOutcomeDenied)
-				if err != nil || !finalized {
-					return receiveVerification{}, errReceiveDenied
-				}
-				return receiveVerification{}, nil
+		if policyErr != nil {
+			if err := recordReceiveOutcome(txCtx, session, "receive_rejected", policyErr.Error()); err != nil {
+				return receiveVerification{}, err
 			}
+			finalized, err := branchroom_model.CompleteReceiveSession(txCtx, session.ID, branchroom_model.ReceiveSessionOutcomeDenied)
+			if err != nil || !finalized {
+				return receiveVerification{}, errReceiveDenied
+			}
+			return receiveVerification{}, nil
 		}
 
 		scope, err := branchroom_model.GetScopeByIDForUpdate(txCtx, session.ScopeID)
@@ -159,18 +189,63 @@ func verifyClaimedReceive(ctx context.Context, request verifyClaimedReceiveReque
 		if err := branchroom_module.VerifyRestrictedStoreHook(txCtx, setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID); err != nil {
 			return completeReceiveSessionDenied(txCtx, session.ID)
 		}
+		if scanEnabled && (scanErr != nil || scanStoreID != workspace.StoreID) {
+			return completeReceiveSessionDenied(txCtx, session.ID)
+		}
 		if !verifyReceiveCommitUpdates(txCtx, workspace, updates, quarantine) {
 			return completeReceiveSessionDenied(txCtx, session.ID)
+		}
+		if len(findings) > 0 && !bypass {
+			denied, err := completeReceiveSessionDenied(txCtx, session.ID)
+			denied.rejection = private.BranchroomPushProtectionError(secret_service.PushProtectionMessage(target, findings))
+			return denied, err
 		}
 		return completeReceiveSessionAdmitted(txCtx, session.ID)
 	})
 	if err != nil {
 		return errReceiveDenied
 	}
-	if verified.admitted {
-		return nil
+	if verified.rejection != "" {
+		return verified.rejection
 	}
-	return errReceiveDenied
+	if !verified.admitted {
+		return errReceiveDenied
+	}
+	if len(findings) > 0 {
+		repo, repoErr := repo_model.GetRepositoryByID(ctx, initial.RepoID)
+		actor, actorErr := user_model.GetUserByID(ctx, initial.ActorID)
+		if repoErr != nil || actorErr != nil {
+			log.Error("record restricted secret scan bypass for repository %d, actor %d: %v", initial.RepoID, initial.ActorID, errors.Join(repoErr, actorErr))
+		} else {
+			secret_service.RecordPushBypass(ctx, actor.Name, repo.FullName(), target, findings)
+		}
+	}
+	return nil
+}
+
+func scanReceiveSecrets(ctx context.Context, session *branchroom_model.ReceiveSession, updates []branchroom_module.ReceiveRefUpdate, rawQuarantine branchroom_module.ReceiveQuarantineValues) (string, []secretscan.Finding, error) {
+	workspace, err := branchroom_model.GetWorkspaceByID(ctx, session.WorkspaceID)
+	if err != nil || workspace.Validate() != nil || workspace.ScopeID != session.ScopeID || workspace.RepoID != session.RepoID {
+		return "", nil, errReceiveDenied
+	}
+	quarantine, err := branchroom_module.ValidateReceiveQuarantine(setting.Branchroom.RestrictedRepoRootPath, workspace.StoreID, rawQuarantine)
+	if err != nil {
+		return "", nil, err
+	}
+	restricted, err := branchroom_module.RestrictedRepository(workspace.StoreID)
+	if err != nil {
+		return "", nil, err
+	}
+	oids := make([]string, 0, len(updates))
+	for _, update := range updates {
+		oids = append(oids, update.NewOID)
+	}
+	findings, err := secret_service.ScanPush(ctx, restricted, receiveQuarantineEnv(quarantine), oids...)
+	if err != nil {
+		log.Error("secret scan of a restricted push for repository %d failed: %v", session.RepoID, err)
+		return "", nil, err
+	}
+	return workspace.StoreID, findings, nil
 }
 
 // FinalizeReceiveAdmission records the receive outcome after Git exits.

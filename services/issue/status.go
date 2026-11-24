@@ -29,6 +29,12 @@ func closeIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model
 	var stopwatchFinished bool
 	if err := db.WithTx(ctx, func(ctx context.Context) error {
 		var err error
+		if content != "" {
+			reasonComment, mentions, err = createIssueComment(ctx, doer, issue.Repo, issue, content, nil)
+			if err != nil {
+				return err
+			}
+		}
 		comment, err = issues_model.CloseIssue(ctx, issue, doer)
 		if err != nil {
 			if issues_model.IsErrDependenciesLeft(err) {
@@ -40,10 +46,6 @@ func closeIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model
 		}
 
 		stopwatchFinished, err = issues_model.FinishIssueStopwatch(ctx, doer, issue)
-		if err != nil || content == "" {
-			return err
-		}
-		reasonComment, mentions, err = createIssueComment(ctx, doer, issue.Repo, issue, content, nil)
 		return err
 	}); err != nil {
 		return err
@@ -54,10 +56,10 @@ func closeIssue(ctx context.Context, issue *issues_model.Issue, doer *user_model
 		notify_service.StopwatchChanged(ctx, doer)
 	}
 
-	notify_service.IssueChangeStatus(ctx, doer, commitID, issue, comment, true)
 	if reasonComment != nil {
 		notify_service.CreateIssueComment(ctx, doer, issue.Repo, issue, reasonComment, mentions)
 	}
+	notify_service.IssueChangeStatus(ctx, doer, commitID, issue, comment, true)
 	return nil
 }
 

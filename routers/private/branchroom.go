@@ -4,6 +4,7 @@
 package private
 
 import (
+	"errors"
 	"io"
 	"net/http"
 
@@ -25,7 +26,7 @@ func branchroomReceiveDenied(ctx *context.PrivateContext) {
 
 // BranchroomPreReceive verifies a claimed Branchroom receive session push. It
 // returns a bodyless success only after the dedicated admission service accepts
-// the quarantined update; every denial stays the same static forbidden response.
+// the quarantined update. Only push protection denials carry details.
 func BranchroomPreReceive(ctx *context.PrivateContext) {
 	var request private.BranchroomPreReceiveRequest
 	defer func() {
@@ -66,6 +67,7 @@ func BranchroomPreReceive(ctx *context.PrivateContext) {
 		SessionKey:   request.SessionKey,
 		BearerSecret: request.BearerSecret,
 		Updates:      request.Updates,
+		AllowSecrets: request.AllowSecrets,
 		Quarantine: branchroom_module.ReceiveQuarantineValues{
 			ObjectDirectory:            request.ObjectDirectory,
 			AlternateObjectDirectories: request.AlternateObjectDirectories,
@@ -73,6 +75,10 @@ func BranchroomPreReceive(ctx *context.PrivateContext) {
 		},
 	})
 	if err != nil {
+		if rejection, ok := errors.AsType[private.BranchroomPushProtectionError](err); ok {
+			ctx.PrivateUserErrorf(http.StatusUnprocessableEntity, "%s", rejection)
+			return
+		}
 		branchroomReceiveDenied(ctx)
 		return
 	}

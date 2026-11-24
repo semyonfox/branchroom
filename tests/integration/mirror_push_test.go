@@ -224,9 +224,13 @@ func doUpdatePushMirror(t *testing.T, session *TestSession, owner, repo string, 
 func testMirrorMakePrimary(t *testing.T, u *url.URL) {
 	ctx := t.Context()
 	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
-	// repo16 has no pull requests: unlike GitHub, this server shows refs/pull to a push and refuses the mirror's prune of them
-	sourceRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 16})
-	sourceURL := u.String() + "user2/repo16.git"
+	sourceRepo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	sourceURL := u.String() + "user2/repo1.git"
+	sourceGit, err := git.OpenRepository(ctx, sourceRepo)
+	require.NoError(t, err)
+	defer sourceGit.Close()
+	pullHead, err := sourceGit.GetRefCommitID(ctx, "refs/pull/2/head")
+	require.NoError(t, err)
 	cloneAddr, err := git.ParseRemoteAddr(sourceURL, user.LowerName, userPassword)
 	require.NoError(t, err)
 
@@ -263,4 +267,7 @@ func testMirrorMakePrimary(t *testing.T, u *url.URL) {
 	require.NoError(t, err)
 	require.True(t, mirror_service.SyncPushMirror(ctx, pushMirror.ID))
 	assert.Equal(t, masterCommit(mirrorRepo), masterCommit(sourceRepo))
+	afterPullHead, err := sourceGit.GetRefCommitID(ctx, "refs/pull/2/head")
+	require.NoError(t, err)
+	assert.Equal(t, pullHead, afterPullHead)
 }

@@ -360,6 +360,11 @@ func TestAPIInboxTriageAndBulk(t *testing.T) {
 	assert.Empty(t, (*results)[0].Error)
 	assert.NotEmpty(t, (*results)[1].Error)
 	unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: maintained.ID, IsClosed: true})
+	comments, err := issues_model.FindComments(t.Context(), &issues_model.FindCommentsOptions{IssueID: maintained.ID})
+	require.NoError(t, err)
+	require.Len(t, comments, 2)
+	assert.Equal(t, "Close reason: not planned.", comments[0].Content)
+	assert.Equal(t, issues_model.CommentTypeClose, comments[1].Type)
 	stillOpen := unittest.AssertExistsAndLoadBean(t, &issues_model.Issue{ID: other.ID})
 	assert.False(t, stillOpen.IsClosed)
 }

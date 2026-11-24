@@ -160,10 +160,14 @@ func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey s
 		SessionKey:                 sessionKey,
 		BearerSecret:               bearerSecret,
 		Updates:                    updates,
+		AllowSecrets:               private.GitPushOptions(pushOptions()).Bool(private.GitPushOptionAllowSecrets).Value(),
 		ObjectDirectory:            quarantine.ObjectDirectory,
 		AlternateObjectDirectories: quarantine.AlternateObjectDirectories,
 		QuarantinePath:             quarantine.QuarantinePath,
 	}); err != nil {
+		if _, ok := errors.AsType[private.BranchroomPushProtectionError](err); ok {
+			return err
+		}
 		return errBranchroomReceiveDenied
 	}
 	return nil

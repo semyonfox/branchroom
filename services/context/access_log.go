@@ -6,6 +6,7 @@ package context
 import (
 	"bytes"
 	"net/http"
+	"net/url"
 	"strings"
 	"text/template"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web/middleware"
+	"gitea.dev/modules/web/routing"
 )
 
 type accessLoggerTmplData struct {
@@ -25,8 +27,9 @@ type accessLoggerTmplData struct {
 	ResponseWriter struct {
 		Status, Size int
 	}
-	Ctx       map[string]any
-	RequestID *string
+	Ctx        map[string]any
+	RequestID  *string
+	RequestURI string
 }
 
 const keyOfRequestIDInTemplate = ".RequestID"
@@ -85,6 +88,16 @@ func (lr *accessLogRecorder) record(start time.Time, respWriter ResponseWriter, 
 	if signedUser, ok := data[middleware.ContextDataKeySignedUser].(*user_model.User); ok {
 		identity = signedUser.Name
 	}
+	uri := req.URL.RequestURI()
+	if redacted := routing.RequestURIForLog(uri); redacted != uri {
+		if redactedURL, err := url.ParseRequestURI(redacted); err == nil {
+			requestForLog := *req
+			requestForLog.URL = redactedURL
+			requestForLog.RequestURI = redacted
+			req = &requestForLog
+		}
+		uri = redacted
+	}
 	buf := bytes.NewBuffer([]byte{})
 	tmplData := accessLoggerTmplData{
 		Identity: &identity,
@@ -94,7 +107,8 @@ func (lr *accessLogRecorder) record(start time.Time, respWriter ResponseWriter, 
 			"RemoteHost": reqHost,
 			"Req":        req,
 		},
-		RequestID: &requestID,
+		RequestID:  &requestID,
+		RequestURI: uri,
 	}
 	tmplData.ResponseWriter.Status = respWriter.WrittenStatus()
 	tmplData.ResponseWriter.Size = respWriter.WrittenSize()
