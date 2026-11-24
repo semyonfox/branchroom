@@ -60,6 +60,7 @@ type ReviewComment struct {
 	TreePath  string `yaml:"tree_path"`
 	DiffHunk  string `yaml:"diff_hunk"`
 	Position  int
+	StartLine int64 `yaml:"start_line"`
 	Line      int
 	CommitID  string `yaml:"commit_id"`
 	PosterID  int64  `yaml:"poster_id"`

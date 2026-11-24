@@ -258,14 +258,49 @@ export function initRepoPullRequestReview() {
     elReviewPanel.querySelector('.close-review-panel')!.addEventListener('click', () => tippy.hide());
   });
 
-  addDelegatedEventListener(document, 'click', '.add-code-comment', async (el, e) => {
+  let rangeAnchor: Element | null = null;
+  let rangeForm: Element | null = null;
+  let dragStart: Element | null = null;
+  let dragEnd: Element | null = null;
+  const sameSide = (a: Element, b: Element) => a.closest('[data-path]') === b.closest('[data-path]') && a.getAttribute('data-side') === b.getAttribute('data-side');
+  const gutterButton = (cell: Element) => {
+    const side = cell.classList.contains('lines-num-old') ? 'left' : 'right';
+    return cell.closest('tr')!.querySelector(`.add-code-comment[data-side="${CSS.escape(side)}"]:not(.tw-invisible)`);
+  };
+  addDelegatedEventListener<HTMLElement, MouseEvent>(document, 'mousedown', '.code-diff .lines-num', (cell, e) => {
+    if (e.button !== 0) return;
+    dragStart = gutterButton(cell);
+    dragEnd = dragStart;
+    if (dragStart) e.preventDefault();
+  });
+  addDelegatedEventListener(document, 'mouseover', '.code-diff .lines-num', (cell) => {
+    const button = gutterButton(cell);
+    if (dragStart && button && sameSide(dragStart, button)) dragEnd = button;
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragStart && dragEnd && dragStart !== dragEnd) {
+      rangeAnchor = dragStart;
+      dragEnd.dispatchEvent(new MouseEvent('click', {bubbles: true, shiftKey: true}));
+    }
+    dragStart = dragEnd = null;
+  });
+
+  addDelegatedEventListener<HTMLElement, MouseEvent>(document, 'click', '.add-code-comment', async (el, e) => {
     e.preventDefault();
 
-    const isSplit = el.closest('.code-diff')?.classList.contains('code-diff-split');
+    const extending = e.shiftKey && rangeAnchor && sameSide(rangeAnchor, el);
+    if (!extending) rangeAnchor = el;
+    const first = Number(rangeAnchor!.getAttribute('data-idx'));
+    const last = Number(el.getAttribute('data-idx'));
+    const start = extending ? Math.min(first, last) : last;
+    const end = extending ? Math.max(first, last) : last;
     const side = el.getAttribute('data-side')!;
-    const idx = el.getAttribute('data-idx')!;
-    const path = el.closest('[data-path]')?.getAttribute('data-path');
-    const tr = el.closest('tr')!;
+    const box = el.closest('[data-path]')!;
+    const endButton = box.querySelector(`.add-code-comment[data-side="${CSS.escape(side)}"][data-idx="${CSS.escape(String(end))}"]`)!;
+    const isSplit = el.closest('.code-diff')!.classList.contains('code-diff-split');
+    const idx = String(end);
+    const path = box.getAttribute('data-path');
+    const tr = endButton.closest('tr')!;
     const lineType = tr.getAttribute('data-line-type')!;
 
     let ntr = tr.nextElementSibling;
@@ -280,6 +315,10 @@ export function initRepoPullRequestReview() {
       tr.after(ntr);
     }
     const td = ntr.querySelector(`.add-comment-${side}`)!;
+    if (extending && rangeForm?.isConnected && rangeForm.closest('[data-path]') === box &&
+      rangeForm.querySelector<HTMLInputElement>('input[name="side"]')!.value === (side === 'left' ? 'previous' : 'proposed')) {
+      td.append(rangeForm);
+    }
     const commentCloud = td.querySelector('.comment-code-cloud');
     if (!commentCloud && !ntr.querySelector('button[name="pending_review"]')) {
       const response = await GET(el.closest('[data-new-comment-url]')?.getAttribute('data-new-comment-url') ?? '');
@@ -292,7 +331,12 @@ export function initRepoPullRequestReview() {
       const code = tr.querySelector(isSplit ? '.lines-code-new .code-inner' : '.lines-code .code-inner');
       if (code && side === 'right') {
         suggestButton.addEventListener('click', () => {
-          const original = code.textContent;
+          const form = suggestButton.closest('form')!;
+          const from = Number(form.querySelector<HTMLInputElement>('input[name="start_line"]')!.value) || Number(form.querySelector<HTMLInputElement>('input[name="line"]')!.value);
+          const to = Number(form.querySelector<HTMLInputElement>('input[name="line"]')!.value);
+          const original = Array.from(box.querySelectorAll('.add-code-comment[data-side="right"]'))
+            .filter((button) => Number(button.getAttribute('data-idx')) >= from && Number(button.getAttribute('data-idx')) <= to)
+            .map((button) => button.closest('tr')!.querySelector(isSplit ? '.lines-code-new .code-inner' : '.lines-code .code-inner')!.textContent).join('\n');
           const fence = '`'.repeat(Math.max(3, ...Array.from(original.matchAll(/`+/g), (match) => match[0].length + 1)));
           editor.value(`${editor.value()}\n${fence}suggestion\n${original}\n${fence}\n`);
           editor.focus();
@@ -301,6 +345,15 @@ export function initRepoPullRequestReview() {
         hideElem(suggestButton);
       }
       editor.focus();
+    }
+    const form = td.querySelector('form');
+    if (form) {
+      rangeForm = td.querySelector('.conversation-holder');
+      form.querySelector<HTMLInputElement>('input[name="line"]')!.value = idx;
+      form.querySelector<HTMLInputElement>('input[name="start_line"]')!.value = start < end ? String(start) : '0';
+      const label = form.querySelector<HTMLElement>('.review-comment-range')!;
+      label.textContent = label.getAttribute('data-label')!.replace('%s', () => String(start)).replace('%s', () => String(end));
+      toggleElem(label, start < end);
     }
   });
 }

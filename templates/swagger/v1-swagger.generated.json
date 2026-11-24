@@ -26941,6 +26941,12 @@
           "description": "the tree path",
           "type": "string",
           "x-go-name": "Path"
+        },
+        "start_line": {
+          "description": "first line of a range on the same side as old_position or new_position",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "StartLine"
         }
       },
       "x-go-package": "gitea.dev/modules/structs"
@@ -31830,6 +31836,11 @@
         },
         "resolver": {
           "$ref": "#/definitions/User"
+        },
+        "start_line": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "StartLine"
         },
         "updated_at": {
           "type": "string",

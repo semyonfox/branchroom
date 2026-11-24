@@ -12,7 +12,7 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-// Suggestions returns only single-line-range suggestion fences, in document order.
+// Suggestions returns suggestion fences, in document order.
 func Suggestions(content string) []string {
 	source := []byte(content)
 	doc := goldmark.DefaultParser().Parse(text.NewReader(source))
@@ -58,4 +58,30 @@ func SuggestionOriginal(patch string, line int64) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func SuggestionOriginalRange(patch string, startLine, line int64) (string, bool) {
+	if startLine == 0 {
+		return SuggestionOriginal(patch, line)
+	}
+	end := line
+	if end < 0 {
+		end = -end
+	}
+	if startLine < 1 || startLine > end {
+		return "", false
+	}
+	var lines []string
+	for n := startLine; n <= end; n++ {
+		signed := n
+		if line < 0 {
+			signed = -n
+		}
+		original, ok := SuggestionOriginal(patch, signed)
+		if !ok {
+			return "", false
+		}
+		lines = append(lines, original)
+	}
+	return strings.Join(lines, "\n"), true
 }

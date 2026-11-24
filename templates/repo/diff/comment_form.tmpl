@@ -6,6 +6,8 @@
 		<input type="hidden" name="origin" value="{{if $root.PageIsPullFiles}}diff{{else}}timeline{{end}}">
 		<input type="hidden" name="latest_commit_id" value="{{$root.ReviewCommitID}}">
 		<input type="hidden" name="side" value="{{$replyReviewComment.DiffSide}}">
+		<input type="hidden" name="start_line" value="{{if $replyReviewComment}}{{$replyReviewComment.StartLine}}{{else}}0{{end}}">
+		<div class="review-comment-range tw-hidden" data-label="{{ctx.Locale.Tr "repo.diff.comment.range"}}"></div>
 		<input type="hidden" name="line" value="{{$replyReviewComment.UnsignedLine}}">
 		<input type="hidden" name="path" value="{{$replyReviewComment.TreePath}}">
 		<input type="hidden" name="diff_start_cid">

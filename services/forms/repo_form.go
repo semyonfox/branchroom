@@ -521,6 +521,7 @@ type CodeCommentForm struct {
 	Origin         string `binding:"Required;In(timeline,diff)"`
 	Content        string `binding:"Required"`
 	Side           string `binding:"Required;In(previous,proposed)"`
+	StartLine      int64
 	Line           int64
 	TreePath       string `form:"path" binding:"Required"`
 	SingleReview   bool   `form:"single_review"`

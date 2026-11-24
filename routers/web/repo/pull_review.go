@@ -93,11 +93,11 @@ func CreateCodeComment(ctx *context.Context) {
 		attachments = form.Files
 	}
 
-	comment, err := pull_service.CreateCodeComment(ctx,
+	comment, err := pull_service.CreateCodeCommentRange(ctx,
 		ctx.Doer,
 		ctx.Repo.GitRepo,
 		issue,
-		signedLine,
+		form.StartLine, signedLine,
 		form.Content,
 		form.TreePath,
 		!form.SingleReview,

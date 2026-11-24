@@ -119,7 +119,7 @@ func findCodeComments(ctx context.Context, opts FindCommentsOptions, issue *Issu
 		rctx := renderhelper.NewRenderContextRepoComment(ctx, issue.Repo, renderhelper.RepoCommentOptions{
 			FootnoteContextID: strconv.FormatInt(comment.ID, 10),
 		})
-		if original, ok := markdown.SuggestionOriginal(comment.Patch, comment.Line); ok {
+		if original, ok := markdown.SuggestionOriginalRange(comment.Patch, comment.StartLine, comment.Line); ok {
 			rctx.RenderOptions.Metas["reviewSuggestionOriginal"] = original
 		}
 		if comment.RenderedContent, err = markdown.RenderString(rctx, comment.Content); err != nil {

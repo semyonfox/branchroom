@@ -321,9 +321,10 @@ type Comment struct {
 	DependentIssueID int64  `xorm:"index"` // This is used by issue_service.deleteIssue
 	DependentIssue   *Issue `xorm:"-"`
 
-	Line     int64  // - previous line / + proposed line
-	TreePath string `xorm:"VARCHAR(4000)"` // SQLServer only supports up to 4000
-	Content  string `xorm:"LONGTEXT"`
+	StartLine int64  `xorm:"NOT NULL DEFAULT 0"`
+	Line      int64  // - previous line / + proposed line
+	TreePath  string `xorm:"VARCHAR(4000)"` // SQLServer only supports up to 4000
+	Content   string `xorm:"LONGTEXT"`
 
 	ContentVersion  int           `xorm:"NOT NULL DEFAULT 0"`
 	RenderedContent template.HTML `xorm:"-"`
@@ -899,6 +900,7 @@ func CreateComment(ctx context.Context, opts *CreateCommentOptions) (_ *Comment,
 			AssigneeTeamID:   opts.AssigneeTeamID,
 			CommitSHA:        opts.CommitSHA,
 			Line:             opts.LineNum,
+			StartLine:        opts.StartLine,
 			Content:          opts.Content,
 			OldTitle:         opts.OldTitle,
 			NewTitle:         opts.NewTitle,
@@ -1064,6 +1066,7 @@ type CreateCommentOptions struct {
 	NewRef             string
 	CommitSHA          string
 	Patch              string
+	StartLine          int64
 	LineNum            int64
 	TreePath           string
 	ReviewID           int64

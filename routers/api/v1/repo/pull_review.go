@@ -488,7 +488,7 @@ func CreatePullReview(ctx *context.APIContext) {
 
 	opts := web.GetForm[*api.CreatePullReviewOptions](ctx)
 	for _, comment := range opts.Comments {
-		if comment.Path == "" || (comment.NewLineNum <= 0 && comment.OldLineNum <= 0) {
+		if comment.Path == "" || (comment.NewLineNum <= 0 && comment.OldLineNum <= 0) || comment.StartLine < 0 || (comment.StartLine > 0 && comment.StartLine > max(comment.NewLineNum, comment.OldLineNum)) || (comment.StartLine > 0 && comment.NewLineNum > 0 && comment.OldLineNum > 0) {
 			ctx.APIError(http.StatusUnprocessableEntity, "review comments require a path and a positive new_position or old_position")
 			return
 		}
@@ -540,11 +540,11 @@ func CreatePullReview(ctx *context.APIContext) {
 			line = c.OldLineNum * -1
 		}
 
-		if _, err := pull_service.CreateCodeComment(ctx,
+		if _, err := pull_service.CreateCodeCommentRange(ctx,
 			ctx.Doer,
 			ctx.Repo.GitRepo,
 			pr.Issue,
-			line,
+			c.StartLine, line,
 			c.Body,
 			c.Path,
 			true, // pending review

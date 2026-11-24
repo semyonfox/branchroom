@@ -878,6 +878,8 @@ func (g *GithubDownloaderV3) convertGithubReviewComments(ctx context.Context, cs
 			Content:   c.GetBody(),
 			TreePath:  c.GetPath(),
 			DiffHunk:  c.GetDiffHunk(),
+			Line:      util.Iif(c.GetSide() == "LEFT", -c.GetLine(), c.GetLine()),
+			StartLine: util.Iif(c.GetStartSide() == c.GetSide(), int64(c.GetStartLine()), 0),
 			Position:  c.GetPosition(),
 			CommitID:  c.GetCommitID(),
 			PosterID:  c.GetUser().GetID(),

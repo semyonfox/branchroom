@@ -985,7 +985,7 @@ func (g *GiteaLocalUploader) CreateReviews(ctx context.Context, reviews ...*base
 			// SECURITY: The TreePath must be cleaned! use relative path
 			comment.TreePath = util.PathJoinRel(comment.TreePath)
 
-			patch, _ := gitdiff.GetCodeCommentPatch(ctx, g.gitRepo, pr.MergeBase, headCommitID, comment.TreePath, int64(line+comment.Position-1))
+			patch, _ := gitdiff.GetCodeCommentPatch(ctx, g.gitRepo, pr.MergeBase, headCommitID, comment.TreePath, int64(line+comment.Position-1), comment.StartLine)
 
 			if comment.CreatedAt.IsZero() {
 				comment.CreatedAt = review.CreatedAt
@@ -1005,6 +1005,7 @@ func (g *GiteaLocalUploader) CreateReviews(ctx context.Context, reviews ...*base
 				IssueID:     issue.ID,
 				Content:     comment.Content,
 				Line:        int64(line + comment.Position - 1),
+				StartLine:   comment.StartLine,
 				TreePath:    comment.TreePath,
 				CommitSHA:   comment.CommitID,
 				Patch:       patch,

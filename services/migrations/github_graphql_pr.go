@@ -10,6 +10,7 @@ import (
 	"time"
 
 	base "gitea.dev/modules/migration"
+	"gitea.dev/modules/util"
 )
 
 const graphQLPRFields = "mergedAt isDraft mergeCommit{oid} headRefName headRefOid baseRefName baseRefOid headRepository{name url} headRepositoryOwner{login} baseRepository{name owner{login}}"
@@ -17,7 +18,7 @@ const graphQLPRFields = "mergedAt isDraft mergeCommit{oid} headRefName headRefOi
 var graphQLPRDiscussion = fmt.Sprintf(`
         reviews(first:50){%[1]s nodes{
           databaseId state body createdAt submittedAt author{%[2]s} commit{oid}
-          comments(first:50){%[1]s nodes{databaseId body path diffHunk position commit{oid} author{%[2]s} createdAt updatedAt replyTo{databaseId}}}
+          comments(first:50){%[1]s nodes{databaseId body path diffHunk position line startLine diffSide commit{oid} author{%[2]s} createdAt updatedAt replyTo{databaseId}}}
         }}
         reviewRequests(first:%[3]d){%[1]s nodes{requestedReviewer{%[4]s}}}`,
 	gqlPageInfoFields, gqlActorFields, graphQLReviewRequestPageSize, gqlReviewerFields)
@@ -39,6 +40,9 @@ type gqlReviewComment struct {
 	Body       string     `json:"body"`
 	Path       string     `json:"path"`
 	DiffHunk   string     `json:"diffHunk"`
+	Line       int        `json:"line"`
+	StartLine  int64      `json:"startLine"`
+	DiffSide   string     `json:"diffSide"`
 	Position   int        `json:"position"`
 	Commit     *gqlCommit `json:"commit"`
 	Author     gqlActor   `json:"author"`
@@ -202,6 +206,8 @@ func convertGraphQLReviews(node *gqlPullRequest, requests []gqlReviewRequest) []
 				TreePath:  sourceComment.Path,
 				DiffHunk:  sourceComment.DiffHunk,
 				Position:  sourceComment.Position,
+				Line:      util.Iif(sourceComment.DiffSide == "LEFT", -sourceComment.Line, sourceComment.Line),
+				StartLine: sourceComment.StartLine,
 				PosterID:  sourceComment.Author.DatabaseID,
 				CreatedAt: sourceComment.CreatedAt,
 				UpdatedAt: sourceComment.UpdatedAt,

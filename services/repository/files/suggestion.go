@@ -31,7 +31,7 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 	if len(suggestions) != 1 {
 		return nil, ErrSuggestionUnavailable
 	}
-	original, ok := markdown.SuggestionOriginal(comment.Patch, comment.Line)
+	original, ok := markdown.SuggestionOriginalRange(comment.Patch, comment.StartLine, comment.Line)
 	if !ok {
 		return nil, ErrSuggestionUnavailable
 	}
@@ -92,15 +92,24 @@ func prepareSuggestion(ctx context.Context, comment *issues_model.Comment, doer 
 		return nil, err
 	}
 	lines := strings.SplitAfter(content, "\n")
-	if comment.Line > int64(len(lines)) || strings.TrimSuffix(lines[comment.Line-1], "\n") != original {
+	startLine := comment.StartLine
+	if startLine == 0 {
+		startLine = comment.Line
+	}
+	if startLine < 1 || startLine > comment.Line || comment.Line > int64(len(lines)) {
 		return nil, ErrSuggestionUnavailable
+	}
+	originalLines := strings.Split(original, "\n")
+	for i, n := 0, startLine; n <= comment.Line; i, n = i+1, n+1 {
+		if strings.TrimSuffix(lines[n-1], "\n") != originalLines[i] {
+			return nil, ErrSuggestionUnavailable
+		}
 	}
 	replacement := suggestions[0]
 	if !strings.HasSuffix(lines[comment.Line-1], "\n") {
 		replacement = strings.TrimSuffix(replacement, "\n")
 	}
-	lines[comment.Line-1] = replacement
-	updated := strings.Join(lines, "")
+	updated := strings.Join(lines[:startLine-1], "") + replacement + strings.Join(lines[comment.Line:], "")
 	if updated == content {
 		return nil, ErrSuggestionUnavailable
 	}
