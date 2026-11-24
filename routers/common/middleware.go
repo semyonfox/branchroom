@@ -67,7 +67,7 @@ func RequestContextHandler() func(h http.Handler) http.Handler {
 			// because there might be a "gzip writer" in the middle, so the "written size" here is the compressed size
 			respWriter := context.WrapResponseWriter(respOrig)
 
-			profDesc := fmt.Sprintf("HTTP: %s %s", req.Method, routing.RequestURIForLog(req.RequestURI))
+			profDesc := fmt.Sprintf("HTTP: %s %s", req.Method, req.RequestURI)
 			ctx, finished := reqctx.NewRequestContext(req.Context(), profDesc)
 			defer finished()
 

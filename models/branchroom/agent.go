@@ -59,13 +59,12 @@ func PrepareTokenIdentity(ctx context.Context, ownerID int64, identity *api.Agen
 		individualUserType = 0
 		botUserType        = 4
 	) // persisted user types, without importing user and creating an auth cycle
-	type account struct {
+	var owner struct {
 		Name          string
 		IsActive      bool
 		ProhibitLogin bool
 		Type          int
 	}
-	var owner account
 	has, err := db.GetEngine(ctx).Table("user").Where("id = ?", ownerID).Get(&owner)
 	if err != nil {
 		return fmt.Errorf("PrepareTokenIdentity: %w", err)
@@ -75,7 +74,6 @@ func PrepareTokenIdentity(ctx context.Context, ownerID int64, identity *api.Agen
 		return invalidSponsor
 	}
 	if owner.Type == botUserType && identity.Sponsor != "" {
-		owner = account{}
 		has, err = db.GetEngine(ctx).Table("user").Where("lower_name = ?", strings.ToLower(identity.Sponsor)).Get(&owner)
 		if err != nil {
 			return fmt.Errorf("PrepareTokenIdentity: %w", err)

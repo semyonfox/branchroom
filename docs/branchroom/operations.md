@@ -87,9 +87,7 @@ Give contractors **Read only** on the ordinary repository, then grant discovery,
 source read and source write in Branchroom. Restricted pushes need ordinary code
 Read because the store is separate and only accepts `refs/heads/branchroom/*`.
 Only repository administrators can publish restricted commits to ordinary refs,
-including branches, tags and refs used to open pull requests. This restriction also
-applies when pushing to a fork of the ordinary repository, and to pull requests opened
-from any other repository, fork or not.
+including branches, tags and refs used to open pull requests.
 Team grants still support discovery and source read only.
 
 ## Monitoring
@@ -263,8 +261,8 @@ A push is rejected when its new commits add a credential with a recognisable
 format, such as an AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic
 or npm key, or a private key. Protection also applies to restricted workspace
 pushes and UTF-16 files with a byte-order mark. Commit messages are outside the
-scan. A push is scanned for up to 32 MiB of changes or 30 seconds, and anything
-past that limit is not checked. The rejection names the file, the commit and the start of each match. A pusher who knows a match is not a secret can push again
+scan. For ordinary pushes, the rejection names the file, the commit and the
+start of each match. A pusher who knows a match is not a secret can push again
 with `git push -o secret_scanning.allow=true`. Each push that skips a match this
 way leaves a notice under Site Administration, System Notices, with the pusher,
 repository, branch, commit and the redacted matches. Set `ALLOW_BYPASS = false`

@@ -32,8 +32,8 @@ const (
 	maxBranchroomSessionKeyBytes = 128
 )
 
-// errBranchroomReceiveDenied is the only error this command reports apart from redacted
-// push protection findings, so no session data or other response text can leak through git's push output.
+// errBranchroomReceiveDenied is the only error this command ever reports, so no session
+// data or remote response text can leak through git's push output.
 var errBranchroomReceiveDenied = errors.New("Branchroom receive denied")
 
 func newHookCommand() *cli.Command {
@@ -160,14 +160,10 @@ func hookBranchroomPreReceive(ctx context.Context, stdin io.Reader, sessionKey s
 		SessionKey:                 sessionKey,
 		BearerSecret:               bearerSecret,
 		Updates:                    updates,
-		AllowSecrets:               private.GitPushOptions(pushOptions()).Bool(private.GitPushOptionAllowSecrets).Value(),
 		ObjectDirectory:            quarantine.ObjectDirectory,
 		AlternateObjectDirectories: quarantine.AlternateObjectDirectories,
 		QuarantinePath:             quarantine.QuarantinePath,
 	}); err != nil {
-		if _, ok := errors.AsType[private.BranchroomPushProtectionError](err); ok {
-			return err
-		}
 		return errBranchroomReceiveDenied
 	}
 	return nil

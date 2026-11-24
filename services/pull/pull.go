@@ -34,7 +34,6 @@ import (
 	repo_module "gitea.dev/modules/repository"
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
-	branchroom_service "gitea.dev/services/branchroom"
 	git_service "gitea.dev/services/git"
 	issue_service "gitea.dev/services/issue"
 	notify_service "gitea.dev/services/notify"
@@ -94,13 +93,6 @@ func NewPullRequest(ctx context.Context, basePerm access_model.Permission, opts 
 
 	canAssignProject := basePerm.CanWrite(unit.TypePullRequests) || basePerm.CanWrite(unit.TypeProjects)
 
-	// checked before anything copies the head into the base repository, and outside the transaction so a refusal stays audited
-	if pr.Flow == issues_model.PullRequestFlowGithub {
-		if pr.HeadCommitID, err = checkedHeadCommit(ctx, issue.Poster, pr); err != nil {
-			return err
-		}
-	}
-
 	if err := checkPullRequestBranchMergeable(ctx, pr); err != nil {
 		return err
 	}
@@ -139,7 +131,7 @@ func NewPullRequest(ctx context.Context, basePerm access_model.Permission, opts 
 		issue.PullRequest = pr
 
 		if pr.Flow == issues_model.PullRequestFlowGithub {
-			if err = pushCommitToBaseRepo(ctx, pr, pr.HeadCommitID); err != nil {
+			if err = PushToBaseRepo(ctx, pr); err != nil {
 				return err
 			}
 			if err = syncCommitDivergence(ctx, pr); err != nil {
@@ -433,9 +425,8 @@ func AddTestPullRequestTask(opts TestPullRequestOptions) {
 			log.Trace("Updating PR[%d]: composing new test task", pr.ID)
 			pr.HeadRepo = repo // avoid loading again
 			if pr.Flow == issues_model.PullRequestFlowGithub {
-				if err := PushToBaseRepo(ctx, opts.Doer, pr); err != nil {
+				if err := PushToBaseRepo(ctx, pr); err != nil {
 					log.Error("PushToBaseRepo: %v", err)
-					StartPullRequestCheckImmediately(ctx, pr) // the check refuses the new head too, so the pull request stops being mergeable
 					continue
 				}
 			} else {
@@ -575,32 +566,21 @@ func checkIfPRContentChanged(ctx context.Context, pr *issues_model.PullRequest, 
 
 // PushToBaseRepo fetches the head branch commit into the base repository and points the PR head ref at it.
 // FIXME: Only update refs that actually changed?
-func PushToBaseRepo(ctx context.Context, doer *user_model.User, pr *issues_model.PullRequest) error {
-	headCommitID, err := checkedHeadCommit(ctx, doer, pr)
-	if err != nil {
+func PushToBaseRepo(ctx context.Context, pr *issues_model.PullRequest) error {
+	log.Trace("PushToBaseRepo[%d]: updating base repo ref '%s'", pr.BaseRepoID, pr.GetGitHeadRefName())
+
+	if err := pr.LoadHeadRepo(ctx); err != nil {
 		return err
 	}
-	return pushCommitToBaseRepo(ctx, pr, headCommitID)
-}
-
-// checkedHeadCommit resolves the head branch and refuses it when doer may not copy its commits into the base repository
-func checkedHeadCommit(ctx context.Context, doer *user_model.User, pr *issues_model.PullRequest) (string, error) {
-	if err := pr.LoadHeadRepo(ctx); err != nil {
-		return "", err
-	}
 	if err := pr.LoadBaseRepo(ctx); err != nil {
-		return "", err
+		return err
 	}
+	if err := pr.LoadIssue(ctx); err != nil {
+		return err
+	}
+
 	headCommitID, err := git.GetFullCommitID(ctx, pr.HeadRepo, git.BranchPrefix+pr.HeadBranch)
 	if err != nil {
-		return "", err
-	}
-	return headCommitID, branchroom_service.CheckPullRequestHead(ctx, doer, pr.BaseRepo, pr.HeadRepo, pr.HeadBranch, headCommitID)
-}
-
-func pushCommitToBaseRepo(ctx context.Context, pr *issues_model.PullRequest, headCommitID string) error {
-	log.Trace("PushToBaseRepo[%d]: updating base repo ref '%s'", pr.BaseRepoID, pr.GetGitHeadRefName())
-	if err := pr.LoadIssue(ctx); err != nil {
 		return err
 	}
 	// fetch, not push: pushing objects FetchRemoteTempCommit already fetched races background repacks
@@ -619,17 +599,10 @@ func UpdatePullsRefs(ctx context.Context, repo *repo_model.Repository, update *r
 	if err != nil {
 		log.Error("Find pull requests [head_repo_id: %d, head_branch: %s]: %v", repo.ID, branch, err)
 	} else {
-		var pusher *user_model.User
 		for _, pr := range prs {
 			log.Trace("Updating PR[%d]: composing new test task", pr.ID)
 			if pr.Flow == issues_model.PullRequestFlowGithub {
-				if pusher == nil {
-					if _, pusher, err = user_model.GetPossibleUserByID(ctx, update.PusherID); err != nil {
-						log.Error("GetPossibleUserByID: %v", err)
-						return
-					}
-				}
-				if err := PushToBaseRepo(ctx, pusher, pr); err != nil {
+				if err := PushToBaseRepo(ctx, pr); err != nil {
 					log.Error("PushToBaseRepo: %v", err)
 				}
 			}

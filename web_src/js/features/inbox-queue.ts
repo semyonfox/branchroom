@@ -72,7 +72,7 @@ function initChangesForm(bar: HTMLElement) {
     toggle.setAttribute('aria-expanded', String(open));
     if (open) note.focus();
   };
-  toggle.addEventListener('click', () => setOpen(Boolean(form.hidden)));
+  toggle.addEventListener('click', () => setOpen(form.hidden));
   form.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return; // Ctrl+Enter is the site-wide quick submit
     setOpen(false);

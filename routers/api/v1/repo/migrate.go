@@ -238,6 +238,8 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 		ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("The username '%s' contains invalid characters.", errNameCharsNotAllowed.Name))
 	case errors.As(err, &errNamePatternNotAllowed):
 		ctx.APIError(http.StatusUnprocessableEntity, fmt.Sprintf("The pattern '%s' is not allowed in a username.", errNamePatternNotAllowed.Pattern))
+	case git.IsErrInvalidCloneAddr(err):
+		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 	case base.IsErrNotSupported(err):
 		ctx.APIError(http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, util.ErrInvalidArgument), errors.Is(err, policy.ErrDenied):
@@ -257,7 +259,7 @@ func handleMigrateError(ctx *context.APIContext, repoOwner *user_model.User, err
 func handleRemoteAddrError(ctx *context.APIContext, err error) {
 	if addrErr, ok := err.(*git.ErrInvalidCloneAddr); ok {
 		switch {
-		case addrErr.IsURLError || addrErr.IsProtocolInvalid:
+		case addrErr.IsURLError:
 			ctx.APIError(http.StatusUnprocessableEntity, "The provided URL is invalid.")
 		case addrErr.IsPermissionDenied:
 			if addrErr.LocalPath {

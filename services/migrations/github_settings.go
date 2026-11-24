@@ -126,7 +126,7 @@ func (g *GithubGraphQLDownloader) GetSettings(ctx context.Context) (*base.RepoSe
 func githubListAll[T any](ctx context.Context, g *GithubDownloaderV3, list func(opts *github.ListOptions) ([]T, *github.Response, error)) ([]T, error) {
 	var all []T
 	opts := &github.ListOptions{PerPage: g.maxPerPage}
-	for range maxSettingsPages {
+	for {
 		g.waitAndPickClient(ctx)
 		items, resp, err := list(opts)
 		g.setRateFromResponse(resp)
@@ -139,7 +139,6 @@ func githubListAll[T any](ctx context.Context, g *GithubDownloaderV3, list func(
 		}
 		opts.Page = resp.NextPage
 	}
-	return all, errSettingsPageLimit
 }
 
 func convertGithubPermission(admin, write bool) string {

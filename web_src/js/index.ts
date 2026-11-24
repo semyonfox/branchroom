@@ -221,25 +221,23 @@ if (paletteTrigger) {
     }
   }, {capture: true});
   const userID = document.querySelector<HTMLDialogElement>('#forge-palette')!.getAttribute('data-user-id');
-  try {
-    const previousUserKey = `forge-palette-user:${window.config.appSubUrl}`;
-    const previousUserID = localUserSettings.getString(previousUserKey);
-    localUserSettings.remove('forge-palette-recent'); // discard recents that predate account scoping
-    if (previousUserID && previousUserID !== userID) {
-      localUserSettings.remove(paletteRecentKey(previousUserID));
-      localUserSettings.remove(previousUserKey);
-    }
-    if (userID) {
-      const recentKey = paletteRecentKey(userID);
-      localUserSettings.setString(previousUserKey, userID);
-      document.addEventListener('click', (event) => {
-        const {target} = event;
-        if (target instanceof Element && target.closest('a')?.getAttribute('href') === `${window.config.appSubUrl}/user/logout`) {
-          try {
-            localUserSettings.remove(recentKey);
-          } catch { /* storage can be disabled */ }
-        }
-      }, {capture: true});
+  const previousUserKey = `forge-palette-user:${window.config.appSubUrl}`;
+  const previousUserID = localUserSettings.getString(previousUserKey);
+  localUserSettings.remove('forge-palette-recent'); // discard recents that predate account scoping
+  if (previousUserID && previousUserID !== userID) {
+    localUserSettings.remove(paletteRecentKey(previousUserID));
+    localUserSettings.remove(previousUserKey);
+  }
+  if (userID) {
+    const recentKey = paletteRecentKey(userID);
+    localUserSettings.setString(previousUserKey, userID);
+    document.addEventListener('click', (event) => {
+      const {target} = event;
+      if (target instanceof Element && target.closest('a')?.getAttribute('href') === `${window.config.appSubUrl}/user/logout`) {
+        localUserSettings.remove(recentKey);
+      }
+    }, {capture: true});
+    try {
       const stored: unknown = JSON.parse(localUserSettings.getString(recentKey, '[]'));
       const pageURL = location.pathname + location.search;
       // same title means the same page to the reader, like / and /inbox
@@ -248,6 +246,6 @@ if (paletteTrigger) {
         'label' in item && typeof item.label === 'string' && item.url.startsWith('/') &&
         !item.url.startsWith('//') && item.url !== pageURL && item.label !== document.title) : [];
       localUserSettings.setString(recentKey, JSON.stringify([{url: pageURL, label: document.title}, ...recent].slice(0, 8)));
-    }
-  } catch { /* storage can be disabled */ }
+    } catch { /* storage can be disabled */ }
+  }
 }

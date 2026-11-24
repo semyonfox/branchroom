@@ -6,7 +6,6 @@ package context
 import (
 	"bytes"
 	"net/http"
-	"net/url"
 	"strings"
 	"text/template"
 	"time"
@@ -18,7 +17,6 @@ import (
 	"gitea.dev/modules/setting"
 	"gitea.dev/modules/util"
 	"gitea.dev/modules/web/middleware"
-	"gitea.dev/modules/web/routing"
 )
 
 type accessLoggerTmplData struct {
@@ -86,14 +84,6 @@ func (lr *accessLogRecorder) record(start time.Time, respWriter ResponseWriter, 
 	data := middleware.GetContextData(req.Context())
 	if signedUser, ok := data[middleware.ContextDataKeySignedUser].(*user_model.User); ok {
 		identity = signedUser.Name
-	}
-	if redacted := routing.RequestURIForLog(req.URL.RequestURI()); redacted != req.URL.RequestURI() {
-		if redactedURL, err := url.ParseRequestURI(redacted); err == nil {
-			requestForLog := *req
-			requestForLog.URL = redactedURL
-			requestForLog.RequestURI = redacted
-			req = &requestForLog
-		}
 	}
 	buf := bytes.NewBuffer([]byte{})
 	tmplData := accessLoggerTmplData{
