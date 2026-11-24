@@ -2165,7 +2165,7 @@
   "repo.settings.branchroom.deleted_user": "Deleted user #%d",
   "repo.settings.branchroom.grant_not_before": "Not before",
   "repo.settings.branchroom.grant_expires": "Expires",
-  "repo.settings.branchroom.grant_time_help": "Optional. Leave both fields empty to grant access without a time window.",
+  "repo.settings.branchroom.grant_time_help": "Optional. Leave expiry empty to use the instance default grant duration. Times are in UTC.",
   "repo.settings.branchroom.grant_window_invalid": "The grant time window is invalid or already passed.",
   "repo.settings.branchroom.grant_created": "Branchroom discovery grant created.",
   "repo.settings.branchroom.grant_create_failed": "Could not create the Branchroom discovery grant.",
@@ -3876,7 +3876,6 @@
   "secrets.deletion.success": "The secret has been removed.",
   "secrets.deletion.failed": "Failed to remove secret.",
   "secrets.management": "Secrets Management",
-
   "audit.title": "Audit Log",
   "audit.export": "Export JSONL",
   "audit.actor": "Actor",
@@ -4167,5 +4166,17 @@
   "repo.pulls.suggestion.apply": "Apply suggestion",
   "repo.pulls.suggestion.applied": "Suggestion applied",
   "repo.pulls.suggestion.suggest": "Suggest change",
-  "repo.pulls.suggestion.unavailable": "This suggestion is stale or you cannot apply it to this branch."
+  "repo.pulls.suggestion.unavailable": "This suggestion is stale or you cannot apply it to this branch.",
+  "repo.settings.branchroom.grant_duration_exceeded": "Grant expiry must be within %s from now. Non-expiring grants are not allowed.",
+  "repo.settings.branchroom.renew_grant": "Renew",
+  "repo.settings.branchroom.grant_renewed": "Grant renewed.",
+  "repo.settings.branchroom.grant_renew_failed": "Could not renew this grant.",
+  "repo.settings.branchroom.expires": "Expires",
+  "repo.settings.branchroom.never_expires": "Never expires",
+  "admin.users.branchroom_access_help": "Revoking direct grants leaves team access unchanged. Remove team membership or revoke the team grant to remove inherited access.",
+  "admin.users.branchroom_access": "Branchroom access",
+  "admin.users.branchroom_revoked": "All direct Branchroom grants revoked. Team access is unchanged.",
+  "admin.users.branchroom_via_team": "Via team %s",
+  "admin.users.branchroom_no_access": "No active Branchroom grants.",
+  "admin.users.branchroom_revoke_all": "Revoke all direct grants"
 }

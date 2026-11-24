@@ -81,6 +81,10 @@
 									{{range .DiscoveryGrants}}
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
+												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
+											</form>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>
@@ -107,6 +111,10 @@
 									{{range .SourceReadGrants}}
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
+												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
+											</form>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-grants/{{.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_grant"}}</button>
 											</form>
@@ -134,6 +142,10 @@
 									{{range .SourceWriteGrants}}
 										<div class="item flex-text-block">
 											<span>{{.SubjectName}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
+												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
+											</form>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/source-write-grants/{{.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_source_write_grant"}}</button>
 											</form>
@@ -162,6 +174,10 @@
 										<div class="item flex-text-block">
 											<span>{{$teamGrant.TeamName}}</span>
 											<span class="ui basic label">{{$teamGrant.Action}}</span>
+											{{template "repo/settings/branchroom_grant_expiry" .}}
+											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/grants/{{.ID}}/renew" method="post">
+												<button type="submit" class="ui tiny basic button">{{ctx.Locale.Tr "repo.settings.branchroom.renew_grant"}}</button>
+											</form>
 											<form action="{{$.RepoLink}}/settings/branchroom/scopes/{{$scope.ID}}/team-grants/{{$teamGrant.ID}}/revoke" method="post">
 												<button type="submit" class="ui red tiny button">{{ctx.Locale.Tr "repo.settings.branchroom.revoke_grant"}}</button>
 											</form>

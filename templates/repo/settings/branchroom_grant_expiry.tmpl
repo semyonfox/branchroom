@@ -1,0 +1,3 @@
+<span class="{{if .ExpiresSoon}}ui orange basic label{{end}}">
+	{{if .ExpiresUnix}}{{ctx.Locale.Tr "repo.settings.branchroom.expires"}} {{DateUtils.TimeSince .ExpiresUnix}}{{else}}{{ctx.Locale.Tr "repo.settings.branchroom.never_expires"}}{{end}}
+</span>

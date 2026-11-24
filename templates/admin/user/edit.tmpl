@@ -184,6 +184,31 @@
 					<button type="button" class="ui red button show-modal" data-modal="#delete-user-modal">{{ctx.Locale.Tr "admin.users.delete_account"}}</button>
 				</div>
 			</form>
+			{{if .BranchroomEnabled}}
+				<h4 class="ui dividing header">{{ctx.Locale.Tr "admin.users.branchroom_access"}}</h4>
+				<p>{{ctx.Locale.Tr "admin.users.branchroom_access_help"}}</p>
+				<div class="ui divided list">
+					{{range .BranchroomAccess}}
+						<div class="item flex-text-block tw-flex-wrap">
+							<a href="{{AppSubUrl}}/{{.RepositoryOwner}}/{{.RepositoryName}}">{{.RepositoryOwner}}/{{.RepositoryName}}</a>
+							<span>{{.ScopeName}}</span>
+							<span class="ui basic label">{{.Action}}</span>
+							{{if .TeamName}}<span>{{ctx.Locale.Tr "admin.users.branchroom_via_team" .TeamName}}</span>{{end}}
+							{{if .ExpiresUnix}}
+								<span>{{ctx.Locale.Tr "repo.settings.branchroom.expires"}} {{DateUtils.TimeSince .ExpiresUnix}}</span>
+							{{else}}
+								<span>{{ctx.Locale.Tr "repo.settings.branchroom.never_expires"}}</span>
+							{{end}}
+						</div>
+					{{else}}
+						<div class="item">{{ctx.Locale.Tr "admin.users.branchroom_no_access"}}</div>
+					{{end}}
+				</div>
+				<form action="{{AppSubUrl}}/-/admin/users/{{.User.ID}}/branchroom/revoke" method="post">
+					<button type="submit" class="ui red button">{{ctx.Locale.Tr "admin.users.branchroom_revoke_all"}}</button>
+				</form>
+			{{end}}
+
 		</div>
 
 		<h4 class="ui top attached header">

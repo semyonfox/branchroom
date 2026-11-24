@@ -171,3 +171,29 @@ func RevokeGrant(ctx context.Context, grantID, revokedByID int64, now timeutil.T
 	}
 	return nil
 }
+
+// UserAccess describes a direct or inherited active grant for offboarding.
+type UserAccess struct {
+	Grant           `xorm:"extends"`
+	RepoID          int64
+	RepositoryName  string
+	RepositoryOwner string
+	ScopeName       string
+	TeamName        string
+}
+
+// FindUserAccess lists active direct and team grants on active repository scopes.
+func FindUserAccess(ctx context.Context, userID int64) ([]*UserAccess, error) {
+	now := timeutil.TimeStampNow()
+	access := make([]*UserAccess, 0)
+	err := db.GetEngine(ctx).Table("branchroom_grant").
+		Select("branchroom_grant.*, branchroom_scope.repo_id, repository.name AS repository_name, owner.name AS repository_owner, branchroom_scope.name AS scope_name, team.name AS team_name").
+		Join("INNER", "branchroom_scope", "branchroom_scope.id = branchroom_grant.scope_id").
+		Join("INNER", "repository", "repository.id = branchroom_scope.repo_id").
+		Join("INNER", "`user` AS owner", "owner.id = repository.owner_id").
+		Join("LEFT", "team", "branchroom_grant.subject_type = 'team' AND team.id = branchroom_grant.subject_id").
+		Where("branchroom_scope.state = ? AND branchroom_scope.kind = ? AND branchroom_grant.revoked_unix = 0 AND (branchroom_grant.not_before_unix = 0 OR branchroom_grant.not_before_unix <= ?) AND (branchroom_grant.expires_unix = 0 OR branchroom_grant.expires_unix > ?)", ScopeStateActive, ScopeKindRepository, now, now).
+		And("(branchroom_grant.subject_type = ? AND branchroom_grant.subject_id = ?) OR (branchroom_grant.subject_type = ? AND branchroom_grant.subject_id IN (SELECT team_id FROM team_user WHERE uid = ?))", SubjectTypeUser, userID, SubjectTypeTeam, userID).
+		OrderBy("branchroom_scope.repo_id, branchroom_grant.id").Find(&access)
+	return access, err
+}

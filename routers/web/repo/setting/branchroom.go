@@ -52,12 +52,16 @@ type branchroomScopeData struct {
 type branchroomDirectUserGrantData struct {
 	ID          int64
 	SubjectName string
+	ExpiresUnix timeutil.TimeStamp
+	ExpiresSoon bool
 }
 
 type branchroomTeamGrantData struct {
-	ID       int64
-	TeamName string
-	Action   branchroom_model.Action
+	ID          int64
+	TeamName    string
+	ExpiresUnix timeutil.TimeStamp
+	ExpiresSoon bool
+	Action      branchroom_model.Action
 }
 
 // MustEnableBranchroom hides all Branchroom routes while the feature is disabled.
@@ -205,6 +209,8 @@ func Branchroom(ctx *context.Context) {
 			}
 			data.DiscoveryGrants = append(data.DiscoveryGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
+				ExpiresUnix: grant.ExpiresUnix,
+				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
 				SubjectName: subjectName,
 			})
 		}
@@ -215,6 +221,8 @@ func Branchroom(ctx *context.Context) {
 			}
 			data.SourceReadGrants = append(data.SourceReadGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
+				ExpiresUnix: grant.ExpiresUnix,
+				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
 				SubjectName: subjectName,
 			})
 		}
@@ -225,6 +233,8 @@ func Branchroom(ctx *context.Context) {
 			}
 			data.SourceWriteGrants = append(data.SourceWriteGrants, branchroomDirectUserGrantData{
 				ID:          grant.ID,
+				ExpiresUnix: grant.ExpiresUnix,
+				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
 				SubjectName: subjectName,
 			})
 		}
@@ -234,9 +244,11 @@ func Branchroom(ctx *context.Context) {
 				teamName = team.Name
 			}
 			data.TeamGrants = append(data.TeamGrants, branchroomTeamGrantData{
-				ID:       grant.ID,
-				TeamName: teamName,
-				Action:   grant.Action,
+				ID:          grant.ID,
+				ExpiresUnix: grant.ExpiresUnix,
+				ExpiresSoon: grant.ExpiresUnix != 0 && grant.ExpiresUnix <= now.AddDuration(7*24*time.Hour),
+				TeamName:    teamName,
+				Action:      grant.Action,
 			})
 		}
 		scopeData = append(scopeData, data)
@@ -480,6 +492,8 @@ func branchroomDirectUserGrantPost(ctx *context.Context, getForm func(ctx *conte
 		switch {
 		case errors.Is(err, existsError):
 			ctx.Flash.Error(ctx.Tr(existsMessage))
+		case errors.Is(err, branchroom_service.ErrGrantDurationExceeded):
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_duration_exceeded", setting.Branchroom.MaxGrantDuration.String()))
 		case errors.Is(err, util.ErrInvalidArgument):
 			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
 		default:
@@ -541,6 +555,8 @@ func BranchroomTeamGrantPost(ctx *context.Context) {
 			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_grant_exists"))
 		case errors.Is(err, branchroom_service.ErrInvalidTeamGrantTarget):
 			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.team_not_found"))
+		case errors.Is(err, branchroom_service.ErrGrantDurationExceeded):
+			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_duration_exceeded", setting.Branchroom.MaxGrantDuration.String()))
 		case errors.Is(err, util.ErrInvalidArgument):
 			ctx.Flash.Error(ctx.Tr("repo.settings.branchroom.grant_window_invalid"))
 		default:
@@ -774,4 +790,11 @@ func requireBranchroomScopeOwner(ctx *context.Context) bool {
 		return false
 	}
 	return true
+}
+
+// BranchroomGrantRenewPost renews a grant for the repository owner.
+func BranchroomGrantRenewPost(ctx *context.Context) {
+	branchroomDirectUserGrantRevokePost(ctx, func(ctx *context.Context, repoID, scopeID, grantID int64, actor branchroom_service.Actor) error {
+		return branchroom_service.RenewRepositoryGrant(ctx, branchroom_service.RenewRepositoryGrantRequest{RepoID: repoID, ScopeID: scopeID, GrantID: grantID, Actor: actor, Surface: branchroom_model.SurfaceWeb})
+	}, "repo.settings.branchroom.grant_renew_failed", "repo.settings.branchroom.grant_renewed")
 }

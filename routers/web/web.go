@@ -748,7 +748,14 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 
 	m.Get("/avatar/{hash}", user.AvatarByEmailHash)
 
-	adminReq := verifyAuthWithOptionsWeb(&common.VerifyOptions{SignInRequired: true, AdminRequired: true})
+	verifyAdmin := verifyAuthWithOptionsWeb(&common.VerifyOptions{SignInRequired: true, AdminRequired: true})
+	adminReq := func(ctx *context.Context) {
+		if setting.Branchroom.Enabled && ctx.IsSigned && !ctx.Doer.IsAdmin && ctx.PathParam("userid") != "" && (strings.HasSuffix(ctx.Req.URL.Path, "/edit") || strings.HasSuffix(ctx.Req.URL.Path, "/branchroom/revoke")) {
+			ctx.NotFound()
+			return
+		}
+		verifyAdmin(ctx)
+	}
 
 	// ***** START: Admin *****
 	m.Group("/-/admin", func() {
@@ -788,6 +795,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Get("", admin.Users)
 			m.Combo("/new").Get(admin.NewUser).Post(web.Bind[*forms.AdminCreateUserForm](), admin.NewUserPost)
 			m.Get("/{userid}", admin.ViewUser)
+			m.Post("/{userid}/branchroom/revoke", admin.RevokeBranchroomAccess)
 			m.Combo("/{userid}/edit").Get(admin.EditUser).Post(web.Bind[*forms.AdminEditUserForm](), admin.EditUserPost)
 			m.Post("/{userid}/impersonate", admin.ImpersonateUser)
 			m.Post("/{userid}/delete", admin.DeleteUser)
@@ -1216,6 +1224,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 			m.Post("/workspaces", web.Bind[*forms.BranchroomWorkspaceForm](), repo_setting.BranchroomWorkspacePost)
 			m.Post("/scopes/{scopeID}/route-key/rotate", repo_setting.BranchroomWorkspaceRouteKeyRotatePost)
 			m.Post("/grants", web.Bind[*forms.BranchroomDiscoveryGrantForm](), repo_setting.BranchroomDiscoveryGrantPost)
+			m.Post("/scopes/{scopeID}/grants/{grantID}/renew", repo_setting.BranchroomGrantRenewPost)
 			m.Post("/scopes/{scopeID}/grants/{grantID}/revoke", repo_setting.BranchroomDiscoveryGrantRevokePost)
 			m.Post("/source-grants", web.Bind[*forms.BranchroomSourceReadGrantForm](), repo_setting.BranchroomSourceReadGrantPost)
 			m.Post("/scopes/{scopeID}/source-grants/{grantID}/revoke", repo_setting.BranchroomSourceReadGrantRevokePost)

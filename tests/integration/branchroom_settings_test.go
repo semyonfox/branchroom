@@ -357,6 +357,76 @@ func TestBranchroomSettings(t *testing.T) {
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-grants/1/revoke"), http.StatusNotFound)
 		siteAdmin.MakeRequest(t, NewRequest(t, http.MethodPost, branchroomURL+"/scopes/"+strconv.FormatInt(scope.ID, 10)+"/source-write-grants/1/revoke"), http.StatusNotFound)
 	})
+	t.Run("grant lifetime and offboarding", func(t *testing.T) {
+		defer tests.PrepareTestEnv(t)()
+		defer test.MockVariableValue(&setting.Branchroom)()
+		setting.Branchroom = setting.BranchroomConfig{Enabled: true, DefaultGrantDuration: 24 * time.Hour}
+		owner := loginUser(t, "user2")
+		admin := loginUser(t, "user1")
+		member := loginUser(t, "user4")
+		actor := branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: 2}
+		scope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{RepoID: 1, Actor: actor, Name: "offboarding", Surface: branchroom_model.SurfaceWeb})
+		require.NoError(t, err)
+		url := "/user2/repo1/settings/branchroom"
+		values := map[string]string{"scope_id": strconv.FormatInt(scope.ID, 10), "username": "user4"}
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, url+"/grants", values), http.StatusSeeOther)
+		grant := unittest.AssertExistsAndLoadBean(t, &branchroom_model.Grant{ScopeID: scope.ID, SubjectID: 4, SubjectType: branchroom_model.SubjectTypeUser})
+		assert.InDelta(t, int64(timeutil.TimeStampNow().AddDuration(24*time.Hour)), int64(grant.ExpiresUnix), 2)
+		response := owner.MakeRequest(t, NewRequest(t, http.MethodGet, url), http.StatusOK)
+		assert.Contains(t, response.Body.String(), "ui orange basic label")
+		setting.Branchroom.MaxGrantDuration = 48 * time.Hour
+		values["username"] = "user5"
+		values["expires"] = time.Now().UTC().Add(72 * time.Hour).Format("2006-01-02T15:04")
+		owner.MakeRequest(t, NewRequestWithValues(t, http.MethodPost, url+"/grants", values), http.StatusSeeOther)
+		response = owner.MakeRequest(t, NewRequest(t, http.MethodGet, url), http.StatusOK)
+		assert.Contains(t, response.Body.String(), "Grant expiry must be within")
+		unittest.AssertNotExistsBean(t, &branchroom_model.Grant{ScopeID: scope.ID, SubjectID: 5, SubjectType: branchroom_model.SubjectTypeUser})
+		setting.Branchroom.DefaultGrantDuration = 72 * time.Hour
+		renewURL := url + "/scopes/" + strconv.FormatInt(scope.ID, 10) + "/grants/" + strconv.FormatInt(grant.ID, 10) + "/renew"
+		member.MakeRequest(t, NewRequest(t, http.MethodPost, renewURL), http.StatusNotFound)
+		owner.MakeRequest(t, NewRequest(t, http.MethodPost, renewURL), http.StatusSeeOther)
+		renewed, err := branchroom_model.GetGrantByID(t.Context(), grant.ID)
+		require.NoError(t, err)
+		assert.Greater(t, renewed.ExpiresUnix, grant.ExpiresUnix)
+		assert.InDelta(t, int64(timeutil.TimeStampNow().AddDuration(48*time.Hour)), int64(renewed.ExpiresUnix), 2)
+		unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{GrantID: grant.ID, ReasonCode: "grant_renewed"})
+		orgScope, err := branchroom_service.CreateRepositoryScope(t.Context(), branchroom_service.CreateRepositoryScopeRequest{RepoID: 3, Actor: actor, Name: "other-repository", Surface: branchroom_model.SurfaceWeb})
+		require.NoError(t, err)
+		otherGrant, err := branchroom_service.CreateRepositoryDiscoveryGrant(t.Context(), branchroom_service.CreateRepositoryDiscoveryGrantRequest{RepoID: 3, ScopeID: orgScope.ID, Actor: actor, SubjectUsername: "user4", Surface: branchroom_model.SurfaceWeb})
+		require.NoError(t, err)
+		teamGrant, err := branchroom_service.CreateRepositoryTeamGrant(t.Context(), branchroom_service.CreateRepositoryTeamGrantRequest{RepoID: 3, ScopeID: orgScope.ID, TeamID: 2, Actor: actor, Action: branchroom_model.ActionDiscover, Surface: branchroom_model.SurfaceWeb})
+		require.NoError(t, err)
+		assert.InDelta(t, int64(timeutil.TimeStampNow().AddDuration(48*time.Hour)), int64(teamGrant.ExpiresUnix), 2)
+		adminURL := "/-/admin/users/4/edit"
+		response = admin.MakeRequest(t, NewRequest(t, http.MethodGet, adminURL), http.StatusOK)
+		assert.Contains(t, response.Body.String(), "offboarding")
+		assert.Contains(t, response.Body.String(), "Via team")
+		member.MakeRequest(t, NewRequest(t, http.MethodGet, adminURL), http.StatusNotFound)
+		revokeURL := "/-/admin/users/4/branchroom/revoke"
+		member.MakeRequest(t, NewRequest(t, http.MethodPost, revokeURL), http.StatusNotFound)
+		evaluate := func() bool {
+			decision, err := (&branchroom_service.DBEvaluator{}).Evaluate(t.Context(), branchroom_service.Request{RepoID: 1, ScopeID: scope.ID, Actor: branchroom_service.Actor{Type: branchroom_model.ActorTypeUser, ID: 4}, Ceiling: branchroom_service.RepositoryCeiling{CodeRead: true}, Action: branchroom_model.ActionDiscover, ResourceType: branchroom_model.ResourceTypeScope, ResourceID: "scope/" + strconv.FormatInt(scope.ID, 10), Surface: branchroom_model.SurfaceWeb})
+			require.NoError(t, err)
+			return decision.Allowed
+		}
+		require.True(t, evaluate())
+		admin.MakeRequest(t, NewRequest(t, http.MethodPost, revokeURL), http.StatusSeeOther)
+		assert.False(t, evaluate())
+		access, err := branchroom_model.FindUserAccess(t.Context(), 4)
+		require.NoError(t, err)
+		require.Len(t, access, 1)
+		assert.Equal(t, teamGrant.ID, access[0].ID)
+		assert.NotEmpty(t, access[0].TeamName)
+		otherRevoked, err := branchroom_model.GetGrantByID(t.Context(), otherGrant.ID)
+		require.NoError(t, err)
+		assert.NotZero(t, otherRevoked.RevokedUnix)
+		revoked, err := branchroom_model.GetGrantByID(t.Context(), grant.ID)
+		require.NoError(t, err)
+		assert.NotZero(t, revoked.RevokedUnix)
+		assert.EqualValues(t, 1, revoked.RevokedByID)
+		require.NoError(t, branchroom_model.VerifyScopeAuditChain(t.Context(), scope))
+		unittest.AssertExistsAndLoadBean(t, &branchroom_model.AuditEvent{GrantID: grant.ID, ReasonCode: "discovery_grant_revoked"})
+	})
 }
 
 func TestBranchroomWorkspaceRetentionRequiresPhysicalPurgeAfterTransfer(t *testing.T) {
