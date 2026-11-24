@@ -47,6 +47,9 @@
   --gap-block: 0.5rem; /* gap for element blocks, for example: spaces between buttons, menu image & title, header icon & title etc */
 
   --background-view-image: repeating-conic-gradient(var(--color-transparency-grid-dark) 0 25%, var(--color-transparency-grid-light) 0 50%) 0 0 / 18px 18px;
+  /* fallbacks for custom themes that predate these tokens, built-in themes override them */
+  --color-border: var(--color-secondary);
+  --color-raised: var(--color-menu);
 }
 
 @media (min-width: 768px) and (max-width: 1200px) {
@@ -476,7 +479,7 @@ a.label,
 }
 
 overflow-menu {
-  border-bottom: 1px solid var(--color-secondary) !important;
+  border-bottom: 1px solid var(--color-border) !important;
   display: flex;
   position: relative;
 }
@@ -491,9 +494,9 @@ overflow-menu .overflow-menu-popup {
   top: calc(100% + 8px);
   right: 0;
   z-index: 100;
-  background-color: var(--color-menu);
+  background-color: var(--color-raised);
   color: var(--color-text);
-  border: 1px solid var(--color-secondary);
+  border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   box-shadow: 0 6px 18px var(--color-shadow);
   padding: 4px 0;
@@ -509,12 +512,12 @@ overflow-menu .overflow-menu-popup::after {
 
 overflow-menu .overflow-menu-popup::before {
   bottom: 100%;
-  border-bottom-color: var(--color-secondary);
+  border-bottom-color: var(--color-border);
 }
 
 overflow-menu .overflow-menu-popup::after {
   bottom: calc(100% - 1px);
-  border-bottom-color: var(--color-menu);
+  border-bottom-color: var(--color-raised);
 }
 
 overflow-menu.ui.menu .overflow-menu-popup > .item.item { /* doubled class beats the host menu's item styles */
@@ -706,7 +709,7 @@ overflow-menu .ui.label:empty {
 }
 
 tr.top-line-blame {
-  border-top: 1px solid var(--color-secondary);
+  border-top: 1px solid var(--color-border);
 }
 
 tr.top-line-blame:first-of-type {

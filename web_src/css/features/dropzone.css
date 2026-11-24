@@ -1,6 +1,6 @@
 /* because dropzone css is imported after our css, so use double class selector to override dropzone styles */
 .dropzone.dropzone {
-  border: 2px dashed var(--color-secondary);
+  border: 2px dashed var(--color-border);
   background: none;
   box-shadow: none;
   padding: 0;

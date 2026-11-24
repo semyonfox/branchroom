@@ -123,7 +123,7 @@
 /* EasyMDE's options can not handle minHeight & maxHeight together correctly, we have to set minHeight in JS code */
 .review-box-panel .CodeMirror-scroll {
   min-height: 80px;
-  max-height: calc(100vh - 360px);
+  max-height: calc(100dvh - 360px);
 }
 
 .review-box-panel .combo-markdown-editor {

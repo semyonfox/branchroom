@@ -68,6 +68,10 @@
   aspect-ratio: 1;
 }
 
+.tippy-box:has(.reaction-picker) {
+  border-radius: calc(var(--border-radius) + 4px + 1px);
+}
+
 .reaction-picker {
   display: flex;
   flex-wrap: wrap;

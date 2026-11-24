@@ -560,7 +560,7 @@ ul li {
 }
 
 ul li:not(:last-child) {
-  border-bottom: 1px solid var(--color-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .repos-search {

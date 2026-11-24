@@ -150,7 +150,7 @@ onBeforeUnmount(() => {
   align-items: stretch; /* equal-height columns so labels align at top and values at bottom */
   gap: 8px 48px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--color-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .action-run-summary-trigger {
@@ -226,7 +226,7 @@ onBeforeUnmount(() => {
 .action-run-summary-stat-divider {
   display: none;
   flex: 0 0 100%;
-  border-bottom: 1px solid var(--color-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .action-run-summary-stat-value {

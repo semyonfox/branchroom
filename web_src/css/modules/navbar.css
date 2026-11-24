@@ -1,6 +1,6 @@
 #navbar {
   background: var(--color-nav-bg);
-  border-bottom: 1px solid var(--color-secondary);
+  border-bottom: 1px solid var(--color-border);
   padding: 0 10px;
 }
 

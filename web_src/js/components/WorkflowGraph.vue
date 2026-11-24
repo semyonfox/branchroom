@@ -449,7 +449,7 @@ function onNodeClick(job: GraphNode | ActionsJob, event: MouseEvent) {
   padding: 16px 16px 8px;
   gap: var(--gap-block);
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--color-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .graph-workflow-info {
