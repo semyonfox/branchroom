@@ -1,0 +1,30 @@
+name: Branchroom PR
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go and SQLite checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: "0"
+      GITEA_TEST_DATABASE: sqlite
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Test scanner and workspace packages
+        run: |
+          go test ./modules/secretscan ./modules/branchroom ./models/branchroom ./services/branchroom
+          go test -run '^TestSecretScanningPatterns$' ./modules/setting
+      - name: Test workspace and push protection integration
+        run: make 'test-integration#^TestBranchroom|^TestGitPush$/^SecretPushProtection$'
