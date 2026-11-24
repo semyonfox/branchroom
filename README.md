@@ -18,14 +18,22 @@ Shipped on top of current Gitea:
 - Access tokens can expire and can be limited to selected repositories.
 - Review comments can suggest a change, including a change that spans lines.
 - Release assets download from the repository home, including `/releases/latest/download/<file>`.
-
-Next is an MCP endpoint, an identity on each agent token, and a record of which agent pushed a commit.
+- Agents can use the [native MCP endpoint](docs/branchroom/mcp.md) to work on pull requests. [Agent tokens and push receipts](docs/branchroom/operations.md#agent-tokens-and-push-receipts) identify the agent behind a push.
 
 ## Restricted workspaces
 
 Some source has to live outside the ordinary repository. With `[branchroom] ENABLED = true`, Branchroom keeps that source in a separate Git store, with grants, a hash-linked audit trail and a narrow HTTPS clone and push path.
 
 That path is a real boundary, and it is unfinished. There is no SSH, LFS, Actions or restricted pull request for it. Read [the operations runbook](docs/branchroom/operations.md) before pointing it at anything you cannot lose. The threat model and the milestones are in [the implementation plan](docs/branchroom/implementation-plan.md).
+
+## Try Branchroom
+
+1. Build a Linux binary with embedded assets using `TAGS=bindata make build`. See the [build requirements](docs/build-setup.md) and [supported deployment](docs/branchroom/operations.md#supported-deployment).
+2. Follow the [installation steps](docs/branchroom/operations.md#install) on a disposable instance. Create a throwaway repository and a second account for your teammate.
+3. Open **Repository settings → Branchroom**, create a scope and provision its workspace. Give the teammate repository code-read permission, discovery and source-read access.
+4. As the teammate, open `/{owner}/{repository}/-/branchroom`, copy the scoped URL and run `git clone <copied-url>`. The [demo walkthrough](docs/branchroom/self-hosted-demo.md#walkthrough) also covers granting and revoking push access.
+
+Use the [backup and restore instructions](docs/branchroom/operations.md#backup) to include the restricted store in a backup.
 
 ## Development
 
