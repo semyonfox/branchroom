@@ -288,6 +288,18 @@ export function initRepoPullRequestReview() {
       td.querySelector<HTMLInputElement>("input[name='side']")!.value = (side === 'left' ? 'previous' : 'proposed');
       td.querySelector<HTMLInputElement>("input[name='path']")!.value = String(path);
       const editor = await initComboMarkdownEditor(td.querySelector<HTMLElement>('.combo-markdown-editor')!);
+      const suggestButton = td.querySelector<HTMLButtonElement>('.review-suggest-change')!;
+      const code = tr.querySelector(isSplit ? '.lines-code-new .code-inner' : '.lines-code .code-inner');
+      if (code && side === 'right') {
+        suggestButton.addEventListener('click', () => {
+          const original = code.textContent;
+          const fence = '`'.repeat(Math.max(3, ...Array.from(original.matchAll(/`+/g), (match) => match[0].length + 1)));
+          editor.value(`${editor.value()}\n${fence}suggestion\n${original}\n${fence}\n`);
+          editor.focus();
+        });
+      } else {
+        hideElem(suggestButton);
+      }
       editor.focus();
     }
   });

@@ -909,7 +909,12 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 	reqUnitsWithMentions := context.RequireUnitReader(unit.TypeIssues, unit.TypePullRequests, unit.TypeReleases, unit.TypeWiki, unit.TypeProjects)
 	reqUnitCodeReader := context.RequireUnitReader(unit.TypeCode)
 	reqUnitIssuesReader := context.RequireUnitReader(unit.TypeIssues)
-	reqUnitPullsReader := context.RequireUnitReader(unit.TypePullRequests)
+	reqUnitPullsReader := func(ctx *context.Context) {
+		context.RequireUnitReader(unit.TypePullRequests)(ctx)
+		if !ctx.Written() {
+			repo.PrepareReviewSuggestion(ctx)
+		}
+	}
 	reqUnitWikiReader := context.RequireUnitReader(unit.TypeWiki)
 	reqUnitWikiWriter := context.RequireUnitWriter(unit.TypeWiki)
 
@@ -1431,6 +1436,7 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		m.Group("/issues", func() {
 			m.Post("/request_review", repo.UpdatePullReviewRequest)
 			m.Post("/dismiss_review", reqRepoAdmin, web.Bind[*forms.DismissReviewForm](), repo.DismissReview)
+			m.Post("/apply_suggestion", repo.ApplyReviewSuggestion)
 			m.Post("/resolve_conversation", repo.SetShowOutdatedComments, repo.UpdateResolveConversation)
 		}, reqUnitPullsReader)
 		m.Post("/pull/{index}/target_branch", reqUnitPullsReader, repo.UpdatePullRequestTarget)

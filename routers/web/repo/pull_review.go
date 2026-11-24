@@ -23,6 +23,7 @@ import (
 	"gitea.dev/services/forms"
 	issue_service "gitea.dev/services/issue"
 	pull_service "gitea.dev/services/pull"
+	files_service "gitea.dev/services/repository/files"
 	user_service "gitea.dev/services/user"
 )
 
@@ -459,4 +460,33 @@ func UpdatePullReviewRequest(ctx *context.Context) {
 	}
 
 	ctx.JSONOK()
+}
+
+func ApplyReviewSuggestion(ctx *context.Context) {
+	comment, err := issues_model.GetCommentByID(ctx, ctx.FormInt64("comment_id"))
+	if err != nil {
+		ctx.NotFound()
+		return
+	}
+	if err := comment.LoadIssue(ctx); err != nil {
+		ctx.ServerErrorAuto(err)
+		return
+	}
+	if comment.Issue.RepoID != ctx.Repo.Repository.ID || !comment.Issue.IsPull {
+		ctx.NotFound()
+		return
+	}
+	comment.Issue.Repo = ctx.Repo.Repository
+	if err := files_service.ApplySuggestion(ctx, comment, ctx.Doer); err != nil {
+		ctx.Flash.Error(ctx.Tr("repo.pulls.suggestion.unavailable"))
+	} else {
+		ctx.Flash.Success(ctx.Tr("repo.pulls.suggestion.applied"))
+	}
+	ctx.JSONRedirect(comment.Issue.Link())
+}
+
+func PrepareReviewSuggestion(ctx *context.Context) {
+	ctx.Data["CanApplySuggestion"] = func(comment *issues_model.Comment) bool {
+		return files_service.CanApplySuggestion(ctx, comment, ctx.Doer)
+	}
 }

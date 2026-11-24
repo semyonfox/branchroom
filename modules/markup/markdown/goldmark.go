@@ -5,6 +5,7 @@ package markdown
 
 import (
 	"fmt"
+	"strings"
 
 	"gitea.dev/modules/container"
 	"gitea.dev/modules/highlight"
@@ -76,6 +77,9 @@ func (g *ASTTransformer) Transform(node *ast.Document, reader text.Reader, pc pa
 		case *ast.CodeSpan:
 			g.transformCodeSpan(ctx, v, reader)
 		case *ast.FencedCodeBlock:
+			if original, ok := ctx.RenderOptions.Metas["reviewSuggestionOriginal"]; ok && v.Info != nil && string(v.Info.Segment.Value(reader.Source())) == "suggestion" {
+				v.SetAttributeString("review-suggestion-original", original)
+			}
 			g.transformFencedCodeblock(v, reader)
 		case *ast.Blockquote:
 			return g.transformBlockquote(v, reader)
@@ -163,6 +167,17 @@ func (r *HTMLRenderer) renderCodeBlock(w util.BufWriter, source []byte, n ast.No
 		}
 
 		code := n.Lines().Value(source)
+		if original, ok := n.AttributeString("review-suggestion-original"); ok {
+			language = "diff"
+			var diff strings.Builder
+			fmt.Fprintf(&diff, "-%s\n", original)
+			for line := range strings.SplitSeq(strings.TrimSuffix(string(code), "\n"), "\n") {
+				if len(code) != 0 {
+					fmt.Fprintf(&diff, "+%s\n", line)
+				}
+			}
+			code = []byte(diff.String())
+		}
 		lexer := highlight.DetectChromaLexerByFileName("", language)
 		renderedHTML := highlight.RenderCodeByLexer(lexer, string(code))
 		if _, err = w.WriteString(string(renderedHTML)); err != nil {

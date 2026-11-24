@@ -47,6 +47,7 @@
 			</div>
 			<div class="markdown-toolbar-group">
 				<md-quote class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.quote.tooltip"}}">{{svg "octicon-quote"}}</md-quote>
+				{{if .ReviewSuggestion}}<button type="button" class="markdown-toolbar-button review-suggest-change" data-tooltip-content="{{ctx.Locale.Tr "repo.pulls.suggestion.suggest"}}">{{svg "octicon-diff"}}</button>{{end}}
 				<md-code class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.code.tooltip"}}">{{svg "octicon-code"}}</md-code>
 				<md-link class="markdown-toolbar-button" data-tooltip-content="{{ctx.Locale.Tr "editor.buttons.link.tooltip"}}">{{svg "octicon-link"}}</md-link>
 			</div>

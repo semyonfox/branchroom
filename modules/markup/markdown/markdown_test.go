@@ -619,3 +619,16 @@ func TestMarkdownCodeBlock(t *testing.T) {
 	testRender("```js ignore\ncode\n```", jsCommon)
 	testRender("    <any&content>\n", prefix+`<code class="chroma language-text">&lt;any&amp;content&gt;`+nl+`</code>`+suffix)
 }
+
+func TestReviewSuggestion(t *testing.T) {
+	content := "Text\n````suggestion\n<script>bad()</script>\n```\n````\n\n```suggestion:-1+1\nunsupported range\n```"
+	assert.Equal(t, []string{"<script>bad()</script>\n```\n"}, markdown.Suggestions(content))
+	original, ok := markdown.SuggestionOriginal("@@ -8,2 +9,3 @@\n context\n-old\n+new\n+last", 11)
+	assert.True(t, ok)
+	assert.Equal(t, "last", original)
+	rctx := markup.NewTestRenderContext(map[string]string{"reviewSuggestionOriginal": "original"})
+	rendered, err := markdown.RenderString(rctx, "```suggestion\n<script>bad()</script>\n```")
+	assert.NoError(t, err)
+	assert.Contains(t, string(rendered), "-original")
+	assert.NotContains(t, string(rendered), "<script>")
+}

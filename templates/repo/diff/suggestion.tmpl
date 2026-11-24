@@ -1,0 +1,7 @@
+{{$comment := .comment}}
+{{$repoLink := .repoLink}}
+{{if and $comment.CommentMetaData $comment.CommentMetaData.AppliedSuggestionCommit}}
+	<div class="ui label">{{ctx.Locale.Tr "repo.pulls.suggestion.applied"}}</div>
+{{else if and ctx.RootData.CanApplySuggestion (call ctx.RootData.CanApplySuggestion $comment)}}
+	<button type="button" class="ui small button" data-fetch-url="{{$repoLink}}/issues/apply_suggestion?comment_id={{$comment.ID}}" data-fetch-trigger="click" data-fetch-method="post">{{ctx.Locale.Tr "repo.pulls.suggestion.apply"}}</button>
+{{end}}
