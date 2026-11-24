@@ -80,45 +80,6 @@ func RecordPublicPushOfRestrictedWork(ctx context.Context, scope *branchroom_mod
 	return err
 }
 
-// RestrictedSource is a repository whose restricted store holds commits that a write would publish.
-type RestrictedSource struct {
-	Repo  *repo_model.Repository
-	Scope *branchroom_model.Scope
-}
-
-// FindRestrictedSources lists target and the repositories it was forked from whose restricted store holds commits reachable from commitID.
-// The store mirrors the public repository, so commits count only when they are new to the repository holding the workspace.
-// objectDirs hold the objects of commitID that repository may lack.
-func FindRestrictedSources(ctx context.Context, target *repo_model.Repository, commitID string, objectDirs []string) ([]RestrictedSource, error) {
-	var sources []RestrictedSource
-	for source := target; source != nil; source = source.BaseRepo {
-		if err := source.GetBaseRepo(ctx); err != nil {
-			return nil, err
-		}
-		workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, source.ID)
-		if err != nil {
-			return nil, err
-		}
-		if len(workspaces) == 0 {
-			continue
-		}
-		env := append(os.Environ(), private.GitAlternativeObjectDirectories+"="+strings.Join(objectDirs, string(filepath.ListSeparator)))
-		output, _, err := gitcmd.NewCommand("rev-list").AddDynamicArguments(commitID).AddArguments("--not", "--all").
-			WithEnv(env).WithRepo(source).RunStdString(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("FindRestrictedSources: list commits new to %s: %w", source.FullName(), err)
-		}
-		scope, found, err := FindRestrictedSource(ctx, workspaces, strings.Fields(output))
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			sources = append(sources, RestrictedSource{Repo: source, Scope: scope})
-		}
-	}
-	return sources, nil
-}
-
 // CheckPullRequestHead refuses a pull request head carrying restricted work of the base repository or one it was forked from.
 // The head repository need not be a fork, so its pre-receive check cannot cover what a pull request copies into the base.
 // Admins of the repository holding the workspace may publish. Without a doer restricted work is refused unaudited.
@@ -126,25 +87,53 @@ func CheckPullRequestHead(ctx context.Context, doer *user_model.User, base, head
 	if !setting.Branchroom.Enabled || base.ID == head.ID {
 		return nil
 	}
-	sources, err := FindRestrictedSources(ctx, base, headCommitID, []string{filepath.Join(gitrepo.RepoLocalPath(head), "objects")})
-	if err != nil {
-		return fmt.Errorf("CheckPullRequestHead: check %s against %s: %w", head.FullName(), base.FullName(), err)
-	}
-	for _, source := range sources {
+	var newCommits []string
+	for source := base; source != nil; source = source.BaseRepo {
+		if err := source.GetBaseRepo(ctx); err != nil {
+			return err
+		}
+		workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, source.ID)
+		if err != nil {
+			return err
+		}
+		if len(workspaces) == 0 {
+			continue
+		}
+		if newCommits == nil {
+			// run in the base repository with the head's objects borrowed, so --all excludes what the base already has
+			env := append(os.Environ(), private.GitAlternativeObjectDirectories+"="+filepath.Join(gitrepo.RepoLocalPath(head), "objects"))
+			output, _, err := gitcmd.NewCommand("rev-list").AddDynamicArguments(headCommitID).AddArguments("--not", "--all").
+				WithEnv(env).WithRepo(base).RunStdString(ctx)
+			if err != nil {
+				return fmt.Errorf("CheckPullRequestHead: list commits of %s new to %s: %w", head.FullName(), base.FullName(), err)
+			}
+			newCommits = strings.Fields(output)
+			if len(newCommits) == 0 {
+				return nil
+			}
+		}
+		scope, found, err := FindRestrictedSource(ctx, workspaces, newCommits)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
 		if doer == nil {
 			return util.ErrorWrapTranslatable(util.ErrPermissionDenied, "repo.pulls.restricted_work_refused")
 		}
-		permission, err := access_model.GetDoerRepoPermission(ctx, source.Repo, doer)
+
+		permission, err := access_model.GetDoerRepoPermission(ctx, source, doer)
 		if err != nil {
 			return err
 		}
 		allowed := permission.IsAdmin()
 		ref := head.FullName() + ":" + headBranch
-		if err := RecordPublicPushOfRestrictedWork(ctx, source.Scope, doer, ref, allowed); err != nil {
-			log.Error("record restricted publish decision for %s: %v", source.Repo.FullName(), err)
+		if err := RecordPublicPushOfRestrictedWork(ctx, scope, doer, ref, allowed); err != nil {
+			log.Error("record restricted publish decision for %s: %v", source.FullName(), err)
 		}
-		audit.RecordAs(ctx, doer, util.Iif(allowed, audit_model.RepositoryRestrictedPublished, audit_model.RepositoryRestrictedRefused), source.Repo,
-			"ref", ref, "workspace", source.Scope.Name)
+		audit.RecordAs(ctx, doer, util.Iif(allowed, audit_model.RepositoryRestrictedPublished, audit_model.RepositoryRestrictedRefused), source,
+			"ref", ref, "workspace", scope.Name)
 		if !allowed {
 			return util.ErrorWrapTranslatable(util.ErrPermissionDenied, "repo.pulls.restricted_work_refused")
 		}

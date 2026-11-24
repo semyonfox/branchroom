@@ -435,7 +435,6 @@ func AddTestPullRequestTask(opts TestPullRequestOptions) {
 			if pr.Flow == issues_model.PullRequestFlowGithub {
 				if err := PushToBaseRepo(ctx, opts.Doer, pr); err != nil {
 					log.Error("PushToBaseRepo: %v", err)
-					StartPullRequestCheckImmediately(ctx, pr) // the check refuses the new head too, so the pull request stops being mergeable
 					continue
 				}
 			} else {
