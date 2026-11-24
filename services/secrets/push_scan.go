@@ -5,7 +5,6 @@ package secrets
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -21,10 +20,9 @@ import (
 )
 
 const (
-	maxPatchBytes     = 32 * 1024 * 1024
-	maxUTF16BlobBytes = 1024 * 1024 // larger binaries are not opened to look for a UTF-16 BOM
-	maxFindings       = 5
-	pushScanTimeout   = 30 * time.Second
+	maxPatchBytes   = 32 * 1024 * 1024
+	maxFindings     = 5
+	pushScanTimeout = 30 * time.Second
 )
 
 // ScanPush checks the files added or changed in commits entering the repository.
@@ -43,7 +41,7 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 	remaining := int64(maxPatchBytes)
 	readBlob := func(oid string) ([]byte, error) {
 		info, err := batch.QueryInfo(oid)
-		if err != nil || info.Type != string(git.ObjectBlob) || info.Size < 2 || info.Size > min(remaining, maxUTF16BlobBytes) {
+		if err != nil || info.Type != string(git.ObjectBlob) || info.Size < 2 || info.Size > remaining {
 			return nil, err
 		}
 		_, reader, err := batch.QueryContent(oid)
@@ -81,11 +79,7 @@ func ScanPush(ctx context.Context, repo git.RepositoryFacade, env []string, newC
 		}).
 		RunWithStderr(ctx)
 	if runErr != nil {
-		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, runErr
-		}
-		// like the byte cap, the timeout lets the unscanned rest through rather than fail the push
-		log.Warn("ScanPush: stopped after %s, the rest of the push was not scanned", pushScanTimeout)
+		return nil, runErr
 	}
 	return findings, nil
 }

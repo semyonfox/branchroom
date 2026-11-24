@@ -70,7 +70,7 @@ func MakePrimary(ctx context.Context, repo *repo_model.Repository, pushAddr stri
 	if err := db.Insert(ctx, pushMirror); err != nil {
 		return fmt.Errorf("MakePrimary: %w", err)
 	}
-	if err := AddPushMirrorRemote(ctx, pushMirror, pushAddr); err != nil {
+	if err := addPushMirrorRemote(ctx, pushMirror, pushAddr, true); err != nil {
 		return fmt.Errorf("MakePrimary: %w", err)
 	}
 	audit.Record(ctx, audit_model.RepositoryMirrorPushAdd, repo, "mirror_id", pushMirror.ID, "remote_address", pushMirror.RemoteAddress)

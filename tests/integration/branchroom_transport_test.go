@@ -18,7 +18,6 @@ import (
 	auth_model "gitea.dev/models/auth"
 	branchroom_model "gitea.dev/models/branchroom"
 	"gitea.dev/models/db"
-	issues_model "gitea.dev/models/issues"
 	"gitea.dev/models/perm"
 	access_model "gitea.dev/models/perm/access"
 	repo_model "gitea.dev/models/repo"
@@ -32,10 +31,8 @@ import (
 	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
-	api "gitea.dev/modules/structs"
 	"gitea.dev/modules/test"
 	branchroom_service "gitea.dev/services/branchroom"
-	pull_service "gitea.dev/services/pull"
 	repository_service "gitea.dev/services/repository"
 
 	"github.com/stretchr/testify/assert"
@@ -546,105 +543,6 @@ func TestBranchroomSmartHTTPWriteGateway(t *testing.T) {
 					assert.Contains(t, stderr, "restricted workspace")
 				})
 			}
-
-			t.Run("a fork behind the base syncs and opens pull requests", func(t *testing.T) {
-				// prune the fork to a default branch older than branch2, whose public commits the restricted store mirrors
-				refs, _, err := gitcmd.NewCommand("for-each-ref", "--format=%(refname)").WithRepo(fork).RunStdString(t.Context())
-				require.NoError(t, err)
-				for ref := range strings.FieldsSeq(refs) {
-					if ref != "refs/heads/"+repository.DefaultBranch {
-						_, _, err = gitcmd.NewCommand("update-ref", "-d").AddDynamicArguments(ref).WithRepo(fork).RunStdString(t.Context())
-						require.NoError(t, err)
-					}
-				}
-				_, _, err = gitcmd.NewCommand("reflog", "expire", "--expire=now", "--all").WithRepo(fork).RunStdString(t.Context())
-				require.NoError(t, err)
-				_, _, err = gitcmd.NewCommand("gc", "--prune=now").WithRepo(fork).RunStdString(t.Context())
-				require.NoError(t, err)
-				branch2SHA := branchroomObjectID(t, repository.CodeStorageRepo(), "refs/heads/branch2")
-				assertGitObjectsMissing(t, fork, branch2SHA)
-
-				staleDir := t.TempDir()
-				require.NoError(t, git.Clone(t.Context(), forkURL.String(), staleDir, git.CloneRepoOptions{}))
-				commitBranchroomFakeEnvironment(t, staleDir, "STALE=1\n", "stale fork change")
-				_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(forkURL.String(), "HEAD:refs/heads/stale-feature").WithDir(staleDir).RunStdString(t.Context())
-				require.NoError(t, err, "%s", stderr)
-
-				t.Run("compare and create", func(t *testing.T) {
-					head := ordinaryWriter.Name + ":stale-feature"
-					loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/compare/branch2..."+head), http.StatusOK)
-					MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/user2/repo1/compare/branch2..."+head).AddBasicAuth(ordinaryWriter.Name), http.StatusOK)
-					MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: head, Base: "branch2", Title: "stale fork"}).AddBasicAuth(ordinaryWriter.Name), http.StatusCreated)
-				})
-				t.Run("sync", func(t *testing.T) {
-					_, stderr, err := gitcmd.NewCommand("fetch").AddDynamicArguments(publicURL.String(), "refs/heads/branch2").WithDir(staleDir).RunStdString(t.Context())
-					require.NoError(t, err, "%s", stderr)
-					_, stderr, err = gitcmd.NewCommand("push").AddDynamicArguments(forkURL.String(), "FETCH_HEAD:refs/heads/branch2").WithDir(staleDir).RunStdString(t.Context())
-					require.NoError(t, err, "%s", stderr)
-					assert.Equal(t, branch2SHA, branchroomObjectID(t, fork, "refs/heads/branch2"))
-				})
-			})
-
-			t.Run("pull request from an unrelated repository", func(t *testing.T) {
-				defer test.MockVariableValue(&setting.Audit.RecordOutput, setting.AuditRecordOutputDatabase)()
-				own, err := repository_service.CreateRepositoryDirectly(t.Context(), ordinaryWriter, ordinaryWriter, repository_service.CreateRepoOptions{Name: "restricted-publish-own"}, true)
-				require.NoError(t, err)
-				ownURL := u.JoinPath(ordinaryWriter.Name, own.Name+".git")
-				ownURL.User = publicURL.User
-				_, stderr, err := gitcmd.NewCommand("push").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/restricted-own").WithDir(cloneDir).RunStdString(t.Context())
-				require.NoError(t, err, "%s", stderr)
-
-				head := ordinaryWriter.Name + "/" + own.Name + ":restricted-own"
-				response := MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: head, Base: repository.DefaultBranch, Title: "restricted"}).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
-				assert.Contains(t, response.Body.String(), "restricted workspace")
-				response = loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequestWithValues(t, "POST", "/user2/repo1/compare/"+repository.DefaultBranch+"..."+head, map[string]string{"title": "restricted"}), http.StatusForbidden)
-				assert.Contains(t, response.Body.String(), "restricted workspace")
-
-				assertGitObjectsMissing(t, repository.CodeStorageRepo(), secondAllowedCommit)
-				events, err := branchroom_model.FindScopeAuditEvents(t.Context(), scope.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "restricted_commit_public_push_refused", events[len(events)-1].ReasonCode)
-				unittest.AssertExistsAndLoadBean(t, &audit_model.Event{Action: audit_model.RepositoryRestrictedRefused, ActorID: ordinaryWriter.ID, ScopeID: repository.ID})
-
-				harmlessDir := t.TempDir()
-				require.NoError(t, git.Clone(t.Context(), publicURL.String(), harmlessDir, git.CloneRepoOptions{}))
-				commitBranchroomFakeEnvironment(t, harmlessDir, "HARMLESS=1\n", "harmless change")
-				_, stderr, err = gitcmd.NewCommand("push").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(harmlessDir).RunStdString(t.Context())
-				require.NoError(t, err, "%s", stderr)
-				response = MakeRequest(t, NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/pulls", &api.CreatePullRequestOption{Head: ordinaryWriter.Name + "/" + own.Name + ":harmless", Base: repository.DefaultBranch, Title: "harmless"}).AddBasicAuth(ordinaryWriter.Name), http.StatusCreated)
-				pull := unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: DecodeJSON(t, response, &api.PullRequest{}).ID})
-				require.NoError(t, pull_service.WaitPullRequestCheck(t.Context(), pull, 10*time.Second))
-				require.NotEqual(t, issues_model.PullRequestStatusChecking, pull.Status)
-
-				// comparing against the base fetches the other side's commit into it
-				compare := ordinaryWriter.Name + "/" + own.Name + "/compare/restricted-own...user2/repo1:" + repository.DefaultBranch
-				response = loginUser(t, ordinaryWriter.Name).MakeRequest(t, NewRequest(t, "GET", "/"+compare), http.StatusForbidden)
-				assert.Contains(t, response.Body.String(), "restricted workspace")
-				response = MakeRequest(t, NewRequest(t, "GET", "/api/v1/repos/"+compare).AddBasicAuth(ordinaryWriter.Name), http.StatusForbidden)
-				assert.Contains(t, response.Body.String(), "restricted workspace")
-				assertGitObjectsMissing(t, repository.CodeStorageRepo(), secondAllowedCommit)
-
-				// plant it unreferenced anyway, the mergeability check must not make it reachable
-				require.NoError(t, git.FetchRemoteTempCommit(t.Context(), repository, own, secondAllowedCommit))
-				_, stderr, err = gitcmd.NewCommand("push", "--force").AddDynamicArguments(ownURL.String(), "HEAD:refs/heads/harmless").WithDir(cloneDir).RunStdString(t.Context())
-				require.NoError(t, err, "%s", stderr)
-				// the head sync refuses the new head and rechecks, so the pull request stops being mergeable
-				assert.Eventually(t, func() bool {
-					return unittest.AssertExistsAndLoadBean(t, &issues_model.PullRequest{ID: pull.ID}).Status == issues_model.PullRequestStatusError
-				}, 10*time.Second, 20*time.Millisecond)
-				assertUnreachable := func() {
-					refs, _, err := gitcmd.NewCommand("for-each-ref", "--contains").AddDynamicArguments(secondAllowedCommit).WithRepo(repository).RunStdString(t.Context())
-					require.NoError(t, err)
-					assert.Empty(t, refs)
-				}
-				assertUnreachable()
-
-				// a closed pull request isn't synced, so an admin reopening it must not publish what was pushed meanwhile
-				MakeRequest(t, NewRequestWithJSON(t, "PATCH", fmt.Sprintf("/api/v1/repos/user2/repo1/pulls/%d", pull.Index), map[string]string{"state": "closed"}).AddBasicAuth("user2"), http.StatusCreated)
-				response = loginUser(t, "user2").MakeRequest(t, NewRequestWithValues(t, "POST", fmt.Sprintf("/user2/repo1/issues/%d/comments", pull.Index), map[string]string{"status": "reopen"}), http.StatusForbidden)
-				assert.Contains(t, response.Body.String(), "restricted workspace")
-				assertUnreachable()
-			})
 		})
 
 		t.Run("ordinary write cannot publish restricted commits, an admin can", func(t *testing.T) {

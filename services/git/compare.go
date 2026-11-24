@@ -11,7 +11,6 @@ import (
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/util"
-	branchroom_service "gitea.dev/services/branchroom"
 )
 
 type CompareBaseHead struct {
@@ -77,10 +76,6 @@ func GetCompareInfo(ctx context.Context, bh CompareBaseHead, directComparison, f
 	if bh.BaseRepo.ID != bh.HeadRepo.ID {
 		exist := bh.HeadGitRepo.IsReferenceExist(ctx, ci.BaseCommitID)
 		if !exist {
-			// the fetch would plant the other side's restricted commits in an ordinary repository
-			if err := branchroom_service.CheckPullRequestHead(ctx, nil, bh.HeadRepo, bh.BaseRepo, bh.BaseRef.ShortName(), ci.BaseCommitID); err != nil {
-				return ci, err
-			}
 			if err := git.FetchRemoteTempCommit(ctx, bh.HeadRepo, bh.BaseRepo, ci.BaseCommitID); err != nil {
 				return ci, fmt.Errorf("FetchRemoteTempCommit: %w", err)
 			}

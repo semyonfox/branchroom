@@ -7,17 +7,16 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	audit_model "gitea.dev/models/audit"
+	branchroom_model "gitea.dev/models/branchroom"
 	git_model "gitea.dev/models/git"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
 	"gitea.dev/models/unit"
 	"gitea.dev/modules/git"
 	"gitea.dev/modules/git/gitcmd"
-	"gitea.dev/modules/git/gitrepo"
 	"gitea.dev/modules/log"
 	"gitea.dev/modules/private"
 	"gitea.dev/modules/setting"
@@ -328,33 +327,58 @@ func preReceiveBranch(ctx *preReceiveContext, oldCommitID, newCommitID string, r
 // Admins of the repository holding the workspace may publish, and both outcomes are audited.
 func preReceiveRestrictedPublish(ctx *preReceiveContext, newCommitID string, refFullName git.RefName) bool {
 	repo := ctx.Repo.Repository
-	objectDirs := []string{filepath.Join(gitrepo.RepoLocalPath(repo), "objects")}
-	if ctx.opts.GitObjectDirectory != "" {
-		objectDirs = append(objectDirs, ctx.opts.GitObjectDirectory) // the quarantined objects of this push
-	}
-	sources, err := branchroom_service.FindRestrictedSources(ctx, repo, newCommitID, objectDirs)
-	if err != nil {
-		ctx.PrivateInternalErrorf("Unable to check restricted workspaces for %s in %s: %v", refFullName, repo.FullName(), err)
-		return false
-	}
-	for _, source := range sources {
-		permission := ctx.Repo.Permission
-		if source.Repo.ID != repo.ID {
-			permission, err = access_model.GetDoerRepoPermission(ctx, source.Repo, ctx.Doer)
+	var newCommits []string
+	for source := repo; source != nil; source = source.BaseRepo {
+		if err := source.GetBaseRepo(ctx); err != nil {
+			ctx.PrivateInternalErrorf("Unable to load base repository of %s: %v", source.FullName(), err)
+			return false
+		}
+		workspaces, err := branchroom_model.FindWorkspacesByRepoID(ctx, source.ID)
+		if err != nil {
+			ctx.PrivateInternalErrorf("Unable to load restricted workspaces of %s: %v", source.FullName(), err)
+			return false
+		}
+		if len(workspaces) == 0 {
+			continue
+		}
+		if newCommits == nil {
+			output, _, err := gitcmd.NewCommand("rev-list").AddDynamicArguments(newCommitID).AddArguments("--not", "--all").
+				WithEnv(ctx.env).WithRepo(repo).RunStdString(ctx)
 			if err != nil {
-				ctx.PrivateInternalErrorf("Unable to check repository permission for %s: %v", source.Repo.FullName(), err)
+				ctx.PrivateInternalErrorf("Unable to list new commits for %s in %s: %v", refFullName, repo.FullName(), err)
+				return false
+			}
+			newCommits = strings.Fields(output)
+			if len(newCommits) == 0 {
+				return true
+			}
+		}
+		scope, found, err := branchroom_service.FindRestrictedSource(ctx, workspaces, newCommits)
+		if err != nil {
+			ctx.PrivateInternalErrorf("Unable to check restricted workspaces of %s: %v", source.FullName(), err)
+			return false
+		}
+		if !found {
+			continue
+		}
+
+		permission := ctx.Repo.Permission
+		if source.ID != repo.ID {
+			permission, err = access_model.GetDoerRepoPermission(ctx, source, ctx.Doer)
+			if err != nil {
+				ctx.PrivateInternalErrorf("Unable to check repository permission for %s: %v", source.FullName(), err)
 				return false
 			}
 		}
 		allowed := permission.IsAdmin()
-		if err := branchroom_service.RecordPublicPushOfRestrictedWork(ctx, source.Scope, ctx.Doer, refFullName.String(), allowed); err != nil {
-			log.Error("record restricted publish decision for %s: %v", source.Repo.FullName(), err)
+		if err := branchroom_service.RecordPublicPushOfRestrictedWork(ctx, scope, ctx.Doer, refFullName.String(), allowed); err != nil {
+			log.Error("record restricted publish decision for %s: %v", source.FullName(), err)
 		}
-		audit.RecordAs(ctx, ctx.Doer, util.Iif(allowed, audit_model.RepositoryRestrictedPublished, audit_model.RepositoryRestrictedRefused), source.Repo,
-			"ref", refFullName.String(), "workspace", source.Scope.Name)
+		audit.RecordAs(ctx, ctx.Doer, util.Iif(allowed, audit_model.RepositoryRestrictedPublished, audit_model.RepositoryRestrictedRefused), source,
+			"ref", refFullName.String(), "workspace", scope.Name)
 		if !allowed {
-			if source.Repo.ID == repo.ID {
-				ctx.PrivateUserErrorf(http.StatusForbidden, "This push carries commits from the restricted workspace %q. Only repository administrators can publish restricted work. Push to the restricted clone URL instead.", source.Scope.Name)
+			if source.ID == repo.ID {
+				ctx.PrivateUserErrorf(http.StatusForbidden, "This push carries commits from the restricted workspace %q. Only repository administrators can publish restricted work. Push to the restricted clone URL instead.", scope.Name)
 			} else {
 				ctx.PrivateUserErrorf(http.StatusForbidden, "This push carries commits from a restricted workspace in a base repository. Only administrators of that repository can publish restricted work.")
 			}
