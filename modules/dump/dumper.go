@@ -51,12 +51,11 @@ func PrepareFileNameAndType(argFile, argType string) (outFileName, outType strin
 }
 
 func IsSubdir(upper, lower string) (bool, error) {
-	if relPath, err := filepath.Rel(upper, lower); err != nil {
+	relPath, err := filepath.Rel(upper, lower)
+	if err != nil {
 		return false, err
-	} else if relPath == "." || !strings.HasPrefix(relPath, ".") {
-		return true, nil
 	}
-	return false, nil
+	return filepath.IsLocal(relPath), nil
 }
 
 type Dumper struct {

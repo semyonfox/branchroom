@@ -66,6 +66,10 @@ func TestIsSubDir(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, isSub)
 
+	isSub, err = IsSubdir(tmpDir, filepath.Join(tmpDir, ".custom"))
+	assert.NoError(t, err)
+	assert.True(t, isSub)
+
 	isSub, err = IsSubdir(filepath.Join(tmpDir, "include/sub"), filepath.Join(tmpDir, "include"))
 	assert.NoError(t, err)
 	assert.False(t, isSub)
